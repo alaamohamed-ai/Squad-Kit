@@ -5,13 +5,19 @@ import {
   chatFile,
   checkedStudioId,
   componentFile,
+  designSystemDir,
   designSystemFile,
   designSystemVersionDir,
   designSystemsDir,
   frameFile,
   screenDir,
   screenFile,
+  screenThumbnailsDir,
+  sketchChatsDir,
+  sketchDir,
   sketchFile,
+  sketchThumbnailsDir,
+  sketchesDir,
   thumbnailFile,
   tokensFile,
   variantDir,
@@ -309,6 +315,70 @@ export function pickVariant(bp: BoardPaths, sketch: string, screen: string, vers
     const before = existingScreen(bp, sketch, screen);
     if (!versionsIn(screenDir(bp, sketch, screen)).includes(version)) throw new Error(`The screen "${screen}" has no variant ${version}.`);
     writeShared(screenFile(bp, sketch, screen), dumpYaml({ ...before, chosen: version }));
+    return readSketch(bp, sketch)!;
+  });
+}
+
+/* ── Deletes: for good, with no bin ─────────────────────── */
+
+/** A design system that sketches still follow is not deleted. Nothing was written. */
+export class StudioInUse extends Error {
+  constructor(
+    readonly designSystem: string,
+    /** The sketches that follow it, by id and name. */
+    readonly sketches: { id: string; name: string }[],
+  ) {
+    const names = sketches.map((s) => `"${s.name}"`);
+    const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+    super(`${names.length > 1 ? 'The sketches' : 'The sketch'} ${listed} ${names.length > 1 ? 'follow' : 'follows'} this design system. Move ${names.length > 1 ? 'them' : 'it'} to another design system first, then delete it.`);
+    this.name = 'StudioInUse';
+  }
+}
+
+/** The sketches in the project that follow a design system, any version of it. A sketch that cannot be read is left out. */
+export function sketchesFollowing(bp: BoardPaths, designSystem: string): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const id of idsIn(sketchesDir(bp))) {
+    const file = sketchFile(bp, id);
+    if (!plainFile(file)) continue;
+    try {
+      const sketch = readSketchFile(file);
+      if (sketch.designSystem?.id === designSystem) out.push({ id, name: sketch.name });
+    } catch {
+      // readStudio lists it as broken.
+    }
+  }
+  return out;
+}
+
+/**
+ * Deletes a design system and every version of it, for good, with the stamp the caller read. Refused with
+ * StudioInUse, naming the sketches, while any sketch follows it.
+ */
+export function deleteDesignSystem(bp: BoardPaths, id: string, stamp: string): void {
+  changeStudioItem(bp, { kind: 'design-system', id }, stamp, () => {
+    const following = sketchesFollowing(bp, id);
+    if (following.length) throw new StudioInUse(id, following);
+    fs.rmSync(designSystemDir(bp, id), { recursive: true, force: true });
+  });
+}
+
+/** Deletes a sketch, its screens and every variant for good, with this computer's thumbnails and chats for it. */
+export function deleteSketch(bp: BoardPaths, id: string, stamp: string): void {
+  changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
+    fs.rmSync(sketchDir(bp, id), { recursive: true, force: true });
+    fs.rmSync(sketchThumbnailsDir(bp, id), { recursive: true, force: true });
+    fs.rmSync(sketchChatsDir(bp, id), { recursive: true, force: true });
+  });
+}
+
+/** Deletes one screen of a sketch and every variant of it for good, with this computer's thumbnails for it. */
+export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: string): Sketch {
+  checkedStudioId(sketch);
+  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
+    existingScreen(bp, sketch, screen);
+    fs.rmSync(screenDir(bp, sketch, screen), { recursive: true, force: true });
+    fs.rmSync(screenThumbnailsDir(bp, sketch, screen), { recursive: true, force: true });
     return readSketch(bp, sketch)!;
   });
 }

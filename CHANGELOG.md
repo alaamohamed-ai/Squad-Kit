@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Studio page in every project's sidebar, after Architecture, with Sketches and Design systems tabs. It remembers
   the last tab per project while squad-kit's browser tab stays open, and creates nothing in the project until you make
   something.
+- **The Studio API.** Each project's board answers at `/p/<id>/api/v1/studio` to list, read, make, change and delete
+  sketches, their screens and design systems, through the same actions the `squad studio` commands will use. Every
+  change sends the version it started from: a later save from an old version is refused with "Changed elsewhere,
+  reload" and changes nothing. A design system that sketches follow is not deleted, and the answer names them.
 
 ## [1.3.21] — 2026-11-13
 

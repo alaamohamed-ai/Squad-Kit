@@ -120,14 +120,28 @@ export function thumbnailsDir(bp: BoardPaths): string {
   return path.join(bp.studioLocalDir, 'thumbnails');
 }
 
+/** One sketch's thumbnails on this computer, one folder per screen. */
+export function sketchThumbnailsDir(bp: BoardPaths, sketch: string): string {
+  return path.join(thumbnailsDir(bp), checkedStudioId(sketch));
+}
+
+export function screenThumbnailsDir(bp: BoardPaths, sketch: string, screen: string): string {
+  return path.join(sketchThumbnailsDir(bp, sketch), checkedStudioId(screen));
+}
+
 export function thumbnailFile(bp: BoardPaths, sketch: string, screen: string, version: number): string {
-  return path.join(thumbnailsDir(bp), checkedStudioId(sketch), checkedStudioId(screen), `${checkedVersion(version)}.png`);
+  return path.join(screenThumbnailsDir(bp, sketch, screen), `${checkedVersion(version)}.png`);
 }
 
 export function chatsDir(bp: BoardPaths): string {
   return path.join(bp.studioLocalDir, 'chats');
 }
 
+/** One sketch's AI Designer chats on this computer. */
+export function sketchChatsDir(bp: BoardPaths, sketch: string): string {
+  return path.join(chatsDir(bp), checkedStudioId(sketch));
+}
+
 export function chatFile(bp: BoardPaths, sketch: string, chat: string): string {
-  return path.join(chatsDir(bp), checkedStudioId(sketch), `${checkedStudioId(chat)}.json`);
+  return path.join(sketchChatsDir(bp, sketch), `${checkedStudioId(chat)}.json`);
 }

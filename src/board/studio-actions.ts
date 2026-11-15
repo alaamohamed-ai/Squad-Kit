@@ -1,0 +1,265 @@
+import type { BoardPaths } from './store.js';
+import { isPlain } from './shape.js';
+import {
+  SCREEN_STATUSES,
+  deleteDesignSystem as removeDesignSystem,
+  deleteScreen as removeScreen,
+  deleteSketch as removeSketch,
+  readDefaultDesignSystem,
+  readDesignSystem,
+  readSketch,
+  readStudio,
+  saveDesignSystem,
+  saveSketch,
+  studioIdFor,
+  type DesignSystem,
+  type DesignSystemInput,
+  type ScreenInput,
+  type ScreenStatus,
+  type Sketch,
+  type SketchScreen,
+} from './studio.js';
+
+/**
+ * The Studio's actions (US-04, AB-129): list, read, create, change and delete for sketches and design systems, and
+ * add, change and delete for the screens in a sketch. The board's Studio API (console/api/studio.ts) and the
+ * `squad studio` commands call these same functions, so the pages and the terminal always behave the same way.
+ *
+ * Every change and delete brings the stamp it started from (AB-129.1). When the saved one has moved on, it stops with
+ * "Changed elsewhere, reload" and writes nothing; a screen change checks the stamp of its sketch. Deletes are for
+ * good, with no bin. Reading and listing never write a file (AB-127.1). All of it goes through the Studio store,
+ * studio.ts (AB-128.2).
+ */
+
+/** The project has no sketch, screen or design system by that id. */
+export class StudioNotFound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StudioNotFound';
+  }
+}
+
+/** A sketch as the actions give it back: its design system also carries its name, or null when it is not saved. */
+export interface SketchView extends Omit<Sketch, 'designSystem'> {
+  designSystem: { id: string; version: number; name: string | null } | null;
+}
+
+/** A design system as the actions give it back, with whether it is the project's one default (AB-158.1). */
+export interface DesignSystemView extends DesignSystem {
+  isDefault: boolean;
+}
+
+function sketchView(sketch: Sketch, nameOf: (id: string) => string | null): SketchView {
+  const ds = sketch.designSystem;
+  return { ...sketch, designSystem: ds ? { ...ds, name: nameOf(ds.id) } : null };
+}
+
+function designSystemName(bp: BoardPaths, id: string): string | null {
+  try {
+    return readDesignSystem(bp, id)?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The stamp a change brings: the one it read. Without it the change cannot be checked, so it is refused. */
+function checkedStamp(stamp: unknown): string {
+  if (typeof stamp !== 'string' || !stamp.trim()) throw new Error('Send the stamp of what you started from. Reload and try again.');
+  return stamp;
+}
+
+function maybeText(x: unknown, what: string): string | undefined {
+  if (x === undefined) return undefined;
+  if (typeof x !== 'string') throw new Error(`The ${what} must be text.`);
+  return x;
+}
+
+function maybeOrder(x: unknown): number | undefined {
+  if (x === undefined) return undefined;
+  if (typeof x !== 'number' || !Number.isFinite(x)) throw new Error("A screen's place must be a number.");
+  return x;
+}
+
+function maybeStatus(x: unknown): ScreenStatus | undefined {
+  if (x === undefined) return undefined;
+  if (!(SCREEN_STATUSES as readonly unknown[]).includes(x)) throw new Error(`A screen is ${SCREEN_STATUSES.join(' or ')}.`);
+  return x as ScreenStatus;
+}
+
+function maybeFrames(x: unknown): string[] | undefined {
+  if (x === undefined) return undefined;
+  if (!Array.isArray(x) || x.some((f) => typeof f !== 'string')) throw new Error('The frames must be a list, like desktop and mobile.');
+  return x as string[];
+}
+
+/* ── Design systems ─────────────────────────────────────── */
+
+/** Every design system saved in the project, with the one default marked. A file that cannot be read is left out. */
+export function listDesignSystems(bp: BoardPaths): DesignSystemView[] {
+  const studio = readStudio(bp);
+  return studio.designSystems.map((ds) => ({ ...ds, isDefault: ds.id === studio.defaultDesignSystem }));
+}
+
+export function getDesignSystem(bp: BoardPaths, id: string): DesignSystemView {
+  const ds = readDesignSystem(bp, id);
+  if (!ds) throw new StudioNotFound(`This project has no design system "${id}".`);
+  return { ...ds, isDefault: readDefaultDesignSystem(bp) === id };
+}
+
+export interface DesignSystemChange {
+  name?: string;
+  tokens?: Record<string, unknown>;
+  components?: Record<string, string>;
+}
+
+/** Makes a design system, version 1. The first one in the project becomes the default (AB-158.1). */
+export function createDesignSystem(bp: BoardPaths, input: DesignSystemInput): DesignSystemView {
+  if (!isPlain(input as unknown)) throw new Error('Give the design system a name.');
+  const saved = saveDesignSystem(bp, { id: maybeText(input.id, 'id'), name: input.name, tokens: input.tokens, components: input.components }, null);
+  return getDesignSystem(bp, saved.id);
+}
+
+/** Renames a design system, or saves new tokens or components as its next version. What is left out stays. */
+export function changeDesignSystem(bp: BoardPaths, id: string, change: DesignSystemChange, stamp: unknown): DesignSystemView {
+  const from = checkedStamp(stamp);
+  if (!isPlain(change as unknown)) throw new Error('Say what to change in the design system.');
+  const current = getDesignSystem(bp, id);
+  saveDesignSystem(bp, { id, name: maybeText(change.name, 'name') ?? current.name, tokens: change.tokens, components: change.components }, from);
+  return getDesignSystem(bp, id);
+}
+
+/** Deletes a design system for good. Refused, naming them, while sketches follow it (StudioInUse). */
+export function deleteDesignSystem(bp: BoardPaths, id: string, stamp: unknown): { deleted: string } {
+  const from = checkedStamp(stamp);
+  getDesignSystem(bp, id);
+  removeDesignSystem(bp, id, from);
+  return { deleted: id };
+}
+
+/* ── Sketches ───────────────────────────────────────────── */
+
+/** Every sketch saved in the project, with its screens and its design system's name. A file that cannot be read is left out. */
+export function listSketches(bp: BoardPaths): SketchView[] {
+  const studio = readStudio(bp);
+  const names = new Map(studio.designSystems.map((ds) => [ds.id, ds.name]));
+  return studio.sketches.map((s) => sketchView(s, (id) => names.get(id) ?? null));
+}
+
+export function getSketch(bp: BoardPaths, id: string): SketchView {
+  const sketch = readSketch(bp, id);
+  if (!sketch) throw new StudioNotFound(`This project has no sketch "${id}".`);
+  return sketchView(sketch, (ds) => designSystemName(bp, ds));
+}
+
+/** Which design system a sketch follows. Left without a version, it follows the design system's current one. */
+export type DesignSystemChoice = { id: string; version?: number } | null;
+
+function followed(bp: BoardPaths, choice: unknown): { id: string; version: number } | null {
+  if (choice === null) return null;
+  if (!isPlain(choice) || typeof choice.id !== 'string') throw new Error('Name the design system the sketch follows.');
+  if (choice.version !== undefined) return { id: choice.id, version: choice.version as number };
+  return { id: choice.id, version: getDesignSystem(bp, choice.id).version };
+}
+
+export interface NewSketchInput {
+  /** Left out, it is made from the name. */
+  id?: string;
+  name: string;
+  /** Left out or null, the sketch follows no design system. */
+  designSystem?: DesignSystemChoice;
+  /** Left out, one desktop frame. */
+  frames?: string[];
+  screens?: ScreenInput[];
+}
+
+/** Makes a sketch, with the screens it starts with. */
+export function createSketch(bp: BoardPaths, input: NewSketchInput): SketchView {
+  if (!isPlain(input as unknown)) throw new Error('Give the sketch a name.');
+  if (input.screens !== undefined && !Array.isArray(input.screens)) throw new Error('The screens must be a list.');
+  const saved = saveSketch(
+    bp,
+    {
+      id: maybeText(input.id, 'id'),
+      name: input.name,
+      designSystem: input.designSystem === undefined ? null : followed(bp, input.designSystem),
+      frames: maybeFrames(input.frames) ?? ['desktop'],
+      screens: input.screens,
+    },
+    null,
+  );
+  return getSketch(bp, saved.id);
+}
+
+export interface SketchChange {
+  name?: string;
+  designSystem?: DesignSystemChoice;
+  frames?: string[];
+}
+
+/** Renames a sketch, or changes the design system it follows or its frames. What is left out stays, its screens too. */
+export function changeSketch(bp: BoardPaths, id: string, change: SketchChange, stamp: unknown): SketchView {
+  const from = checkedStamp(stamp);
+  if (!isPlain(change as unknown)) throw new Error('Say what to change in the sketch.');
+  const current = getSketch(bp, id);
+  const designSystem = change.designSystem === undefined ? current.designSystem && { id: current.designSystem.id, version: current.designSystem.version } : followed(bp, change.designSystem);
+  saveSketch(bp, { id, name: maybeText(change.name, 'name') ?? current.name, designSystem, frames: maybeFrames(change.frames) ?? current.frames }, from);
+  return getSketch(bp, id);
+}
+
+/** Deletes a sketch, its screens and every variant, for good. */
+export function deleteSketch(bp: BoardPaths, id: string, stamp: unknown): { deleted: string } {
+  const from = checkedStamp(stamp);
+  getSketch(bp, id);
+  removeSketch(bp, id, from);
+  return { deleted: id };
+}
+
+/* ── Screens in a sketch: each change checks the sketch's stamp ── */
+
+function sketchAsSaved(s: SketchView) {
+  return { id: s.id, name: s.name, designSystem: s.designSystem && { id: s.designSystem.id, version: s.designSystem.version }, frames: s.frames };
+}
+
+function screenOf(s: SketchView, screen: string): SketchScreen {
+  const found = s.screens.find((sc) => sc.id === screen);
+  if (!found) throw new StudioNotFound(`The sketch "${s.name}" has no screen "${screen}".`);
+  return found;
+}
+
+export interface ScreenChange {
+  name?: string;
+  order?: number;
+  status?: ScreenStatus;
+}
+
+/** Adds a screen to a sketch, after the others unless it says its place. It has no variant until one is drawn. */
+export function addScreen(bp: BoardPaths, sketch: string, input: ScreenInput, stamp: unknown): SketchView {
+  const from = checkedStamp(stamp);
+  if (!isPlain(input as unknown)) throw new Error('Give the screen a name.');
+  const current = getSketch(bp, sketch);
+  const name = maybeText(input.name, 'name') ?? '';
+  const id = maybeText(input.id, 'id') ?? studioIdFor(name.trim());
+  if (name.trim() && current.screens.some((sc) => sc.id === id)) throw new Error(`The sketch "${current.name}" already has a screen "${name.trim()}".`);
+  const order = maybeOrder(input.order) ?? Math.max(0, ...current.screens.map((sc) => sc.order)) + 1;
+  saveSketch(bp, { ...sketchAsSaved(current), screens: [{ id, name, order, status: maybeStatus(input.status) }] }, from);
+  return getSketch(bp, sketch);
+}
+
+/** Renames a screen, moves it or marks it draft or ready. What is left out stays, its variants too. */
+export function changeScreen(bp: BoardPaths, sketch: string, screen: string, change: ScreenChange, stamp: unknown): SketchView {
+  const from = checkedStamp(stamp);
+  if (!isPlain(change as unknown)) throw new Error('Say what to change in the screen.');
+  const current = getSketch(bp, sketch);
+  const was = screenOf(current, screen);
+  const next = { id: was.id, name: maybeText(change.name, 'name') ?? was.name, order: maybeOrder(change.order) ?? was.order, status: maybeStatus(change.status) ?? was.status };
+  saveSketch(bp, { ...sketchAsSaved(current), screens: [next] }, from);
+  return getSketch(bp, sketch);
+}
+
+/** Deletes a screen and every variant of it, for good. */
+export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: unknown): SketchView {
+  const from = checkedStamp(stamp);
+  screenOf(getSketch(bp, sketch), screen);
+  removeScreen(bp, sketch, screen, from);
+  return getSketch(bp, sketch);
+}
