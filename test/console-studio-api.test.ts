@@ -210,4 +210,28 @@ describe('Studio API', () => {
     expect((await fetch(`${api}/sketches?t=${'d'.repeat(64)}`)).status).toBe(401);
     expect(snapshot()).toEqual(before);
   });
+
+  it('US-33: the design systems call sends the cards, the Default first, and the default a new sketch starts with', async () => {
+    const empty = await call<{ designSystems: unknown[]; default: unknown }>('GET', '/design-systems');
+    expect(empty).toEqual({ status: 200, data: { designSystems: [], default: null } });
+
+    const patient = actions.createDesignSystem(bp, { name: 'Patient app', tokens: { colors: { primary: '#2563eb' } } });
+    actions.changeDesignSystem(bp, 'patient-app', { tokens: { colors: { primary: '#1d6fb8', soft: '#e6f0fa', name: 'teal', bad: 'url(x.png)' } } }, patient.stamp);
+    actions.createDesignSystem(bp, { name: 'Admin dashboard', tokens: { colors: { brand: '#5b47d6' } } });
+    for (const name of ['Book a visit', 'My visits', 'Sign in', 'Profile']) actions.createSketch(bp, { name, designSystem: { id: 'patient-app' } });
+    actions.createSketch(bp, { name: 'Staff schedule', designSystem: { id: 'admin-dashboard' } });
+    const before = snapshot();
+
+    const r = await call<{ designSystems: { id: string; name: string; isDefault: boolean; version: number; colors: string[]; sketches: number; stamp: string }[]; default: unknown }>('GET', '/design-systems');
+    expect(r.status).toBe(200);
+    expect(r.data.designSystems.map(({ id, name, isDefault, version, colors, sketches }) => ({ id, name, isDefault, version, colors, sketches }))).toEqual([
+      { id: 'patient-app', name: 'Patient app', isDefault: true, version: 2, colors: ['#1d6fb8', '#e6f0fa'], sketches: 4 },
+      { id: 'admin-dashboard', name: 'Admin dashboard', isDefault: false, version: 1, colors: ['#5b47d6'], sketches: 1 },
+    ]);
+    expect(r.data.default).toEqual({ id: 'patient-app', name: 'Patient app', version: 2 });
+    expect(r.data.default).toEqual(actions.newSketchDesignSystem(bp));
+    expect(r.data.designSystems[0]!.stamp).toBe(actions.getDesignSystem(bp, 'patient-app').stamp);
+    // Reading the list writes nothing.
+    expect(snapshot()).toEqual(before);
+  });
 });

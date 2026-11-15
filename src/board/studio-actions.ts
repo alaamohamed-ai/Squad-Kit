@@ -2,6 +2,7 @@ import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
 import {
   SCREEN_STATUSES,
+  byMadeOrder,
   deleteDesignSystem as removeDesignSystem,
   deleteScreen as removeScreen,
   deleteSketch as removeSketch,
@@ -100,6 +101,74 @@ export function listDesignSystems(bp: BoardPaths): DesignSystemView[] {
   return studio.designSystems.map((ds) => ({ ...ds, isDefault: ds.id === studio.defaultDesignSystem }));
 }
 
+/** A design system as its card on the Design systems tab shows it (US-33, AB-158). */
+export interface DesignSystemCard extends DesignSystemView {
+  /** Up to six colours from its current version's tokens, in the order the tokens list them. */
+  colors: string[];
+  /** How many sketches follow it, any version of it. */
+  sketches: number;
+}
+
+/** What the Design systems tab and the terminal show: every card, and the design system a new sketch starts with. */
+export interface DesignSystemList {
+  /** The default first, then the others in the order they were made. */
+  designSystems: DesignSystemCard[];
+  /** The project's one default (AB-158.1), which a new sketch starts with; null when the project has none. */
+  default: { id: string; name: string; version: number } | null;
+}
+
+const MAX_COLORS = 6;
+
+/**
+ * A colour a page can paint as it is: #hex, or rgb(), hsl(), hwb(), lab(), lch(), oklab() and oklch() with numbers in
+ * them. Anything else (a name, a reference like {colors.blue}, a url()) is not a colour here.
+ */
+const COLOR = /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\((?=[^)]*\d)(?:[\d.%\s,/+-]|deg|g?rad|turn|none)*\))$/i;
+
+export function isColorValue(x: unknown): x is string {
+  return typeof x === 'string' && x.length <= 80 && COLOR.test(x.trim());
+}
+
+/** The colours in a version's tokens, however deep they sit, each once, up to six. */
+export function colorsOf(tokens: unknown): string[] {
+  const out: string[] = [];
+  const walk = (x: unknown, depth: number) => {
+    if (out.length >= MAX_COLORS || depth > 8) return;
+    if (isColorValue(x)) {
+      const c = x.trim();
+      if (!out.some((o) => o.toLowerCase() === c.toLowerCase())) out.push(c);
+    } else if (Array.isArray(x)) x.forEach((v) => walk(v, depth + 1));
+    else if (isPlain(x)) Object.values(x).forEach((v) => walk(v, depth + 1));
+  };
+  walk(tokens, 0);
+  return out;
+}
+
+/**
+ * The design systems for the Design systems tab (US-33, AB-158): each one's name, current version, up to six colours,
+ * how many sketches follow it and whether it is the one default (AB-158.1). The board's Studio API and the terminal
+ * read this same answer. It only reads: nothing is written, not even to settle which one is the default.
+ */
+export function designSystemList(bp: BoardPaths): DesignSystemList {
+  const studio = readStudio(bp);
+  const following = new Map<string, number>();
+  for (const s of studio.sketches) if (s.designSystem) following.set(s.designSystem.id, (following.get(s.designSystem.id) ?? 0) + 1);
+  const cards = studio.designSystems.map((ds) => ({
+    ...ds,
+    isDefault: ds.id === studio.defaultDesignSystem,
+    colors: colorsOf(ds.versions.find((v) => v.version === ds.version)?.tokens),
+    sketches: following.get(ds.id) ?? 0,
+  }));
+  cards.sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || byMadeOrder(a, b));
+  const def = cards.find((c) => c.isDefault);
+  return { designSystems: cards, default: def ? { id: def.id, name: def.name, version: def.version } : null };
+}
+
+/** The design system a new sketch starts with: the project's one default, at its current version, or null when it has none. */
+export function newSketchDesignSystem(bp: BoardPaths): DesignSystemList['default'] {
+  return designSystemList(bp).default;
+}
+
 export function getDesignSystem(bp: BoardPaths, id: string): DesignSystemView {
   const ds = readDesignSystem(bp, id);
   if (!ds) throw new StudioNotFound(`This project has no design system "${id}".`);
@@ -112,7 +181,10 @@ export interface DesignSystemChange {
   components?: Record<string, string>;
 }
 
-/** Makes a design system, version 1. The first one in the project becomes the default (AB-158.1). */
+/**
+ * Makes a design system, version 1, with the time it was made. Only the first one in the project is marked default
+ * (AB-158.1); making another never moves the mark, and later saves and new versions keep both (saveDesignSystem).
+ */
 export function createDesignSystem(bp: BoardPaths, input: DesignSystemInput): DesignSystemView {
   if (!isPlain(input as unknown)) throw new Error('Give the design system a name.');
   const saved = saveDesignSystem(bp, { id: maybeText(input.id, 'id'), name: input.name, tokens: input.tokens, components: input.components }, null);

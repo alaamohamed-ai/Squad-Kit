@@ -13,9 +13,9 @@ import {
   deleteDesignSystem,
   deleteScreen,
   deleteSketch,
+  designSystemList,
   getDesignSystem,
   getSketch,
-  listDesignSystems,
   listSketches,
   type DesignSystemView,
   type SketchView,
@@ -130,7 +130,14 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
   );
 
   /* ── Design systems ── */
-  app.get('/api/v1/studio/design-systems', (c) => run(c, () => ({ designSystems: listDesignSystems(bp).map((ds) => designSystemRow(ds, ds.isDefault)) })));
+  // The Design systems tab's cards (US-33): the default first, each with its colours and how many sketches follow it,
+  // and the design system a new sketch starts with.
+  app.get('/api/v1/studio/design-systems', (c) =>
+    run(c, () => {
+      const list = designSystemList(bp);
+      return { designSystems: list.designSystems.map((ds) => ({ ...designSystemRow(ds, ds.isDefault), colors: ds.colors, sketches: ds.sketches })), default: list.default };
+    }),
+  );
   app.get('/api/v1/studio/design-systems/:id', (c) => run(c, () => designSystemRead(getDesignSystem(bp, c.req.param('id')))));
   app.post('/api/v1/studio/design-systems', async (c) => {
     const b = await body(c);

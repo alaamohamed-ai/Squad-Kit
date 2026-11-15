@@ -226,6 +226,11 @@ function madeTime(madeAt: string): number {
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
 }
 
+/** The order design systems were made in: the older first; on equal times, the lower id. */
+export function byMadeOrder(a: Pick<DesignSystem, 'id' | 'madeAt'>, b: Pick<DesignSystem, 'id' | 'madeAt'>): number {
+  return madeTime(a.madeAt) - madeTime(b.madeAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 /**
  * The project's one default design system (AB-158.1): the oldest one marked default; when none is marked, the oldest
  * one; on equal times, the lower id. It holds on any files git brings in, such as two teammates' first design systems
@@ -234,7 +239,7 @@ function madeTime(madeAt: string): number {
 export function defaultDesignSystemOf(systems: Pick<DesignSystem, 'id' | 'markedDefault' | 'madeAt'>[]): string | null {
   const marked = systems.filter((s) => s.markedDefault);
   const pool = marked.length ? marked : systems;
-  const oldest = [...pool].sort((a, b) => madeTime(a.madeAt) - madeTime(b.madeAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+  const oldest = [...pool].sort(byMadeOrder)[0];
   return oldest?.id ?? null;
 }
 
