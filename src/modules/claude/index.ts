@@ -15,7 +15,14 @@ import { claudeBilling, claudeResume } from './billing.js';
 
 /** Steps that only read may look around with the shell too, but any other command is refused, even when asked. */
 const READ_SHELL = ['cat', 'ls', 'grep', 'rg', 'head', 'tail', 'wc', 'cd', 'pwd', 'git log', 'git show', 'git diff', 'git status'].map((c) => `Bash(${c}:*)`);
-export const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', ...READ_SHELL];
+/** Read files only: Claude Code's tools that read, find and search files, and no shell. */
+export const FILES_ONLY = ['Read', 'Glob', 'Grep', 'LS'];
+export const READ_ONLY = [...FILES_ONLY, ...READ_SHELL];
+/**
+ * Denied outright to a run that reads files only, so no rule of the person's or the project's can give them back: the
+ * shell and its background tools, web pages and searches, notebooks, and sub-agents, which could ask for any of them.
+ */
+export const NOT_FILES_ONLY = ['Bash', 'BashOutput', 'KillShell', 'KillBash', 'WebFetch', 'WebSearch', 'NotebookEdit', 'Task', 'Agent'];
 const GIT_READ = ['git diff', 'git status', 'git log', 'git show'].map((c) => `Bash(${c}:*)`);
 /**
  * The to-do list, by both of its names: TodoWrite, and the Task tools newer Claude Code runs headless with. squad-kit
@@ -70,18 +77,25 @@ export function windowTools(w: AgentRun['window']): string[] {
   return w ? w.tools.map((t) => `mcp__${w.name}__${t}`) : [];
 }
 
+/** A run that asked for read files only, and no wider set. */
+export function filesOnlyRun(r: Pick<AgentRun, 'permissions'>): boolean {
+  return r.permissions.includes('files') && !r.permissions.some((p) => p === 'read' || p === 'git-read' || p === 'run' || p === 'edit');
+}
+
 /** Claude's model for each level, by the aliases Claude Code always points at the newest of each. */
 const LEVEL_MODEL = { strongest: 'opus', balanced: 'sonnet', fast: 'haiku' } as const;
 
 /** Claude Code's settings for one run of a role. */
 export function claudeRunOptions(r: AgentRun): RunOptions {
   const edits = r.permissions.includes('edit');
+  const filesOnly = filesOnlyRun(r);
   const own = edits ? BUILD_TOOLS
     : r.permissions.includes('run') ? RUN_TOOLS
+    : filesOnly ? FILES_ONLY
     : [...new Set([...READ_ONLY, ...(r.permissions.includes('git-read') ? GIT_READ : [])])];
   const access: Pick<RunOptions, 'allowedTools' | 'disallowedTools' | 'permissionMode'> = {
     allowedTools: [...own, ...windowTools(r.window)],
-    disallowedTools: [...NO_GIT_WRITES, ...protectedRules(r.protectedFiles ?? [])],
+    disallowedTools: [...(filesOnly ? NOT_FILES_ONLY : []), ...NO_GIT_WRITES, ...protectedRules(r.protectedFiles ?? [])],
     // Always a mode of squad-kit's own: without one, the run starts in the person's default mode, maybe "bypass".
     permissionMode: edits ? 'acceptEdits' : 'default',
   };

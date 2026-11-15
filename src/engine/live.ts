@@ -17,4 +17,4 @@ export {
   TURNS_BEFORE_BANNER,
 } from './live/limits.js';
 export { planStepOf, projectRoot, secretFiles, BLIP_WAITS_MIN } from './live/shared.js';
-export { ticketsRunning, holdNewRuns, agentRuns, queuedText, LiveSquad } from './live/squad.js';
+export { ticketsRunning, holdNewRuns, newRunsHeld, agentRuns, queuedText, LiveSquad } from './live/squad.js';

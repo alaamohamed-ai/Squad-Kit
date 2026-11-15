@@ -402,6 +402,8 @@ function besideLabel(key: string): string {
   if (key === '__talk') return 'The Architect answers about the overview';
   if (key.startsWith('__breakdown:')) return `The Analyst works on ${key.slice(12)}`;
   if (key.startsWith('__send:')) return `Sending ${key.slice(7)} to the tracker`;
+  // __designer:<kind>:<id>:<when>, from engine/studio-designer.ts.
+  if (key.startsWith('__designer:')) return `The Designer draws ${key.split(':')[1] === 'design-system' ? 'the design system' : 'the sketch'} ${key.split(':')[2] ?? ''}`.trim();
   return 'The Architect reads the project';
 }
 

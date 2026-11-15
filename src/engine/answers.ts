@@ -1,3 +1,6 @@
+import { studioIdFor } from '../board/studio.js';
+import { MAX_PAGE_BYTES, MAX_SCREENS, MAX_SCREEN_NAME, SCREENS_SCHEMA } from './studio-prompts.js';
+
 /**
  * An agent's answer, checked against the shape its step asked for before squad-kit uses it. The shapes are the small
  * part of JSON Schema the steps use (type, properties, required, items, enum, minItems, maxItems); anything else in a
@@ -126,4 +129,45 @@ export function partsProblem(value: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The Designer's answer (SCREENS_SCHEMA), checked before squad-kit saves a page of it: what is wrong in plain words
+ * ("it has no screens", "the page of Sign in is empty"), or null when every screen can be saved. `frames` are the
+ * frames the sketch draws in; a frame outside them is refused, as the Studio store would refuse it.
+ */
+export function screensProblem(value: unknown, o: { frames: string[]; maxScreens?: number; maxPageBytes?: number }): string | null {
+  const most = o.maxScreens ?? MAX_SCREENS;
+  const heaviest = o.maxPageBytes ?? MAX_PAGE_BYTES;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'there is no answer';
+  const screens = (value as { screens?: unknown }).screens;
+  if (screens === undefined || screens === null || (Array.isArray(screens) && !screens.length)) return 'it has no screens';
+  if (!Array.isArray(screens)) return 'its screens are not a list';
+  if (screens.length > most) return `it has ${screens.length} screens, more than the ${most} one run may hand in`;
+  const seen = new Map<string, string>();
+  for (const [i, s] of screens.entries()) {
+    const screen = (s && typeof s === 'object' ? s : {}) as { name?: unknown; frames?: unknown };
+    const name = typeof screen.name === 'string' ? screen.name.trim() : '';
+    if (!name) return `screen ${i + 1} has no name`;
+    if (name.length > MAX_SCREEN_NAME || /[\r\n]/.test(name)) return `the name of screen ${i + 1} is not one short line`;
+    const key = studioIdFor(name);
+    if (seen.has(key)) return `two screens are called "${seen.get(key)}"`;
+    seen.set(key, name);
+    if (!Array.isArray(screen.frames) || !screen.frames.length) return `the screen "${name}" has no page`;
+    const drawn = new Set<string>();
+    for (const f of screen.frames) {
+      const page = (f && typeof f === 'object' ? f : {}) as { frame?: unknown; html?: unknown };
+      const frame = typeof page.frame === 'string' ? page.frame.trim() : '';
+      if (!o.frames.includes(frame)) return `the screen "${name}" has a page for "${frame || 'no frame'}", which is not one of the frames (${o.frames.join(', ')})`;
+      if (drawn.has(frame)) return `the screen "${name}" has two pages for "${frame}"`;
+      drawn.add(frame);
+      const html = typeof page.html === 'string' ? page.html : '';
+      if (!html.trim()) return `the ${frame} page of "${name}" is empty`;
+      if (!/<[a-z!][^>]*>/i.test(html)) return `the ${frame} page of "${name}" is not HTML`;
+      const bytes = Buffer.byteLength(html, 'utf8');
+      if (bytes > heaviest) return `the ${frame} page of "${name}" is too big (${Math.ceil(bytes / 1000)} KB, at most ${Math.floor(heaviest / 1000)} KB)`;
+    }
+  }
+  // The rest of the shape: the note, and the tokens when there are any.
+  return answerProblem(SCREENS_SCHEMA, value);
 }

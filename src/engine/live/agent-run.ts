@@ -19,7 +19,7 @@ import { ownRunWords, ownWords } from '../plain-stop.js';
 import { copyDirsIn } from '../git.js';
 import * as P from '../prompts.js';
 import { rulesFor } from '../../board/additions.js';
-import { AGENTS, agentInstructions, readAgent, type AgentRole } from '../agents.js';
+import { AGENTS, agentInstructions, readAgent, type TicketRole } from '../agents.js';
 import {
   DEFAULT_QUALITY,
   builderLevel,
@@ -53,7 +53,7 @@ import type { LiveSquad } from './squad.js';
 /** One run of an agent: its tool, its guard and its window, and what its answer or failure means. */
 export const agentRunPart = {
   /** The AI tool a role runs on, in words: "Claude Code". */
-  toolLabel(this: LiveSquad, role: AgentRole): string {
+  toolLabel(this: LiveSquad, role: TicketRole): string {
     return aiTool(readAgent(this.bp, role).tool)?.label ?? 'its AI tool';
   },
 
@@ -66,7 +66,7 @@ export const agentRunPart = {
    * not reach the person goes back to the agent first (engine/question-filter.ts). `reply` marks a reply in a talk
    * with the person (a chat answer is one too): one that asks for what is not allowed is replaced with a plain line.
    */
-  async runAgent(this: LiveSquad, opts: AgentRun & { ticket?: string; job?: string; role: AgentRole; step?: string; levelStep?: string; box?: object; check?: (answer: unknown) => string | null; checkHelp?: () => string; win?: AgentWindow; reply?: boolean; capMore?: number }): Promise<AgentResult> {
+  async runAgent(this: LiveSquad, opts: AgentRun & { ticket?: string; job?: string; role: TicketRole; step?: string; levelStep?: string; box?: object; check?: (answer: unknown) => string | null; checkHelp?: () => string; win?: AgentWindow; reply?: boolean; capMore?: number }): Promise<AgentResult> {
     const job = opts.job ?? opts.ticket;
     const jobSignal = job ? this.stops.get(job)?.signal : undefined;
     // The run's own Stop: the job's Stop, or squad-kit stopping an agent that kept asking for what it may not do.
@@ -75,7 +75,7 @@ export const agentRunPart = {
     if (jobSignal?.aborted) runStop.abort();
     jobSignal?.addEventListener('abort', onJobStop, { once: true });
     const signal = runStop.signal;
-    const mine = !opts.win && opts.ticket ? this.windowFor(opts as AgentRun & { ticket: string; role: AgentRole; step?: string }, signal) : undefined;
+    const mine = !opts.win && opts.ticket ? this.windowFor(opts as AgentRun & { ticket: string; role: TicketRole; step?: string }, signal) : undefined;
     const win = opts.win ?? mine;
     win?.whenTooMany(() => runStop.abort());
     if (mine) openWindow(mine);
@@ -87,7 +87,7 @@ export const agentRunPart = {
     }
   },
 
-  async runWith(this: LiveSquad, opts: AgentRun & { capMore?: number; ticket?: string; job?: string; role: AgentRole; step?: string; levelStep?: string; box?: object; check?: (answer: unknown) => string | null; checkHelp?: () => string; win?: AgentWindow; reply?: boolean }, signal: AbortSignal): Promise<AgentResult> {
+  async runWith(this: LiveSquad, opts: AgentRun & { capMore?: number; ticket?: string; job?: string; role: TicketRole; step?: string; levelStep?: string; box?: object; check?: (answer: unknown) => string | null; checkHelp?: () => string; win?: AgentWindow; reply?: boolean }, signal: AbortSignal): Promise<AgentResult> {
     const job = opts.job ?? opts.ticket;
     // Each role runs as its own agent: the team's file for it sets the tool, the model and extra instructions.
     const agent = readAgent(this.bp, opts.role);
@@ -253,7 +253,7 @@ export const agentRunPart = {
    * A run that did not finish. On the usage limit the whole queue waits for the reset; anything else stops the step,
    * with the tool's exact words kept for engineers.
    */
-  runFailed(this: LiveSquad, r: AgentResult, tool: AiTool, ticket: string | undefined, role: AgentRole): Error {
+  runFailed(this: LiveSquad, r: AgentResult, tool: AiTool, ticket: string | undefined, role: TicketRole): Error {
     // What the run reported could not be saved: the exact error goes on, so the step can tell a full disk from a stop.
     if (r.saveError) return r.saveError;
     if (r.limit) {
@@ -275,7 +275,7 @@ export const agentRunPart = {
    * A reply in a talk with the person that asks them for what is not allowed (a secret, a change to squad-kit's
    * settings, to git history) is replaced with one plain line and logged. Technical words stay: the person asked.
    */
-  plainReply(this: LiveSquad, r: AgentResult, who: string, role: AgentRole, ticket?: string): AgentResult {
+  plainReply(this: LiveSquad, r: AgentResult, who: string, role: TicketRole, ticket?: string): AgentResult {
     const out = r.structured && typeof r.structured === 'object' ? (r.structured as { reply?: unknown; options?: unknown }) : null;
     const said = [typeof out?.reply === 'string' ? out.reply : r.text, ...(Array.isArray(out?.options) ? out.options : [])].filter((x): x is string => typeof x === 'string').join('\n');
     const verdict = judgeReply(said);

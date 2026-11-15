@@ -212,7 +212,7 @@ export function boardUsage(bp: BoardPaths): BoardUsage {
 const MORE_STEPS: Record<string, string> = { chat: 'Talking it through', draft: 'Filling in a new ticket', ask: 'Questions to the Squad lead' };
 
 /** A step's name for people: "Fixes", "Reading the project". */
-export function stepWords(role: AgentName | 'lead', step: string): string {
+export function stepWords(role: AgentName | 'lead' | 'designer', step: string): string {
   return (role === 'lead' ? undefined : STEPS[role])?.find((s) => s.id === step)?.name ?? MORE_STEPS[step] ?? step;
 }
 

@@ -62,6 +62,11 @@ const EXCUSED: Record<string, string> = {
   'studio-lock.ts:LOCK_LEFT_MS': 'A Studio lock a closed program left behind. A save takes a moment, and nobody waits on this.',
   'studio-lock.ts:LOCK_WAIT_MS': 'How long one Studio save waits for another. It ends in a plain "try again".',
   'studio.ts:MAX_NAME': 'How long a sketch, screen or design system name may be. It says so in plain words when a name is longer.',
+  'studio-prompts.ts:MAX_SCREENS': "How many screens one Designer run may hand in. A longer answer is refused in plain words that say the number, and nothing is saved.",
+  'studio-prompts.ts:MAX_PAGE_BYTES': 'How big one page the Designer draws may be. A bigger one is refused in plain words that say the size, and nothing is saved.',
+  'studio-prompts.ts:MAX_SCREEN_NAME': "How long a screen's name from the Designer may be, as the Studio keeps names. It says so in plain words.",
+  'studio-designer.ts:MAX_DESIGNER_PICTURES': 'How many pictures one Studio message may bring. It says so in plain words when there are more.',
+  'studio-designer.ts:DESIGNER_RUN_MS': 'The longest one Designer run may take. It ends in a plain "ask again", saves nothing, and stops no ticket.',
   'now.ts:STILL_WORKING_S': 'How recent the last progress must be for a slow card to say "still working" in its calm color. It changes words and a color, and stops nothing.',
   'story-redis.ts:FLUSH_MS': "How long clearing a story's own Redis number may take when its copy goes. Nobody waits on it: the keys stay, and the log says so.",
   'find-database.ts:GREP_MS': 'How long one look in the code for the database name may take. It stops no story: the copy is then made as usual.',
@@ -364,8 +369,14 @@ describe('safety', () => {
   it('says what each agent may do as its steps really run', () => {
     const live = codeAt('src/engine/live');
     const runs = [...live.matchAll(/runAgent\(\{[\s\S]*?permissions: \[([^\]]*)\]/g)].map((m) => ({ role: /role: '(\w+)'/.exec(m[0])?.[1], perms: m[1]! })).filter((r) => r.role);
-    expect(new Set(runs.map((r) => r.role))).toEqual(new Set(AGENTS.map((a) => a.role)));
-    for (const a of AGENTS) {
+    // The Designer works outside tickets, in engine/studio-designer.ts, and reads files only.
+    expect(new Set(runs.map((r) => r.role))).toEqual(new Set(AGENTS.map((a) => a.role).filter((r) => r !== 'designer')));
+    const designer = codeAt('src/engine/studio-designer.ts');
+    expect(designer).toContain("export const DESIGNER_PERMISSIONS: PermissionSet[] = ['files'];");
+    expect([...designer.matchAll(/permissions: (\S+),/g)].map((m) => m[1])).toEqual(['DESIGNER_PERMISSIONS']);
+    expect(new Map(view.agents.designer.can).get('Change code')).toBe(false);
+    expect(new Map(view.agents.designer.can).get('Run commands')).toBe(false);
+    for (const a of AGENTS.filter((x) => x.role !== 'designer')) {
       const can = new Map(view.agents[a.role].can);
       const given = runs.filter((r) => r.role === a.role).map((r) => r.perms).join(' ');
       expect(can.get('Change code'), a.role).toBe(given.includes("'edit'"));

@@ -298,7 +298,7 @@ function limitRows(meta?: BoardMeta): HarnessLimit[] {
 }
 
 /** Each step's most, in the order of the page's table. */
-const HARNESS_CAP_NAME: Record<string, string> = { analyst: 'Analyst', architect: 'Architect', builder: 'Builder', 'builder.fix': 'Builder, fixes', reviewer: 'Reviewer', tester: 'Tester', chat: 'Talking a story through', lead: 'The Squad lead, one question' };
+const HARNESS_CAP_NAME: Record<string, string> = { analyst: 'Analyst', architect: 'Architect', builder: 'Builder', 'builder.fix': 'Builder, fixes', reviewer: 'Reviewer', tester: 'Tester', chat: 'Talking a story through', lead: 'The Squad lead, one question', designer: 'Designer, one Studio run' };
 
 /** What the Squad lead may read and look at: its window (engine/lead/window.ts) and its own read tools. */
 export const LEAD_MAY_READ: string[] = [
@@ -352,6 +352,8 @@ function agentPowers(): Record<AgentRole, { can: [string, boolean][] }> {
     builder: { can: [yes('Read your project'), yes('Change code'), yes('Run commands'), yes('The websites your network level allows'), yes("squad-kit's tools: pictures, checks, the app")] },
     reviewer: { can: [...reads, yes("Look at a page of this story's app")] },
     tester: { can: [...reads, yes("squad-kit's tools: pictures, the app, your API")] },
+    // Read files only: no shell at all, so it cannot even run a read command. squad-kit saves the screens it hands in.
+    designer: { can: [yes('Read your project'), yes('Read the Studio and the pictures you add'), ...reads.slice(1)] },
   };
 }
 

@@ -33,6 +33,7 @@ import { firstOpenTicket, waitsForFirstWords } from '../../board/first-story.js'
 import { TOOLS_CHECKING, toolsHold, waitsForTools } from '../tools/index.js';
 import { LimitReached, activePause, limitText, type LimitPause } from '../usage-limit.js';
 import { forgetSaveTrouble } from '../save-trouble.js';
+import { studioRuns, studioRunsGoing, studioWaiting } from '../studio-places.js';
 import { fileTroubleWords, isDiskTrouble } from '../../core/file-trouble.js';
 import { explainError } from '../../board/problem.js';
 import { firstSaveDue, firstSaveHolds, runFirstSave, runSetupProof, settleSetupStop } from '../onboard.js';
@@ -76,7 +77,8 @@ import { shootPart } from './shoot.js';
 
 /**
  * Every squad running in this app, one per project. They share the person's AI accounts, so one limit of tickets at
- * once holds across all of them (ADR-001). The Architect's reads beside the tickets don't count.
+ * once holds across all of them (ADR-001), with the Studio's Designer runs (studio-places.ts). The Architect's reads
+ * beside the tickets don't count.
  */
 const squads = new Set<LiveSquad>();
 /** Squads with a ticket ready to start but no free place, at their last look. */
@@ -96,12 +98,19 @@ export function holdNewRuns(on: boolean): void {
   holding = on;
 }
 
+/** True while an update waits: a Designer run waits for it too. */
+export function newRunsHeld(): boolean {
+  return holding;
+}
+
 /** The end of the last usage-limit wait the squads saw, so its end is logged once. */
 let limitSeen: string | null = null;
 
-/** Every agent run going on now, by project folder: ticket steps, and the Architect's reads and chat answers beside them. */
+/** Every agent run going on now, by project folder: ticket steps, the reads and chat answers beside them, the Designer's. */
 export function agentRuns(): { root: string; keys: string[] }[] {
-  return [...squads].map((s) => s.runs()).filter((r) => r.keys.length > 0);
+  const all = [...squads].map((s) => s.runs());
+  for (const d of studioRuns()) (all.find((r) => r.root === d.root) ?? all[all.push({ root: d.root, keys: [] }) - 1]!).keys.push(d.key);
+  return all.filter((r) => r.keys.length > 0);
 }
 
 /** The card of a ticket ready for its next step while every place is taken: "Next in line: starts when a slot is free (2 of 2 busy)". */
@@ -220,14 +229,17 @@ export class LiveSquad {
     return { root: this.bp.root, keys: [...this.running] };
   }
 
-  /** A free place in the app's one limit. While squads wait for one, it goes to the squad with fewer tickets running. */
+  /**
+   * A free place in the app's one limit, which the Designer's runs share. While squads wait for one, it goes to the
+   * squad with fewer tickets running; a Designer run that waits goes before them all.
+   */
   private mayStart(limit: number): boolean {
     const mine = this.ticketsRunning();
     // A heavy product takes fewer at once than the app allows. That place is no one else's to give up.
     const own = this.meta().atOnce;
     if (own && mine >= own) return false;
-    const busy = ticketsRunning() + (squads.has(this) ? 0 : mine);
-    if (busy < limit && ![...waiting].some((s) => s !== this && s.ticketsRunning() < mine)) {
+    const busy = ticketsRunning() + studioRunsGoing() + (squads.has(this) ? 0 : mine);
+    if (busy < limit && !studioWaiting() && ![...waiting].some((s) => s !== this && s.ticketsRunning() < mine)) {
       waiting.delete(this);
       return true;
     }
@@ -407,9 +419,9 @@ export class LiveSquad {
     if (this.queueing || holding) return;
     this.queueing = true;
     const free = () => {
-      let others = 0;
+      let others = studioRunsGoing();
       for (const s of squads) if (s !== this) others += s.ticketsRunning();
-      return placesLeft(limit, listTickets(this.bp), meta, others, [...waiting].some((s) => s !== this));
+      return placesLeft(limit, listTickets(this.bp), meta, others, studioWaiting() || [...waiting].some((s) => s !== this));
     };
     void fillBuildQueue(this.bp, { free, pause, payment: async () => (await howPaid(this.bp)).payment })
       .then((turns) => turns.forEach((x) => x.started.length && this.log('info', `Build continuously started ${x.started.join(', ')} from ${x.id}`)))
@@ -422,7 +434,7 @@ export class LiveSquad {
    * still ran. Nothing runs for it, so the watchdog has nothing to say about it.
    */
   private queue(t: Ticket, limit: number): void {
-    const running: string[] = [];
+    const running: string[] = studioRuns().map((d) => d.key);
     for (const s of squads) running.push(...s.ticketIds());
     this.hold(t, queuedText(running, limit));
   }

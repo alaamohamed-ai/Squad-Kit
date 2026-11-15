@@ -17,7 +17,7 @@ afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 describe('agents', () => {
   it('gives every role an editable file with no instructions yet', () => {
     ensureAgents(bp);
-    expect(fs.readdirSync(bp.rulesDir).sort()).toEqual(['analyst.md', 'architect.md', 'builder.md', 'reviewer.md', 'tester.md']);
+    expect(fs.readdirSync(bp.rulesDir).sort()).toEqual(['analyst.md', 'architect.md', 'builder.md', 'designer.md', 'reviewer.md', 'tester.md']);
     const builder = readAgent(bp, 'builder');
     expect(builder).toMatchObject({ tool: 'claude', model: '' });
     expect(agentInstructions(builder)).toBe('');

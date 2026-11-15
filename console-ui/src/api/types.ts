@@ -872,7 +872,7 @@ export interface DecisionsResponse {
 export type { BacklogResponse, Sprint, TrackerStatus, WorkItemRow } from './tracker-types';
 
 export interface AgentInfo {
-  role: 'analyst' | 'architect' | 'builder' | 'reviewer' | 'tester';
+  role: 'analyst' | 'architect' | 'builder' | 'reviewer' | 'tester' | 'designer';
   name: string;
   job: string;
   tool: 'claude' | 'codex';

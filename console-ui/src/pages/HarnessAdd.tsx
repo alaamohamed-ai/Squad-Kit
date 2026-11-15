@@ -15,7 +15,7 @@ import { Result } from './Harness';
  * the sheets that add a rule, a checklist, a gate or what a folder holds. Typed words follow what is typed: people type Arabic.
  */
 
-const AGENT_NAME: Record<string, string> = { all: 'All agents', analyst: 'Analyst', architect: 'Architect', builder: 'Builder', reviewer: 'Reviewer', tester: 'Tester' };
+const AGENT_NAME: Record<string, string> = { all: 'All agents', analyst: 'Analyst', architect: 'Architect', builder: 'Builder', reviewer: 'Reviewer', tester: 'Tester', designer: 'Designer' };
 const WHEN_NAME = { checks: 'With the checks', merge: 'Before merge', release: 'Before release' } as const;
 const WHEN_LINE = { checks: 'with the checks', merge: 'before merge', release: 'before release' } as const;
 const DONE = 'It applies from the next step of every story.';

@@ -6,6 +6,7 @@ import { STEPS, agentInstructions, readAgent, type AgentRole } from './agents.js
 import * as P from './prompts.js';
 import { repoFor, rulesFiles } from './repos.js';
 import { openTicketsFor } from './depends.js';
+import { designerPrompt, designerRules, exampleBrief } from './studio-prompts.js';
 
 /**
  * The core prompts of a role, read only, filled in from a real ticket so the team sees exactly what the agent reads.
@@ -83,6 +84,10 @@ export async function corePrompts(bp: BoardPaths, role: AgentRole, ticketId?: st
         P.proofCheckPrompt(t, [{ criterion: 1, file: '(the picture for "done when" 1 goes here)', note: '(what the Tester says it shows goes here)' }]),
       ].join('\n\n────────\n\n'),
     proof: () => P.proofPrompt(meta, t, 'after', ctx),
+    // The Designer works outside tickets: its steps are filled in from an example Studio brief, after its own rules.
+    draw: () => [designerRules(), designerPrompt(exampleBrief('draw', meta.project))].join('\n\n────────\n\n'),
+    change: () => [designerRules(), designerPrompt(exampleBrief('change', meta.project))].join('\n\n────────\n\n'),
+    system: () => [designerRules(), designerPrompt(exampleBrief('system', meta.project))].join('\n\n────────\n\n'),
   };
   const agent = readAgent(bp, role);
   return {

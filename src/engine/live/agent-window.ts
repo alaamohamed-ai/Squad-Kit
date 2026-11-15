@@ -14,7 +14,7 @@ import {
 } from '../window.js';
 import { repoFor } from '../repos.js';
 import { partsOf, runsAsProduct } from '../../board/parts.js';
-import { AGENTS, type AgentRole } from '../agents.js';
+import { AGENTS, type TicketRole } from '../agents.js';
 import { appCopyOf, copiesOf, workFolder } from '../copies.js';
 import { productPlan, startProduct, stopProduct, waitWords } from '../product-run.js';
 import { treeOf } from '../lane.js';
@@ -28,7 +28,7 @@ export const agentWindowPart = {
    * squad-kit's own tools for a ticket's run: every tool for the Builder in the ticket's copy of an app, Look at a page
    * for the Reviewer's review there (read only: squad-kit starts the app for it), else I am stuck.
    */
-  windowFor(this: LiveSquad, opts: AgentRun & { ticket: string; role: AgentRole; step?: string }, signal: AbortSignal): AgentWindow {
+  windowFor(this: LiveSquad, opts: AgentRun & { ticket: string; role: TicketRole; step?: string }, signal: AbortSignal): AgentWindow {
     const id = opts.ticket;
     const t = readTicket(this.bp, id);
     const appCopy = t ? this.appOf(t) : undefined;
@@ -167,7 +167,7 @@ export const agentWindowPart = {
   },
 
   /** What every window of a ticket shares: its lines on the ticket, the app log, and squad-kit's own fixes. */
-  windowBase(this: LiveSquad, id: string, role: AgentRole, cwd: string, job = id): Pick<WindowSetup, 'ticket' | 'proofDir' | 'say' | 'log' | 'beat' | 'beforeStart' | 'clearCopy' | 'inTheWay'> {
+  windowBase(this: LiveSquad, id: string, role: TicketRole, cwd: string, job = id): Pick<WindowSetup, 'ticket' | 'proofDir' | 'say' | 'log' | 'beat' | 'beforeStart' | 'clearCopy' | 'inTheWay'> {
     return {
       ticket: id,
       proofDir: this.bp.proofDir,

@@ -1,12 +1,15 @@
 import { Fragment, useCallback, useEffect, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Bug, Check, Code, Copy, Eye, Search, SquareCheck, Triangle, User, X, PenLine, Users } from 'lucide-react';
+import { ArrowUp, Bug, Check, Code, Copy, Eye, Palette, Search, SquareCheck, Triangle, User, X, PenLine, Users } from 'lucide-react';
 import type { Actor, Stage, Ticket } from '../api/types';
 import { usePrefs } from '../lib/prefs';
 import { loadTrouble } from '../lib/load-trouble';
 import { detect, runs, type Dir } from '../lib/lang';
 
-export const ROLE_NAME: Record<Actor, string> = {
+/** Every role with a glyph: the board's actors, and the Studio's Designer, which works outside tickets. */
+export type GlyphRole = Actor | 'designer';
+
+export const ROLE_NAME: Record<GlyphRole, string> = {
   analyst: 'Analyst',
   architect: 'Architect',
   spec: 'Spec writer',
@@ -17,9 +20,10 @@ export const ROLE_NAME: Record<Actor, string> = {
   triage: 'Triage',
   you: 'You',
   squad: 'Squad',
+  designer: 'Designer',
 };
 
-const ROLE_ICON: Record<Actor, typeof Search> = {
+const ROLE_ICON: Record<GlyphRole, typeof Search> = {
   analyst: Search,
   architect: Triangle,
   spec: PenLine,
@@ -30,9 +34,10 @@ const ROLE_ICON: Record<Actor, typeof Search> = {
   triage: Bug,
   you: User,
   squad: Users,
+  designer: Palette,
 };
 
-export function Glyph({ role, small, size }: { role: Actor; small?: boolean; size?: number }) {
+export function Glyph({ role, small, size }: { role: GlyphRole; small?: boolean; size?: number }) {
   const Icon = ROLE_ICON[role];
   return (
     <span className={`glyph ${small ? 'sm' : ''} ${role === 'you' ? 'you' : ''}`} title={ROLE_NAME[role]}>

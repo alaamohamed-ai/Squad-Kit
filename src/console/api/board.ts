@@ -833,7 +833,7 @@ export function mountBoardApi(app: Hono, opts: { paths: SquadPaths; control?: { 
           modelOf: Object.fromEntries(MODEL_LEVELS.map((l) => [l, tool?.modelFor(l) ?? ''])),
           supportsEffort: tool?.supportsEffort ?? false,
           efforts: tool ? toolEfforts(tool) : [],
-          file: `.squad/board/agents/${a.role}.md`,
+          file: `.squad/rules/${a.role}.md`,
           stepList: STEPS[a.role],
         working: tickets.filter((t) => roleForPhase(t.squad?.phase) === a.role).map((t) => ({ id: t.id, title: t.title, status: t.status })),
         };

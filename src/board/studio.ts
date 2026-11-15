@@ -292,19 +292,69 @@ export function addVariant(bp: BoardPaths, sketch: string, screen: string, input
   const frames = checkedHtml(input.frames, 'frame');
   if (!Object.keys(frames).length) throw new Error('A variant needs at least one frame.');
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    const allowed = readSketchFile(sketchFile(bp, sketch)).frames;
-    const other = Object.keys(frames).find((f) => !allowed.includes(f));
-    if (other) throw new Error(`The sketch "${sketch}" has no frame "${other}". Add it to the sketch first.`);
-    const before = existingScreen(bp, sketch, screen);
-    const version = Math.max(0, ...versionsIn(screenDir(bp, sketch, screen))) + 1;
-    const meta: VariantMetaFile = { madeAt: new Date().toISOString() };
-    if (typeof input.madeBy === 'string' && input.madeBy.trim()) meta.madeBy = input.madeBy.trim().slice(0, MAX_NAME);
-    if (typeof input.note === 'string' && input.note.trim()) meta.note = input.note.trim();
-    const files: Record<string, string> = { [variantMetaFile(bp, sketch, screen, version)]: dumpYaml(meta) };
-    for (const [f, html] of Object.entries(frames)) files[frameFile(bp, sketch, screen, version, f)] = html;
-    writeNewVersion(variantDir(bp, sketch, screen, version), files);
-    if (input.choose || before.chosen === null) writeShared(screenFile(bp, sketch, screen), dumpYaml({ ...before, chosen: version }));
+    checkFrames(bp, sketch, frames);
+    writeVariant(bp, sketch, screen, frames, input);
     return readSketch(bp, sketch)!;
+  });
+}
+
+/** Every frame must be one of the sketch's frames. */
+function checkFrames(bp: BoardPaths, sketch: string, frames: Record<string, string>): void {
+  const allowed = readSketchFile(sketchFile(bp, sketch)).frames;
+  const other = Object.keys(frames).find((f) => !allowed.includes(f));
+  if (other) throw new Error(`The sketch "${sketch}" has no frame "${other}". Add it to the sketch first.`);
+}
+
+/** Writes a screen's next variant, under the lock and after the stamp was checked. Returns its version. */
+function writeVariant(bp: BoardPaths, sketch: string, screen: string, frames: Record<string, string>, input: Omit<VariantInput, 'frames'>): number {
+  const before = existingScreen(bp, sketch, screen);
+  const version = Math.max(0, ...versionsIn(screenDir(bp, sketch, screen))) + 1;
+  const meta: VariantMetaFile = { madeAt: new Date().toISOString() };
+  if (typeof input.madeBy === 'string' && input.madeBy.trim()) meta.madeBy = input.madeBy.trim().slice(0, MAX_NAME);
+  if (typeof input.note === 'string' && input.note.trim()) meta.note = input.note.trim();
+  const files: Record<string, string> = { [variantMetaFile(bp, sketch, screen, version)]: dumpYaml(meta) };
+  for (const [f, html] of Object.entries(frames)) files[frameFile(bp, sketch, screen, version, f)] = html;
+  writeNewVersion(variantDir(bp, sketch, screen, version), files);
+  if (input.choose || before.chosen === null) writeShared(screenFile(bp, sketch, screen), dumpYaml({ ...before, chosen: version }));
+  return version;
+}
+
+export interface DrawnScreen {
+  /** The screen it changes, when it names one the sketch has. */
+  id?: string;
+  name: string;
+  /** Frame id → its HTML. */
+  frames: Record<string, string>;
+}
+
+/**
+ * Saves the screens the AI Designer drew as the sketch's new version, all at once under one stamp check: each one
+ * becomes the next variant of its screen (found by id, then by name) or a new screen, and is chosen. Every earlier
+ * variant stays, pickable later. An old stamp writes nothing: "Changed elsewhere, reload".
+ */
+export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScreen[], stamp: string, by: { madeBy?: string; note?: string } = {}): { sketch: Sketch; saved: { screen: string; version: number }[] } {
+  checkedStudioId(sketch);
+  if (!drawn.length) throw new Error('There are no screens to save.');
+  const screens = drawn.map((d) => ({ id: d.id, name: checkedName(d.name, 'screen'), frames: checkedHtml(d.frames, 'frame') }));
+  if (screens.some((d) => !Object.keys(d.frames).length)) throw new Error('A screen needs at least one frame.');
+  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
+    for (const d of screens) checkFrames(bp, sketch, d.frames);
+    const current = readSketch(bp, sketch)!.screens;
+    const taken = new Set<string>();
+    const ids = screens.map((d) => {
+      const named = current.find((c) => (d.id && c.id === d.id) || c.name.trim().toLowerCase() === d.name.toLowerCase());
+      const id = named?.id ?? checkedStudioId(studioIdFor(d.name));
+      if (taken.has(id)) throw new Error('Two screens in the sketch have the same name.');
+      taken.add(id);
+      return id;
+    });
+    let order = Math.max(0, ...current.map((c) => c.order));
+    const saved = screens.map((d, i) => {
+      const id = ids[i]!;
+      if (!plainFile(screenFile(bp, sketch, id))) writeShared(screenFile(bp, sketch, id), dumpYaml({ name: d.name, order: (order += 1), status: 'draft', chosen: null } satisfies ScreenFile));
+      return { screen: id, version: writeVariant(bp, sketch, id, d.frames, { ...by, choose: true }) };
+    });
+    return { sketch: readSketch(bp, sketch)!, saved };
   });
 }
 

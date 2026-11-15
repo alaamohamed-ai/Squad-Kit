@@ -7,10 +7,13 @@ import { withoutComments } from '../utils/text.js';
 
 /**
  * One agent per role, each defined by a small file the team can read and edit: which AI tool runs it, an optional
- * model, and extra instructions that the role reads before every run.
+ * model, and extra instructions that the role reads before every run. The Designer works outside tickets, for the
+ * Studio (engine/studio-designer.ts), and only reads.
  */
 
-export type AgentRole = 'analyst' | 'architect' | 'builder' | 'reviewer' | 'tester';
+export type AgentRole = 'analyst' | 'architect' | 'builder' | 'reviewer' | 'tester' | 'designer';
+/** The roles that work on tickets: every one but the Designer. */
+export type TicketRole = Exclude<AgentRole, 'designer'>;
 
 export const AGENTS: { role: AgentRole; name: string; job: string; phases: string[] }[] = [
   { role: 'analyst', name: 'Analyst', job: 'Reads the ticket and asks the questions that matter', phases: ['analyst-read', 'triage'] },
@@ -18,6 +21,7 @@ export const AGENTS: { role: AgentRole; name: string; job: string; phases: strin
   { role: 'builder', name: 'Builder', job: 'Writes the code in small steps and fixes what the checks find', phases: ['build', 'unstick', 'fix', 'test', 'proof-fix'] },
   { role: 'reviewer', name: 'Reviewer', job: "Reviews the Builder's work in a fresh session, up to 2 rounds", phases: ['review'] },
   { role: 'tester', name: 'Tester', job: 'Runs the app and records before and after screenshots', phases: ['proof'] },
+  { role: 'designer', name: 'Designer', job: 'Draws and changes screens in the Studio. It only reads, and squad-kit saves its screens', phases: [] },
 ];
 
 /** The steps of each role. Teams can add instructions for one step; the core prompt of each stays inside squad-kit. */
@@ -37,6 +41,11 @@ export const STEPS: Record<AgentRole, { id: string; name: string }[]> = {
   ],
   reviewer: [{ id: 'review', name: 'Review' }],
   tester: [{ id: 'proof', name: 'Proof' }],
+  designer: [
+    { id: 'draw', name: 'Draw' },
+    { id: 'change', name: 'Change' },
+    { id: 'system', name: 'Design system' },
+  ],
 };
 
 /** The AI tools an agent file can name: one per AI tool module. The first is the default. */

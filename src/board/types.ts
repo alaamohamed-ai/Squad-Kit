@@ -467,8 +467,8 @@ export interface UsageTotal {
  * runs the squad on their own AI account, and it changes with every run.
  */
 export interface UsageLine extends UsageTotal {
-  /** The role, or the Squad lead, whose questions count on the project's own line. */
-  role: AgentName | 'lead';
+  /** The role, or the Squad lead or the Studio's Designer, whose runs count on the project's own line. */
+  role: AgentName | 'lead' | 'designer';
   step: string;
   level: 'strongest' | 'balanced' | 'fast';
   /** The model in words, as the AI tool names it for the level ("Opus"), or the model someone pinned. */

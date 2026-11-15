@@ -85,7 +85,7 @@ export interface HarnessData {
 /** Kept as read, so what a newer squad-kit or a person wrote in the file stays when it is saved. */
 type Doc = Record<string, unknown> & { additions?: Addition[]; log?: HarnessLogLine[] };
 
-export const RULE_AGENTS = ['all', 'analyst', 'architect', 'builder', 'reviewer', 'tester'];
+export const RULE_AGENTS = ['all', 'analyst', 'architect', 'builder', 'reviewer', 'tester', 'designer'];
 export const NOT_AN_ADDITION = "That is not one of your team's additions. squad-kit's own gates can't be changed or turned off.";
 const CANT_READ = "Your team's additions can't be read:";
 const FIX_IT = 'An engineer can fix the file.';

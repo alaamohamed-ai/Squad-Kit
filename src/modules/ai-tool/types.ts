@@ -8,9 +8,11 @@
  * What a step lets its agent do. Roles ask for these sets, never for one tool's own permission names; each module
  * turns them into its tool's settings. squad-kit's own secret files and git that changes history are always off
  * limits, whatever the set. `run` may run any command (the app, a browser for screenshots) but has no file-editing
- * tools: what it changes in the code anyway, squad-kit puts back.
+ * tools: what it changes in the code anyway, squad-kit puts back. `files` is read files only: reading, finding and
+ * searching files, and nothing else, with no shell at all, no file writes and no web pages (the Studio's Designer).
+ * Asked with any other set, the other set wins.
  */
-export type PermissionSet = 'read' | 'git-read' | 'run' | 'edit';
+export type PermissionSet = 'files' | 'read' | 'git-read' | 'run' | 'edit';
 
 /**
  * How strong a model a step needs (ADR-001): squad-kit speaks in levels, and each AI tool module maps them to its own

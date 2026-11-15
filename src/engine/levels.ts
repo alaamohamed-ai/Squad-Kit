@@ -50,6 +50,8 @@ const THRIFTY: Record<string, Record<string, LevelChoice>> = {
   tester: { proof: balanced('medium'), chat: fast('low') },
   // The Squad lead answers questions about the whole project: it reads and looks, so the balanced level is enough.
   lead: { ask: balanced('medium') },
+  // The Designer in the Studio: a new screen or a design system is open work; a change to a drawn screen is narrower.
+  designer: { draw: balanced('high'), change: balanced('medium'), system: balanced('high') },
 };
 
 /** Best: the strongest model builds and reviews, at high effort. */
@@ -57,12 +59,14 @@ const BEST: Record<string, Record<string, LevelChoice>> = {
   ...THRIFTY,
   builder: { ...THRIFTY.builder, build: strong('high'), fix: strong('high') },
   reviewer: { ...THRIFTY.reviewer, review: strong('high') },
+  designer: { draw: strong('high'), change: strong('medium'), system: strong('high') },
 };
 
 /** Balanced: the strongest model builds at medium effort. */
 const BALANCED: Record<string, Record<string, LevelChoice>> = {
   ...BEST,
   builder: { ...THRIFTY.builder, build: strong('medium'), fix: strong('medium') },
+  designer: { draw: strong('medium'), change: balanced('medium'), system: strong('medium') },
 };
 
 /**
@@ -88,6 +92,8 @@ const BEST_CAPS: Record<string, StepCaps> = {
   tester: { turns: 80, spendUsd: 10 },
   chat: { turns: 40, spendUsd: 8 },
   lead: { turns: 60, spendUsd: 3 },
+  // One Studio run: the Designer reads the project and the design system, then hands in the screens.
+  designer: { turns: 60, spendUsd: 10 },
 };
 
 /** The same caps with fewer turns and less spend, for the cheaper settings. */

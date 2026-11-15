@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sketches, their screens and design systems, through the same actions the `squad studio` commands will use. Every
   change sends the version it started from: a later save from an old version is refused with "Changed elsewhere,
   reload" and changes nothing. A design system that sketches follow is not deleted, and the answer names them.
+- **The Designer.** A new agent on Harness → Agents, for the Studio, with three steps (Draw, Change, Design system),
+  its model level for each on every Quality setting, and its own rules in `.squad/rules/designer.md`. It only reads
+  files: no commands, no file changes, no web pages. squad-kit checks its answer and saves the screens as a new
+  version of the sketch; a broken answer, or a sketch changed meanwhile, saves nothing. Its runs share the limit of
+  runs at once with tickets and go before the tickets that wait, without stopping any that run.
 
 ## [1.3.21] — 2026-11-13
 
