@@ -54,8 +54,10 @@ interface Card {
 }
 /** What the board server's design systems call answers, as the test sets it. */
 let systems: Card[];
-/** The sketches the board server lists, as the test sets them. */
-let sketches: { id: string; name: string; designSystem: { id: string; version: number; name: string | null } | null; stamp: string; screens: [] }[];
+/** The sketches the board server lists, as the test sets them, in the order it sends them (newest edit first). */
+let sketches: { id: string; name: string; designSystem: { id: string; version: number; name: string | null } | null; stamp: string; screens: { id: string; name: string }[]; card?: unknown }[];
+/** What GET …/sketches/<id>/cover answers, by sketch. */
+let covers: Record<string, { screen: string | null; version: number | null; frames: Record<string, string> }>;
 /** What GET /api/v1/studio/app-picture answers. */
 let appOption: { ok: boolean; why?: string; app?: string };
 /** Every change the page asked the board server for: method, address and body. */
@@ -108,6 +110,7 @@ beforeEach(() => {
   dom.window.localStorage.setItem('squad.console.token', 'a-token');
   systems = [];
   sketches = [];
+  covers = {};
   appOption = { ok: false, why: 'This project has no app to take a picture of yet.' };
   changes = [];
   // The board server: the Studio's lists, the app picture option, and the start page's two changes.
@@ -120,6 +123,8 @@ beforeEach(() => {
     }
     if (method === 'GET' && url === '/p/mawid/api/v1/studio/sketches') return json({ sketches });
     if (method === 'GET' && url === '/p/mawid/api/v1/studio/app-picture') return json(appOption);
+    const cover = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)\/cover$/.exec(url);
+    if (method === 'GET' && cover) return covers[cover[1]!] ? json(covers[cover[1]!]) : json({ error: 'not here' }, 404);
     const one = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)(\/chat)?$/.exec(url);
     if (method === 'GET' && one) {
       const s = sketches.find((x) => x.id === one[1]);
@@ -344,14 +349,14 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     for (let i = 0; i < 100 && !ok(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
   };
 
-  it('shows the start page only while the project has no sketch; with one, the list of sketches', async () => {
+  it('shows the start page only while the project has no sketch; with one, the cards of the sketches', async () => {
     await open('mawid');
     expect(box()).not.toBeNull();
     sketches = [{ id: 'login', name: 'Login', designSystem: { id: 'brand', version: 1, name: 'Brand' }, stamp: 's', screens: [] }];
     await open('shop');
     expect(box()).toBeNull();
-    const rows = [...page.querySelectorAll('.sk-list li')].map((li: any) => [li.querySelector('a').textContent, li.querySelector('a').getAttribute('href'), li.querySelector('.sk-meta').textContent]);
-    expect(rows).toEqual([['Login', '/studio/sketches/login', 'Follows Brand']]);
+    const rows = [...page.querySelectorAll('.sk-card')].map((li: any) => [li.querySelector('.sk-card-name').textContent, li.querySelector('a').getAttribute('href'), li.querySelector('.sk-card-ds').textContent]);
+    expect(rows).toEqual([['Login', '/studio/sketches/login', 'Brand']]);
   });
 
   it('done when 1: the chat box is the main thing, focused, with an image button and Send; the options sit under it', async () => {
@@ -427,11 +432,11 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     const back = page.querySelector('.sk-back');
     expect(back.textContent.trim()).toBe('Sketches');
     await press(back);
-    await until(() => !!page.querySelector('.sk-list'));
+    await until(() => !!page.querySelector('.sk-cards'));
     expect(router.state.location.pathname).toBe('/studio');
     expect(openTab()).toBe('Sketches');
     expect(box()).toBeNull();
-    expect([...page.querySelectorAll('.sk-list a')].map((a: any) => a.textContent)).toEqual(['A page where patients book']);
+    expect([...page.querySelectorAll('.sk-cards .sk-card-name')].map((a: any) => a.textContent)).toEqual(['A page where patients book']);
   });
 
   it('Enter sends too, and an empty box sends nothing', async () => {
@@ -485,5 +490,152 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     // Ready to send with a few words.
     await type('Make this calmer');
     expect(button('Send').disabled).toBe(false);
+  });
+});
+
+describe('the Sketches home: the grid (US-06)', () => {
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const brand = { id: 'brand', version: 1, name: 'Brand' };
+  const screensOf = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i + 1}`, name: `Screen ${i + 1}` }));
+  const desktopAndMobile = { cover: { screen: 's1', version: 1, views: ['desktop', 'mobile'] } };
+  const until = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  };
+  const cards = () => [...page.querySelectorAll('.sk-card')] as any[];
+  const card = (el: any) => ({
+    name: el.querySelector('.sk-card-name').textContent,
+    views: [...el.querySelectorAll('.sk-thumb')].map((t: any) => t.getAttribute('data-view')),
+    screens: el.querySelector('.sk-card-screens').textContent,
+    approved: el.querySelector('.sk-card-approved')?.textContent ?? null,
+    designSystem: el.querySelector('.sk-card-ds').textContent,
+    edited: el.querySelector('.sk-card-edited')?.textContent ?? null,
+  });
+  /** The three sketches of done when 3, in the order the server sends them: newest edit first. */
+  function three() {
+    sketches = [
+      { id: 'checkout', name: 'Checkout', designSystem: brand, stamp: 'c1', screens: screensOf(3), card: { ...desktopAndMobile, screens: 3, approved: 0, designSystem: 'Brand', edited: { at: ago(10), by: 'AI Designer', for: 'Sara' } } },
+      { id: 'profile', name: 'Profile', designSystem: brand, stamp: 'p1', screens: screensOf(1), card: { cover: null, screens: 1, approved: 0, designSystem: 'Brand', edited: { at: ago(60), by: 'Omar' } } },
+      { id: 'onboarding', name: 'Onboarding', designSystem: brand, stamp: 'o1', screens: screensOf(5), card: { cover: { screen: 's1', version: 1, views: ['desktop'] }, screens: 5, approved: 2, designSystem: 'Brand', edited: { at: ago(26 * 60), by: 'Sara' } } },
+    ];
+    covers = {
+      checkout: { screen: 's1', version: 1, frames: { desktop: '<!doctype html><h1>Cart</h1><img src="https://example.com/x.png">', mobile: '<h1>Cart, small</h1>' } },
+      onboarding: { screen: 's1', version: 1, frames: { desktop: '<h1>Welcome</h1>' } },
+    };
+  }
+
+  it('done when 1: the Checkout card shows desktop and mobile, its name, "3 screens", "Brand" and its last edit, and no approved count', async () => {
+    sketches = [{ id: 'checkout', name: 'Checkout', designSystem: brand, stamp: 'c1', screens: screensOf(3), card: { ...desktopAndMobile, screens: 3, approved: 0, designSystem: 'Brand', edited: { at: ago(120), by: 'Sara' } } }];
+    covers = { checkout: { screen: 's1', version: 1, frames: { desktop: '<h1>Cart</h1>', mobile: '<h1>Cart, small</h1>' } } };
+    await open('mawid');
+    await until(() => page.querySelectorAll('.sk-thumb-frame').length === 2);
+    expect(cards().map(card)).toEqual([{ name: 'Checkout', views: ['desktop', 'mobile'], screens: '3 screens', approved: null, designSystem: 'Brand', edited: 'Edited 2 hours ago by Sara' }]);
+    expect(page.querySelector('.sk-card').textContent).not.toMatch(/approved/i);
+  });
+
+  it('done when 2: a card with 2 of its 5 screens approved says "2 of 5 approved"', async () => {
+    sketches = [{ id: 'onboarding', name: 'Onboarding', designSystem: brand, stamp: 'o1', screens: screensOf(5), card: { cover: null, screens: 5, approved: 2, designSystem: 'Brand', edited: { at: ago(5), by: 'Sara' } } }];
+    await open('mawid');
+    expect(card(cards()[0]).approved).toBe('2 of 5 approved');
+    expect(S.approvedText(0, 5)).toBeNull();
+    expect(S.approvedText(2, 5)).toBe('2 of 5 approved');
+  });
+
+  it('done when 3: the cards come newest edit first, and Checkout says "by AI Designer for Sara"', async () => {
+    three();
+    await open('mawid');
+    expect(cards().map(card)).toEqual([
+      { name: 'Checkout', views: ['desktop', 'mobile'], screens: '3 screens', approved: null, designSystem: 'Brand', edited: 'Edited 10 minutes ago by AI Designer for Sara' },
+      { name: 'Profile', views: [null], screens: '1 screen', approved: null, designSystem: 'Brand', edited: 'Edited 1 hour ago by Omar' },
+      { name: 'Onboarding', views: ['desktop'], screens: '5 screens', approved: '2 of 5 approved', designSystem: 'Brand', edited: 'Edited yesterday by Sara' },
+    ]);
+  });
+
+  it('done when 4: a click on the card opens the sketch', async () => {
+    three();
+    await open('mawid');
+    const link = cards()[0].querySelector('a');
+    // The whole card is the one link: its picture, name and facts.
+    expect(cards()[0].querySelectorAll('a')).toHaveLength(1);
+    expect(link.getAttribute('href')).toBe('/studio/sketches/checkout');
+    expect(link.querySelector('.sk-thumbs')).not.toBeNull();
+    await act(async () => link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })));
+    await until(() => router.state.location.pathname === '/studio/sketches/checkout' && page.querySelector('h1')?.textContent === 'Checkout');
+    expect(router.state.location.pathname).toBe('/studio/sketches/checkout');
+    expect(page.querySelector('h1').textContent).toBe('Checkout');
+  });
+
+  it('done when 5: desktop only shows one picture with no empty mobile spot; no drawing yet shows a plain placeholder, never a broken image', async () => {
+    three();
+    await open('mawid');
+    await until(() => page.querySelectorAll('.sk-thumb-frame').length === 3);
+    const [, profile, onboarding] = cards();
+    expect(onboarding.querySelectorAll('.sk-thumb')).toHaveLength(1);
+    expect(onboarding.querySelector('.sk-thumb.mobile')).toBeNull();
+    expect(onboarding.querySelector('.sk-thumb').getAttribute('data-view')).toBe('desktop');
+    // Profile's first screen has no picture: one plain placeholder, no frame and no image to break.
+    expect(profile.querySelectorAll('.sk-thumb')).toHaveLength(1);
+    expect(profile.querySelector('.sk-thumb-wait').getAttribute('aria-label')).toBe('No picture yet');
+    expect(profile.querySelectorAll('iframe, img')).toHaveLength(0);
+    // No page asked for a cover it does not have.
+    expect(fetchSpy.mock.calls.map(([url]) => url).filter((u: string) => u.endsWith('/cover')).sort()).toEqual(['/p/mawid/api/v1/studio/sketches/checkout/cover', '/p/mawid/api/v1/studio/sketches/onboarding/cover']);
+  });
+
+  it('keeps the placeholder until a picture has loaded, and draws it sealed: no scripts, no network', async () => {
+    three();
+    // The cover answer is held back: the card shows its placeholders meanwhile, and no frame.
+    let letThrough: () => void = () => undefined;
+    const held = new Promise<void>((r) => (letThrough = r));
+    const answer = fetchSpy.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/checkout/cover')) await held;
+      return answer(url, init);
+    });
+    await open('mawid');
+    const checkout = () => cards()[0];
+    expect(checkout().querySelectorAll('.sk-thumb')).toHaveLength(2);
+    expect(checkout().querySelectorAll('.sk-thumb .sk-thumb-wait')).toHaveLength(2);
+    expect(checkout().querySelectorAll('iframe, img')).toHaveLength(0);
+
+    await act(async () => letThrough());
+    await until(() => checkout().querySelectorAll('.sk-thumb-frame').length === 2);
+    const desktop = checkout().querySelector('.sk-thumb[data-view="desktop"]');
+    const frame = desktop.querySelector('iframe');
+    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(frame.getAttribute('srcdoc')).toBe(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${S.THUMB_POLICY}"><h1>Cart</h1><img src="https://example.com/x.png">`);
+    expect(S.THUMB_POLICY).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:");
+    expect(frame.getAttribute('tabindex')).toBe('-1');
+    // Once loaded, the picture shows in place of the placeholder.
+    await act(async () => frame.dispatchEvent(new dom.window.Event('load')));
+    expect(desktop.querySelector('.sk-thumb-wait')).toBeNull();
+    // The policy always comes first, whatever the drawing starts with.
+    expect(S.sealedHtml('<!-- <head> --><html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head></html>')).toMatch(/^<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none';/);
+  });
+
+  it('keeps the placeholder when the picture cannot be read', async () => {
+    three();
+    covers = {};
+    await open('mawid');
+    await until(() => fetchSpy.mock.calls.some(([url]) => String(url).endsWith('/checkout/cover')));
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(page.querySelectorAll('.sk-thumb-frame')).toHaveLength(0);
+    expect(cards()[0].querySelectorAll('.sk-thumb .sk-thumb-wait')).toHaveLength(2);
+  });
+
+  it('words a card the same way every time', () => {
+    const now = Date.parse('2026-11-16T12:00:00.000Z');
+    const m = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+    expect(S.screensText(0)).toBe('No screens yet');
+    expect(S.screensText(1)).toBe('1 screen');
+    expect(S.screensText(3)).toBe('3 screens');
+    expect(S.editedText({ at: m(0.5), by: 'Sara' }, now)).toBe('Edited just now by Sara');
+    expect(S.editedText({ at: m(1), by: 'Sara' }, now)).toBe('Edited 1 minute ago by Sara');
+    expect(S.editedText({ at: m(10), by: 'AI Designer', for: 'Sara' }, now)).toBe('Edited 10 minutes ago by AI Designer for Sara');
+    expect(S.editedText({ at: m(150), by: 'Sara' }, now)).toBe('Edited 2 hours ago by Sara');
+    expect(S.editedText({ at: m(30 * 60), by: 'Sara' }, now)).toBe('Edited yesterday by Sara');
+    expect(S.editedText({ at: m(3 * 24 * 60) }, now)).toBe('Edited 3 days ago');
+    expect(S.editedText({ at: '2026-10-04T10:00:00.000Z', by: 'Omar' }, now)).toBe('Edited on 4 Oct by Omar');
+    expect(S.editedText({ at: '2025-10-04T10:00:00.000Z' }, now)).toBe('Edited on 4 Oct 2025');
+    expect(S.editedText(null, now)).toBe('');
+    expect(S.editedText({ at: 'soon', by: 'Sara' }, now)).toBe('');
   });
 });

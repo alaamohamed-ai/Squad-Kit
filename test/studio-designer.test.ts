@@ -76,7 +76,7 @@ beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'squad-designer-')));
   vi.stubEnv('SQUAD_KIT_HOME', path.join(tmp, 'home'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct', quality: 'thrifty' });
 });
 
@@ -161,7 +161,7 @@ describe('done when 2: the answer is checked, then saved as a new sketch version
     const after = studio.readSketch(bp, 'login')!;
     expect(after.stamp).not.toBe(before.stamp);
     expect(after.screens.map((s) => [s.id, s.name, s.chosen])).toEqual([['sign-in', 'Sign in', 1]]);
-    expect(after.screens[0]!.variants[0]).toMatchObject({ version: 1, madeBy: 'Designer', note: 'A sign-in screen with email and password.', frames: { desktop: page('Sign in') } });
+    expect(after.screens[0]!.variants[0]).toMatchObject({ version: 1, madeBy: 'AI Designer', madeFor: readMeta(bp).user.name, note: 'A sign-in screen with email and password.', frames: { desktop: page('Sign in') } });
     // The Designer was asked with the answer's shape, and once.
     expect(calls).toHaveLength(1);
     expect(calls[0]!.schema).toBe(SCREENS_SCHEMA);

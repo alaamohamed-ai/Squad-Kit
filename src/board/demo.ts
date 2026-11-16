@@ -12,6 +12,7 @@ import { countSampleHistory } from './demo-cost.js';
 import { clearBoard } from './store.js';
 import { seedDoneSetup, seedFreshSetup } from './demo-setup.js';
 import { clearDemoRequirements, seedDemoRequirements } from './demo-requirements.js';
+import { seedDemoStudio, type DemoStudioOptions } from './demo-studio.js';
 
 /** Minutes before now, as an ISO time, so the seeded board always looks fresh. */
 function ago(minutes: number): string {
@@ -731,7 +732,7 @@ function demoAssetsDir(): string {
   return candidates.find((c) => fs.existsSync(c)) ?? candidates[0]!;
 }
 
-export interface SeedOptions {
+export interface SeedOptions extends DemoStudioOptions {
   speed?: number;
   project?: string;
   /** The sample project at its first open: no tickets yet, the setup about to start, then the Overview to approve. */
@@ -741,7 +742,6 @@ export interface SeedOptions {
 /** How big each seeded sample ticket's work was, against a usual one. */
 const SAMPLE_SIZE: Record<string, number> = { 'SK-138': 0.8, 'SK-141': 0.45, 'SK-147': 1.3 };
 
-/** Writes a full demo board: tickets in every stage, past releases, decisions and proof images. */
 /**
  * The sample board lives in its own folder on this computer, never in a project: seeding it replaces a board's tickets,
  * decisions and files.
@@ -750,6 +750,7 @@ export function demoFolder(): string {
   return path.join(squadHome(), 'demo');
 }
 
+/** Writes a full demo board: tickets in every stage, past releases, decisions, the Studio's sketches and proof images. */
 export function seedDemoBoard(bp: BoardPaths, opts: SeedOptions = {}): void {
   clearBoard(bp);
   clearDemoRequirements(bp);
@@ -773,11 +774,10 @@ export function seedDemoBoard(bp: BoardPaths, opts: SeedOptions = {}): void {
   for (const d of demoDecisions(user)) writeDecision(bp, d);
   // The court portal's BRD, broken down and ready to approve, for the Requirements page.
   seedDemoRequirements(bp, user);
+  seedDemoStudio(bp, opts);
   const assets = demoAssetsDir();
   fs.mkdirSync(bp.proofDir, { recursive: true });
-  if (fs.existsSync(assets)) {
-    for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(bp.proofDir, f));
-  }
+  if (fs.existsSync(assets)) for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(bp.proofDir, f));
   // Its first run long ago: every setup step done, and the Overview approved, kept up to date since.
   seedDoneSetup(bp, user, daysAgo(60));
 }

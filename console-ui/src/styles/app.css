@@ -1359,11 +1359,27 @@ ul.ticketnotes .grow, .addnote .grow { flex: 1; }
 .sk-ds { margin: 10px 0 0; font-size: 12.5px; color: var(--dim); }
 .sk-ds button { color: var(--accent); font-weight: 600; font-size: 12.5px; }
 .sk-ds button:hover { text-decoration: underline; }
-.sk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
-.sk-list li { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.sk-list a { font-weight: 600; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
-.sk-list a:hover { text-decoration: underline; }
-.sk-meta { margin-left: auto; font-size: 12px; color: var(--dim); white-space: nowrap; }
+/* The Sketches home (US-06): a card per sketch, like the Design systems cards. The whole card is one link. */
+.sk-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
+.sk-card { min-width: 0; }
+.sk-card-link { display: flex; flex-direction: column; height: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--card-shadow); color: var(--text); text-decoration: none; }
+.sk-card-link:hover { border-color: var(--line-strong); }
+.sk-card-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sk-thumbs { display: flex; align-items: flex-end; justify-content: center; gap: 10px; height: 178px; padding: 14px 14px 0; background: var(--surface-2); border-bottom: 1px solid var(--line); overflow: hidden; }
+.sk-thumb { position: relative; flex: none; height: 150px; border-radius: 6px 6px 0 0; overflow: hidden; background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.sk-thumb.desktop { width: 240px; }
+.sk-thumb.mobile { border-radius: 10px 10px 0 0; }
+/* Drawn at full size, then made small; it takes no clicks, so a click anywhere opens the sketch. */
+.sk-thumb-frame { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #fff; }
+.sk-thumb-wait { position: absolute; inset: 0; display: block; background: repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--surface-2) 10px 20px); }
+.sk-card-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 14px; min-width: 0; }
+.sk-card-name { font-size: 15px; font-weight: 650; letter-spacing: -0.005em; overflow-wrap: anywhere; }
+.sk-card-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted); }
+.sk-card-approved { color: var(--accent); font-weight: 600; }
+.sk-card-ds { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.sk-card-edited { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+/* On a phone a card is narrower than both pictures side by side: they are drawn a little smaller, whole. */
+@media (max-width: 520px) { .sk-thumbs { zoom: 0.82; } }
 .sk-back { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .sk-back:hover { color: var(--text); }
 .sk-chat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; max-width: 720px; }

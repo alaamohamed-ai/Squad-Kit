@@ -32,6 +32,7 @@ const { buildPaths } = await import('../src/core/paths.js');
 const { boardPaths } = await import('../src/board/store.js');
 const { startConsoleServer } = await import('../src/console/server.js');
 const actions = await import('../src/board/studio-actions.js');
+const store = await import('../src/board/studio.js');
 
 const TOKEN = 'c'.repeat(64);
 const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -232,6 +233,67 @@ describe('Studio API', () => {
     expect(r.data.default).toEqual(actions.newSketchDesignSystem(bp));
     expect(r.data.designSystems[0]!.stamp).toBe(actions.getDesignSystem(bp, 'patient-app').stamp);
     // Reading the list writes nothing.
+    expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('US-06 the Sketches home (AB-131)', () => {
+  interface CardRow {
+    id: string;
+    name: string;
+    lastEdit: { at: string; by?: string; for?: string } | null;
+    card: { cover: { screen: string; version: number; views: string[] } | null; screens: number; approved: number; designSystem: string | null; edited: { at: string; by?: string; for?: string } | null };
+  }
+  const NOW = Date.parse('2026-11-16T12:00:00.000Z');
+  const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+  /** Makes the three sketches of done when 3 at their times, with the clock set back, then gives the clock back. */
+  function threeSketches() {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(NOW - 3 * 24 * 60 * 60_000);
+      store.saveDesignSystem(bp, { name: 'Brand' });
+      store.saveSketch(bp, { id: 'onboarding', name: 'Onboarding draft', designSystem: { id: 'brand', version: 1 }, frames: ['desktop'], screens: ['Welcome', 'Account', 'Interests', 'Alerts', 'Done'].map((name, i) => ({ name, status: i < 2 ? ('approved' as const) : i === 2 ? ('ready' as const) : ('draft' as const) })) }, null, { by: 'Sara' });
+      let o = store.readSketch(bp, 'onboarding')!;
+      for (const sc of o.screens) o = store.addVariant(bp, 'onboarding', sc.id, { frames: { desktop: `<h1>${sc.name}</h1>` }, madeBy: 'Sara' }, o.stamp);
+      vi.setSystemTime(NOW - 2 * 24 * 60 * 60_000);
+      const c = store.saveSketch(bp, { name: 'Checkout', designSystem: { id: 'brand', version: 1 }, frames: ['desktop', 'mobile'], screens: [{ name: 'Cart' }, { name: 'Payment', status: 'ready' }, { name: 'Done' }] }, null, { by: 'Sara' });
+      store.addVariant(bp, 'checkout', 'cart', { frames: { desktop: '<h1>Cart</h1>', mobile: '<h1>Cart, small</h1>' }, madeBy: 'Sara' }, c.stamp);
+      vi.setSystemTime(NOW - 24 * 60 * 60_000);
+      const od = store.readSketch(bp, 'onboarding')!;
+      store.saveSketch(bp, { id: 'onboarding', name: 'Onboarding', designSystem: od.designSystem, frames: od.frames }, od.stamp, { by: 'Sara' });
+      vi.setSystemTime(NOW - 60 * 60_000);
+      store.saveSketch(bp, { name: 'Profile', designSystem: { id: 'brand', version: 1 }, frames: ['desktop', 'mobile'], screens: [{ name: 'Me' }] }, null, { by: 'Omar' });
+      vi.setSystemTime(NOW - 10 * 60_000);
+      store.saveDrawnScreens(bp, 'checkout', [{ id: 'cart', name: 'Cart', frames: { desktop: '<h1>Cart, calmer</h1>', mobile: '<h1>Cart, calmer, small</h1>' } }], store.readSketch(bp, 'checkout')!.stamp, { madeBy: store.AI_DESIGNER, madeFor: 'Sara' });
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('done when 1-3: each sketch brings its card, newest edit first, with "AI Designer for Sara"', async () => {
+    threeSketches();
+    const before = snapshot();
+    const r = await call<{ sketches: CardRow[] }>('GET', '/sketches');
+    expect(r.status).toBe(200);
+    expect(r.data.sketches.map((s) => s.name)).toEqual(['Checkout', 'Profile', 'Onboarding']);
+    const [checkout, profile, onboarding] = r.data.sketches;
+    expect(checkout!.card).toEqual({ cover: { screen: 'cart', version: 2, views: ['desktop', 'mobile'] }, screens: 3, approved: 0, designSystem: 'Brand', edited: { at: ago(10), by: 'AI Designer', for: 'Sara' } });
+    expect(checkout!.lastEdit).toEqual(checkout!.card.edited);
+    expect(profile!.card).toEqual({ cover: null, screens: 1, approved: 0, designSystem: 'Brand', edited: { at: ago(60), by: 'Omar' } });
+    expect(onboarding!.card).toEqual({ cover: { screen: 'welcome', version: 1, views: ['desktop'] }, screens: 5, approved: 2, designSystem: 'Brand', edited: { at: ago(24 * 60), by: 'Sara' } });
+    // Reading the cards writes nothing.
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('the cover address sends the first screen\'s HTML by view, and writes nothing', async () => {
+    threeSketches();
+    const before = snapshot();
+    expect(await call('GET', '/sketches/checkout/cover')).toEqual({ status: 200, data: { screen: 'cart', version: 2, frames: { desktop: '<h1>Cart, calmer</h1>', mobile: '<h1>Cart, calmer, small</h1>' } } });
+    expect(await call('GET', '/sketches/onboarding/cover')).toEqual({ status: 200, data: { screen: 'welcome', version: 1, frames: { desktop: '<h1>Welcome</h1>' } } });
+    expect(await call('GET', '/sketches/profile/cover')).toEqual({ status: 200, data: { screen: null, version: null, frames: {} } });
+    expect((await call('GET', '/sketches/nothing-here/cover')).status).toBe(404);
+    // Behind the board's token like every Studio call.
+    expect((await fetch(`${api}/sketches/checkout/cover`)).status).toBe(401);
     expect(snapshot()).toEqual(before);
   });
 });

@@ -26,13 +26,14 @@ import {
 import { dumpYaml, idsIn, plainFile, sha1, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
 import {
-  SCREEN_STATUSES,
+  SCREEN_STATES,
   readDesignSystem,
   readScreenFile,
   readSketch,
   readSketchFile,
   studioStamp,
   type DesignSystem,
+  type EditMark,
   type ScreenFile,
   type ScreenStatus,
   type Sketch,
@@ -54,9 +55,14 @@ import {
  * grow: a saved version is never written again, so every variant stays pickable. Each item is read back with a change
  * stamp made from its files; every change brings the stamp it last read and is refused with "Changed elsewhere,
  * reload" when the files have changed since (AB-129.1), here, in another tab, or through a git pull.
+ *
+ * Every change to a sketch also writes when and by whom on the file it already saves (AB-131.1), in the same write and
+ * under the same stamp check; the sketch's last edit is the newest of those marks, worked out on read.
  */
 
 export {
+  AI_DESIGNER,
+  SCREEN_STATES,
   SCREEN_STATUSES,
   byMadeOrder,
   defaultDesignSystemOf,
@@ -69,6 +75,7 @@ export {
   type BrokenStudioItem,
   type DesignSystem,
   type DesignSystemVersion,
+  type EditMark,
   type ScreenStatus,
   type ScreenVariant,
   type Sketch,
@@ -216,6 +223,35 @@ export function saveDesignSystem(bp: BoardPaths, input: DesignSystemInput, stamp
   });
 }
 
+/** Who makes a change (AB-131.1): the person, or the AI Designer for the person who asked. */
+export interface EditBy {
+  by?: string;
+  for?: string;
+}
+
+/** The mark a change writes on the file it saves, made now. */
+function markNow(who: EditBy): EditMark {
+  const name = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME) : undefined);
+  const by = name(who.by);
+  const forWhom = name(who.for);
+  return { at: new Date().toISOString(), ...(by ? { by } : {}), ...(forWhom ? { for: forWhom } : {}) };
+}
+
+/** A saved file's text without its mark, to tell whether a save changes anything. */
+function withoutMark<T extends { edited?: EditMark }>(file: T): string {
+  const { edited: _edited, ...rest } = file;
+  return dumpYaml(rest);
+}
+
+/**
+ * Writes a sketch or screen file with a new mark, only when what it says changes (or it is new): a save that changes
+ * nothing leaves the file, its mark and the stamp as they were.
+ */
+function writeMarked<T extends { edited?: EditMark }>(file: string, before: T | null, next: T, who: EditBy): void {
+  if (before && withoutMark(before) === withoutMark(next)) return;
+  writeShared(file, dumpYaml({ ...next, edited: markNow(who) }));
+}
+
 export interface ScreenInput {
   /** Left out, it is made from the name. */
   id?: string;
@@ -237,9 +273,10 @@ export interface SketchInput {
 
 /**
  * Saves a sketch and its screens. With no stamp it is new. A new screen has no variant yet; its first one comes from
- * addVariant. A screen's chosen variant changes only through addVariant and pickVariant.
+ * addVariant. A screen's chosen variant changes only through addVariant and pickVariant. The sketch file and each
+ * screen file that changes gets the mark of who made the change, and when (AB-131.1).
  */
-export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | null = null): Sketch {
+export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | null = null, who: EditBy = {}): Sketch {
   const name = checkedName(input.name, 'sketch');
   const id = checkedStudioId(input.id ?? studioIdFor(name));
   if (!Array.isArray(input.frames) || !input.frames.length) throw new Error('Give the sketch at least one frame, like desktop.');
@@ -254,18 +291,19 @@ export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | n
   const screens = (input.screens ?? []).map((s, i) => {
     const screenName = checkedName(s.name, 'screen');
     const status = s.status ?? 'draft';
-    if (!(SCREEN_STATUSES as readonly string[]).includes(status)) throw new Error(`A screen is ${SCREEN_STATUSES.join(' or ')}.`);
+    if (!(SCREEN_STATES as readonly string[]).includes(status)) throw new Error(`A screen is ${SCREEN_STATES.join(', ').replace(/, (?=[^,]*$)/, ' or ')}.`);
     return { id: checkedStudioId(s.id ?? studioIdFor(screenName)), name: screenName, order: typeof s.order === 'number' && Number.isFinite(s.order) ? s.order : i + 1, status };
   });
   if (new Set(screens.map((s) => s.id)).size !== screens.length) throw new Error('Two screens in the sketch have the same name.');
   return changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
     const sketch: SketchFile = { name, designSystem: ds ? { id: ds.id, version: ds.version } : null, frames };
-    writeShared(sketchFile(bp, id), dumpYaml(sketch));
+    const sketchBefore = stamp === null ? null : readSketchFile(sketchFile(bp, id));
+    writeMarked(sketchFile(bp, id), sketchBefore, sketch, who);
     for (const s of screens) {
       const file = screenFile(bp, id, s.id);
       const before = plainFile(file) ? readScreenFile(file) : null;
       const screen: ScreenFile = { name: s.name, order: s.order, status: s.status, chosen: before?.chosen ?? null };
-      writeShared(file, dumpYaml(screen));
+      writeMarked(file, before, screen, who);
     }
     return readSketch(bp, id)!;
   });
@@ -274,7 +312,10 @@ export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | n
 export interface VariantInput {
   /** Frame id → its HTML; every frame must be one of the sketch's frames. */
   frames: Record<string, string>;
+  /** Who drew it: a person, or "AI Designer". */
   madeBy?: string;
+  /** The person the AI Designer drew it for. */
+  madeFor?: string;
   note?: string;
   /** Mark it as the chosen variant. The first variant of a screen is always chosen. */
   choose?: boolean;
@@ -306,12 +347,16 @@ function checkFrames(bp: BoardPaths, sketch: string, frames: Record<string, stri
   if (other) throw new Error(`The sketch "${sketch}" has no frame "${other}". Add it to the sketch first.`);
 }
 
-/** Writes a screen's next variant, under the lock and after the stamp was checked. Returns its version. */
+/**
+ * Writes a screen's next variant, under the lock and after the stamp was checked. Returns its version. Its meta.yaml is
+ * the drawing's mark (AB-131.1): when, who drew it and for whom.
+ */
 function writeVariant(bp: BoardPaths, sketch: string, screen: string, frames: Record<string, string>, input: Omit<VariantInput, 'frames'>): number {
   const before = existingScreen(bp, sketch, screen);
   const version = Math.max(0, ...versionsIn(screenDir(bp, sketch, screen))) + 1;
   const meta: VariantMetaFile = { madeAt: new Date().toISOString() };
   if (typeof input.madeBy === 'string' && input.madeBy.trim()) meta.madeBy = input.madeBy.trim().slice(0, MAX_NAME);
+  if (typeof input.madeFor === 'string' && input.madeFor.trim()) meta.madeFor = input.madeFor.trim().slice(0, MAX_NAME);
   if (typeof input.note === 'string' && input.note.trim()) meta.note = input.note.trim();
   const files: Record<string, string> = { [variantMetaFile(bp, sketch, screen, version)]: dumpYaml(meta) };
   for (const [f, html] of Object.entries(frames)) files[frameFile(bp, sketch, screen, version, f)] = html;
@@ -333,7 +378,7 @@ export interface DrawnScreen {
  * becomes the next variant of its screen (found by id, then by name) or a new screen, and is chosen. Every earlier
  * variant stays, pickable later. An old stamp writes nothing: "Changed elsewhere, reload".
  */
-export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScreen[], stamp: string, by: { madeBy?: string; note?: string } = {}): { sketch: Sketch; saved: { screen: string; version: number }[] } {
+export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScreen[], stamp: string, by: { madeBy?: string; madeFor?: string; note?: string } = {}): { sketch: Sketch; saved: { screen: string; version: number }[] } {
   checkedStudioId(sketch);
   if (!drawn.length) throw new Error('There are no screens to save.');
   const screens = drawn.map((d) => ({ id: d.id, name: checkedName(d.name, 'screen'), frames: checkedHtml(d.frames, 'frame') }));
@@ -352,20 +397,20 @@ export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScr
     let order = Math.max(0, ...current.map((c) => c.order));
     const saved = screens.map((d, i) => {
       const id = ids[i]!;
-      if (!plainFile(screenFile(bp, sketch, id))) writeShared(screenFile(bp, sketch, id), dumpYaml({ name: d.name, order: (order += 1), status: 'draft', chosen: null } satisfies ScreenFile));
+      if (!plainFile(screenFile(bp, sketch, id))) writeMarked<ScreenFile>(screenFile(bp, sketch, id), null, { name: d.name, order: (order += 1), status: 'draft', chosen: null } satisfies ScreenFile, { by: by.madeBy, for: by.madeFor });
       return { screen: id, version: writeVariant(bp, sketch, id, d.frames, { ...by, choose: true }) };
     });
     return { sketch: readSketch(bp, sketch)!, saved };
   });
 }
 
-/** Marks one saved variant of a screen as the chosen one. The others stay, pickable later. */
-export function pickVariant(bp: BoardPaths, sketch: string, screen: string, version: number, stamp: string): Sketch {
+/** Marks one saved variant of a screen as the chosen one. The others stay, pickable later. The screen file gets the mark. */
+export function pickVariant(bp: BoardPaths, sketch: string, screen: string, version: number, stamp: string, who: EditBy = {}): Sketch {
   checkedStudioId(sketch);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     const before = existingScreen(bp, sketch, screen);
     if (!versionsIn(screenDir(bp, sketch, screen)).includes(version)) throw new Error(`The screen "${screen}" has no variant ${version}.`);
-    writeShared(screenFile(bp, sketch, screen), dumpYaml({ ...before, chosen: version }));
+    writeMarked(screenFile(bp, sketch, screen), before, { ...before, chosen: version }, who);
     return readSketch(bp, sketch)!;
   });
 }
@@ -423,13 +468,17 @@ export function deleteSketch(bp: BoardPaths, id: string, stamp: string): void {
   });
 }
 
-/** Deletes one screen of a sketch and every variant of it for good, with this computer's thumbnails for it. */
-export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: string): Sketch {
+/**
+ * Deletes one screen of a sketch and every variant of it for good, with this computer's thumbnails for it. The sketch
+ * file keeps the mark of the delete, since the screen's own files are gone (AB-131.1).
+ */
+export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: string, who: EditBy = {}): Sketch {
   checkedStudioId(sketch);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     existingScreen(bp, sketch, screen);
     fs.rmSync(screenDir(bp, sketch, screen), { recursive: true, force: true });
     fs.rmSync(screenThumbnailsDir(bp, sketch, screen), { recursive: true, force: true });
+    writeShared(sketchFile(bp, sketch), dumpYaml({ ...readSketchFile(sketchFile(bp, sketch)), edited: markNow(who) }));
     return readSketch(bp, sketch)!;
   });
 }

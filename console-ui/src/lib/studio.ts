@@ -78,16 +78,96 @@ export function usedByText(sketches: number): string {
 
 /* ── The Sketches tab and its start page (US-05, AB-130) ── */
 
-/** One sketch in the list, as GET /api/v1/studio/sketches sends it. */
+/** When a change was made and by whom (AB-131.1): the person, or "AI Designer" for the person who asked. */
+export interface EditMark {
+  at: string;
+  by?: string;
+  for?: string;
+}
+
+/** What a sketch's card shows (US-06), as the server works it out. */
+export interface SketchCardInfo {
+  /** The first screen's chosen drawing and its views (desktop, mobile) to show, or null when it has none yet. */
+  cover: { screen: string; version: number; views: string[] } | null;
+  screens: number;
+  /** Screens marked Approved; Ready ones do not count. */
+  approved: number;
+  designSystem: string | null;
+  edited: EditMark | null;
+}
+
+/** One sketch in the list, as GET /api/v1/studio/sketches sends it: newest edit first. */
 export interface SketchRow {
   id: string;
   name: string;
   designSystem: { id: string; version: number; name: string | null } | null;
   stamp: string;
   screens: { id: string; name: string }[];
+  card?: SketchCardInfo;
 }
 
 export const SKETCHES_PATH = '/api/v1/studio/sketches';
+/** A card's thumbnail: the first screen's HTML by view. It only reads. */
+export const coverPath = (id: string) => `/api/v1/studio/sketches/${encodeURIComponent(id)}/cover`;
+
+/** What GET …/cover sends: the HTML by view, or null fields when the first screen has no drawing yet. */
+export interface SketchCover {
+  screen: string | null;
+  version: number | null;
+  frames: Record<string, string>;
+}
+
+/** "3 screens", "1 screen", "No screens yet". */
+export function screensText(n: number): string {
+  if (!n) return 'No screens yet';
+  return `${n} ${n === 1 ? 'screen' : 'screens'}`;
+}
+
+/** "2 of 5 approved", or null while none is approved: a card with none says nothing about approving. */
+export function approvedText(approved: number, screens: number): string | null {
+  return approved > 0 ? `${approved} of ${screens} approved` : null;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** "just now", "10 minutes ago", "2 hours ago", "yesterday", "3 days ago", "on 4 Oct". */
+export function agoText(iso: string, now = Date.now()): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, (now - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${plural(Math.floor(s / 60), 'minute')} ago`;
+  if (s < 86400) return `${plural(Math.floor(s / 3600), 'hour')} ago`;
+  if (s < 2 * 86400) return 'yesterday';
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} days ago`;
+  return `on ${new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(new Date(t).getFullYear() === new Date(now).getFullYear() ? {} : { year: 'numeric' }) })}`;
+}
+
+/** "Edited 2 hours ago by Sara", "Edited 10 minutes ago by AI Designer for Sara"; empty with no mark. */
+export function editedText(mark: EditMark | null | undefined, now = Date.now()): string {
+  const when = mark ? agoText(mark.at, now) : '';
+  if (!mark || !when) return '';
+  const who = mark.by ? ` by ${mark.by}${mark.for ? ` for ${mark.for}` : ''}` : '';
+  return `Edited ${when}${who}`;
+}
+
+/** The size each view of a thumbnail is drawn at, before it is made small. */
+export const VIEW_SIZES: Record<string, { width: number; height: number }> = {
+  desktop: { width: 1280, height: 800 },
+  tablet: { width: 820, height: 1180 },
+  mobile: { width: 390, height: 844 },
+};
+
+/**
+ * A drawing's HTML for a thumbnail: the board's frame is sandboxed with no scripts, and this policy, first in the
+ * page, lets it reach no network either. Its own inline styles and data: pictures still show.
+ */
+export const THUMB_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+
+export function sealedHtml(html: string): string {
+  // The policy always comes first, before anything the drawing says, so no comment or trick in it can come before it.
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${THUMB_POLICY}">${html.replace(/^\s*<!doctype[^>]*>/i, '')}`;
+}
 /** Sending the first message: it makes the sketch and keeps the message with its chat on this computer. */
 export const START_SKETCH_PATH = '/api/v1/studio/sketches/start';
 /** GET says whether a picture of the running app can be taken, and why not; POST takes one. */

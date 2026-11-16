@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which starts the app when needed and adds a picture of it. Pictures stay in the browser until you send. Send makes
   the sketch and opens it with your message; the message and its pictures stay on this computer, not in the project.
   With no design system yet, a small line offers to set one up, without blocking Send.
+- **The Sketches home.** Each sketch is a card: a small picture of its first screen (desktop and mobile, as it has
+  them), its name, how many screens and how many are approved, its design system, and when it was last edited and by
+  whom ("Edited 10 minutes ago by AI Designer for Sara"). Cards are sorted by last edit, newest first, and a click
+  opens the sketch. A picture that is not ready yet shows a plain placeholder. The sample board has three sketches.
 
 ## [1.3.21] — 2026-11-13
 

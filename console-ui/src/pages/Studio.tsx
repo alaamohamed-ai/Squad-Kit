@@ -6,14 +6,21 @@ import {
   DESIGN_SYSTEMS_PATH,
   SKETCHES_PATH,
   STUDIO_TABS,
+  VIEW_SIZES,
+  approvedText,
+  coverPath,
   designSystemsKey,
+  editedText,
   isColorValue,
   readStudioTab,
   saveStudioTab,
+  screensText,
+  sealedHtml,
   sketchesKey,
   usedByText,
   type DesignSystemCard,
   type DesignSystemList,
+  type SketchCover,
   type SketchRow,
   type StudioTab,
 } from '../lib/studio';
@@ -57,7 +64,7 @@ function useDesignSystems(project: string) {
   return useQuery({ queryKey: designSystemsKey(project), queryFn: () => api<DesignSystemList>(DESIGN_SYSTEMS_PATH) });
 }
 
-/** The Sketches tab: the start page while the project has no sketch, then the list of sketches. */
+/** The Sketches tab: the start page while the project has no sketch, then a card per sketch, newest edit first (US-06). */
 function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDesignSystem: () => void }) {
   const list = useQuery({ queryKey: sketchesKey(project), queryFn: () => api<{ sketches: SketchRow[] }>(SKETCHES_PATH) });
   const systems = useDesignSystems(project);
@@ -70,18 +77,108 @@ function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDe
     return <StartSketch project={project} noDesignSystem={noDesignSystem} onSetUpDesignSystem={onSetUpDesignSystem} />;
   }
   return (
-    <ul className="sk-list" aria-label="Sketches">
+    <ul className="sk-cards" aria-label="Sketches">
       {sketches.map((s) => (
-        <li key={s.id}>
-          <Link to="/studio/sketches/$id" params={{ id: s.id }} dir="auto">
-            {s.name}
-          </Link>
-          <span className="sk-meta">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'No design system'}</span>
-        </li>
+        <SketchCardView key={s.id} project={project} sketch={s} />
       ))}
     </ul>
   );
 }
+
+/**
+ * One sketch's card: its first screen small (desktop and mobile, as it has them), its name, screens, approved count,
+ * design system and last edit. The whole card is one link to the sketch.
+ */
+function SketchCardView({ project, sketch }: { project: string; sketch: SketchRow }) {
+  const card = sketch.card;
+  const screens = card?.screens ?? sketch.screens.length;
+  const approved = approvedText(card?.approved ?? 0, screens);
+  const designSystem = card ? card.designSystem : sketch.designSystem ? (sketch.designSystem.name ?? sketch.designSystem.id) : null;
+  const edited = editedText(card?.edited);
+  return (
+    <li className="sk-card">
+      <Link to="/studio/sketches/$id" params={{ id: sketch.id }} className="sk-card-link">
+        <Thumbnails project={project} sketch={sketch} />
+        <span className="sk-card-body">
+          <span className="sk-card-name" dir="auto">
+            {sketch.name}
+          </span>
+          <span className="sk-card-facts">
+            <span className="sk-card-screens">{screensText(screens)}</span>
+            {approved && <span className="sk-card-approved">{approved}</span>}
+          </span>
+          <span className="sk-card-ds" dir="auto">
+            {designSystem ?? 'No design system'}
+          </span>
+          {edited && (
+            <span className="sk-card-edited" dir="auto">
+              {edited}
+            </span>
+          )}
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+/** The first screen small, one picture per view it has. With no drawing yet, one plain placeholder. */
+function Thumbnails({ project, sketch }: { project: string; sketch: SketchRow }) {
+  const cover = sketch.card?.cover ?? null;
+  const html = useQuery({
+    queryKey: ['studio', project, 'cover', sketch.id, sketch.stamp],
+    queryFn: () => api<SketchCover>(coverPath(sketch.id)),
+    enabled: cover !== null,
+    staleTime: Infinity,
+  });
+  if (!cover || !cover.views.length) {
+    return (
+      <span className="sk-thumbs">
+        <span className="sk-thumb desktop">
+          <span className="sk-thumb-wait" aria-label="No picture yet" role="img" />
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="sk-thumbs">
+      {cover.views.map((v) => (
+        <Thumb key={`${v}:${cover.version}`} view={v} html={html.data?.frames?.[v]} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One view drawn small in a sealed frame: no scripts (an empty sandbox) and no network (sealedHtml's policy). The plain
+ * placeholder stays until the frame has loaded, so a thumbnail that is not ready never shows broken.
+ */
+function Thumb({ view, html }: { view: string; html: string | undefined }) {
+  const [loaded, setLoaded] = useState(false);
+  const size = VIEW_SIZES[view] ?? VIEW_SIZES.desktop!;
+  const kind = view === 'mobile' ? 'mobile' : 'desktop';
+  const scale = THUMB_H / size.height;
+  return (
+    <span className={`sk-thumb ${kind}`} data-view={view} style={{ width: Math.round(size.width * scale) }}>
+      {typeof html === 'string' && (
+        <iframe
+          className="sk-thumb-frame"
+          title={`${view} picture`}
+          sandbox=""
+          srcDoc={sealedHtml(html)}
+          referrerPolicy="no-referrer"
+          tabIndex={-1}
+          aria-hidden="true"
+          style={{ width: size.width, height: size.height, transform: `scale(${scale})` }}
+          onLoad={() => setLoaded(true)}
+        />
+      )}
+      {!loaded && <span className="sk-thumb-wait" aria-label="Picture not ready yet" role="img" />}
+    </span>
+  );
+}
+
+/** The height every thumbnail is drawn at, in the board's pixels. */
+const THUMB_H = 150;
 
 /** The Design systems tab (US-33): one card per design system, the Default first, then the others as they were made. */
 function DesignSystems({ project }: { project: string }) {

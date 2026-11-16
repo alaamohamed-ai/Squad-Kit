@@ -1,4 +1,4 @@
-import type { BoardPaths } from './store.js';
+import { readMeta, type BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
 import {
   SCREEN_STATUSES,
@@ -15,6 +15,8 @@ import {
   studioIdFor,
   type DesignSystem,
   type DesignSystemInput,
+  type EditBy,
+  type EditMark,
   type ScreenInput,
   type ScreenStatus,
   type Sketch,
@@ -30,7 +32,20 @@ import {
  * "Changed elsewhere, reload" and writes nothing; a screen change checks the stamp of its sketch. Deletes are for
  * good, with no bin. Reading and listing never write a file (AB-127.1). All of it goes through the Studio store,
  * studio.ts (AB-128.2).
+ *
+ * Each change to a sketch is marked with who made it (AB-131.1): the person's name from the project settings, the same
+ * name the board shows elsewhere, whether the change comes from the board or the terminal.
  */
+
+/** The person a change from the board or the terminal is marked with (AB-131.1). */
+export function personEditing(bp: BoardPaths): EditBy {
+  try {
+    const name = readMeta(bp).user?.name;
+    return typeof name === 'string' && name.trim() ? { by: name.trim() } : {};
+  } catch {
+    return {};
+  }
+}
 
 /** The project has no sketch, screen or design system by that id. */
 export class StudioNotFound extends Error {
@@ -217,6 +232,70 @@ export function listSketches(bp: BoardPaths): SketchView[] {
   return studio.sketches.map((s) => sketchView(s, (id) => names.get(id) ?? null));
 }
 
+/** The views a card's thumbnail shows, in this order, when the first screen's drawing has them. */
+export const COVER_VIEWS = ['desktop', 'mobile'] as const;
+
+/** What a sketch's card on the Sketches home shows (US-06, AB-131). */
+export interface SketchCardInfo {
+  /** The first screen's chosen drawing and the views of it to show, or null when it has none yet. */
+  cover: { screen: string; version: number; views: string[] } | null;
+  screens: number;
+  /** Screens marked Approved; Ready ones do not count. */
+  approved: number;
+  /** The design system's name; null when the sketch follows none, or its id when it is not saved. */
+  designSystem: string | null;
+  /** The newest mark on the sketch's files (AB-131.1), or null when none has one. */
+  edited: EditMark | null;
+}
+
+export interface SketchCard extends SketchView {
+  card: SketchCardInfo;
+}
+
+/** The views of the first screen's chosen drawing a thumbnail shows: desktop and mobile, or else its first frame. */
+function coverOf(s: Sketch | SketchView): SketchCardInfo['cover'] {
+  const first = s.screens[0];
+  const chosen = first?.variants.find((v) => v.version === first.chosen);
+  if (!first || !chosen) return null;
+  const has = Object.keys(chosen.frames);
+  const views = COVER_VIEWS.filter((v) => has.includes(v));
+  if (!views.length && !has.length) return null;
+  return { screen: first.id, version: chosen.version, views: views.length ? [...views] : [has[0]!] };
+}
+
+function editTime(m: EditMark | null): number {
+  const t = m ? Date.parse(m.at) : Number.NaN;
+  return Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
+}
+
+/**
+ * The Sketches home's cards (US-06, AB-131): every sketch with its first screen's cover, how many screens and how many
+ * approved, its design system's name and its last edit, newest edit first, then by name. It only reads.
+ */
+export function sketchList(bp: BoardPaths): SketchCard[] {
+  return listSketches(bp)
+    .map((s) => ({
+      ...s,
+      card: {
+        cover: coverOf(s),
+        screens: s.screens.length,
+        approved: s.screens.filter((sc) => sc.status === 'approved').length,
+        designSystem: s.designSystem ? (s.designSystem.name ?? s.designSystem.id) : null,
+        edited: s.lastEdit,
+      },
+    }))
+    .sort((a, b) => editTime(b.card.edited) - editTime(a.card.edited) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** The HTML of a sketch's cover, by view, for its card's thumbnail; null fields when its first screen has no drawing yet. */
+export function sketchCover(bp: BoardPaths, id: string): { screen: string | null; version: number | null; frames: Record<string, string> } {
+  const s = getSketch(bp, id);
+  const cover = coverOf(s);
+  if (!cover) return { screen: null, version: null, frames: {} };
+  const drawn = s.screens[0]!.variants.find((v) => v.version === cover.version)!.frames;
+  return { screen: cover.screen, version: cover.version, frames: Object.fromEntries(cover.views.map((v) => [v, drawn[v]!])) };
+}
+
 export function getSketch(bp: BoardPaths, id: string): SketchView {
   const sketch = readSketch(bp, id);
   if (!sketch) throw new StudioNotFound(`This project has no sketch "${id}".`);
@@ -255,9 +334,11 @@ export function createSketch(bp: BoardPaths, input: NewSketchInput): SketchView 
       name: input.name,
       designSystem: input.designSystem === undefined ? null : followed(bp, input.designSystem),
       frames: maybeFrames(input.frames) ?? ['desktop'],
-      screens: input.screens,
+      // A person marks a screen draft or ready; approving comes with its own button (US-15).
+      screens: input.screens?.map((sc) => (isPlain(sc) ? { ...sc, status: maybeStatus(sc.status) } : sc)),
     },
     null,
+    personEditing(bp),
   );
   return getSketch(bp, saved.id);
 }
@@ -274,7 +355,7 @@ export function changeSketch(bp: BoardPaths, id: string, change: SketchChange, s
   if (!isPlain(change as unknown)) throw new Error('Say what to change in the sketch.');
   const current = getSketch(bp, id);
   const designSystem = change.designSystem === undefined ? current.designSystem && { id: current.designSystem.id, version: current.designSystem.version } : followed(bp, change.designSystem);
-  saveSketch(bp, { id, name: maybeText(change.name, 'name') ?? current.name, designSystem, frames: maybeFrames(change.frames) ?? current.frames }, from);
+  saveSketch(bp, { id, name: maybeText(change.name, 'name') ?? current.name, designSystem, frames: maybeFrames(change.frames) ?? current.frames }, from, personEditing(bp));
   return getSketch(bp, id);
 }
 
@@ -313,7 +394,7 @@ export function addScreen(bp: BoardPaths, sketch: string, input: ScreenInput, st
   const id = maybeText(input.id, 'id') ?? studioIdFor(name.trim());
   if (name.trim() && current.screens.some((sc) => sc.id === id)) throw new Error(`The sketch "${current.name}" already has a screen "${name.trim()}".`);
   const order = maybeOrder(input.order) ?? Math.max(0, ...current.screens.map((sc) => sc.order)) + 1;
-  saveSketch(bp, { ...sketchAsSaved(current), screens: [{ id, name, order, status: maybeStatus(input.status) }] }, from);
+  saveSketch(bp, { ...sketchAsSaved(current), screens: [{ id, name, order, status: maybeStatus(input.status) }] }, from, personEditing(bp));
   return getSketch(bp, sketch);
 }
 
@@ -324,7 +405,7 @@ export function changeScreen(bp: BoardPaths, sketch: string, screen: string, cha
   const current = getSketch(bp, sketch);
   const was = screenOf(current, screen);
   const next = { id: was.id, name: maybeText(change.name, 'name') ?? was.name, order: maybeOrder(change.order) ?? was.order, status: maybeStatus(change.status) ?? was.status };
-  saveSketch(bp, { ...sketchAsSaved(current), screens: [next] }, from);
+  saveSketch(bp, { ...sketchAsSaved(current), screens: [next] }, from, personEditing(bp));
   return getSketch(bp, sketch);
 }
 
@@ -332,6 +413,6 @@ export function changeScreen(bp: BoardPaths, sketch: string, screen: string, cha
 export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: unknown): SketchView {
   const from = checkedStamp(stamp);
   screenOf(getSketch(bp, sketch), screen);
-  removeScreen(bp, sketch, screen, from);
+  removeScreen(bp, sketch, screen, from, personEditing(bp));
   return getSketch(bp, sketch);
 }

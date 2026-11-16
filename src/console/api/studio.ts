@@ -16,8 +16,10 @@ import {
   designSystemList,
   getDesignSystem,
   getSketch,
-  listSketches,
+  sketchCover,
+  sketchList,
   type DesignSystemView,
+  type SketchCard,
   type SketchView,
 } from '../../board/studio-actions.js';
 import { sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
@@ -60,6 +62,8 @@ function sketchRow(s: Sketch | SketchView) {
     name: s.name,
     designSystem: s.designSystem,
     frames: s.frames,
+    /** The newest mark on its files (AB-131.1): when, by whom, and for whom when the AI Designer did it. */
+    lastEdit: s.lastEdit,
     stamp: s.stamp,
     screens: s.screens.map((sc) => ({
       id: sc.id,
@@ -70,6 +74,11 @@ function sketchRow(s: Sketch | SketchView) {
       variants: sc.variants.map((v) => ({ version: v.version, frames: Object.keys(v.frames), madeAt: v.madeAt, ...(v.madeBy ? { madeBy: v.madeBy } : {}), ...(v.note ? { note: v.note } : {}) })),
     })),
   };
+}
+
+/** One card on the Sketches home (US-06): the list's row, with what its card shows. */
+function sketchCardRow(s: SketchCard) {
+  return { ...sketchRow(s), card: s.card };
 }
 
 /** One sketch read on its own: the list's row, with each variant's HTML by frame. */
@@ -155,7 +164,8 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
   });
 
   /* ── Sketches ── */
-  app.get('/api/v1/studio/sketches', (c) => run(c, () => ({ sketches: listSketches(bp).map(sketchRow) })));
+  // The Sketches home's cards (US-06, AB-131), newest edit first, then by name.
+  app.get('/api/v1/studio/sketches', (c) => run(c, () => ({ sketches: sketchList(bp).map(sketchCardRow) })));
   app.get('/api/v1/studio/sketches/:id', (c) => run(c, () => sketchRead(getSketch(bp, c.req.param('id')))));
   app.post('/api/v1/studio/sketches', async (c) => {
     const b = await body(c);
@@ -175,6 +185,9 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
       return { messages: chat.messages.map((m) => ({ ...m, pictures: (m.pictures ?? []).map((f) => `/api/v1/studio/sketches/${encodeURIComponent(id)}/chat/pictures/${encodeURIComponent(f)}`) })) };
     }),
   );
+  // A card's thumbnail (US-06): the HTML of the first screen's chosen drawing, desktop and mobile as it has them. The
+  // board draws it in a sealed frame with no scripts and no network. It only reads.
+  app.get('/api/v1/studio/sketches/:id/cover', (c) => run(c, () => sketchCover(bp, c.req.param('id'))));
   app.get('/api/v1/studio/sketches/:id/chat/pictures/:file', (c) => {
     let picture: ReturnType<typeof sketchChatPicture> = null;
     try {

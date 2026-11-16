@@ -88,7 +88,7 @@ function saveBrandAndCheckout(paths: BoardPaths = bp) {
 
 describe('done when 1: the layout in .squad/studio/', () => {
   it('saves Brand and Checkout as plain files, one folder each, and nothing else in .squad/ changes', () => {
-    seedDemoBoard(bp, { speed: 1000 });
+    seedDemoBoard(bp, { speed: 1000, studio: false });
     const before = snapshot(bp.squadDir);
     saveBrandAndCheckout();
 
@@ -108,8 +108,9 @@ describe('done when 1: the layout in .squad/studio/', () => {
     expect(readStudio(bp).defaultDesignSystem).toBe('brand');
     expect(JSON.parse(read('design-systems/brand/v1/tokens.json'))).toEqual(BRAND_TOKENS);
     expect(read('design-systems/brand/v1/components/button.html')).toBe(BUTTON);
-    expect(yaml.load(read('sketches/checkout/sketch.yaml'))).toEqual({ name: 'Checkout', designSystem: { id: 'brand', version: 1 }, frames: ['desktop'] });
-    expect(yaml.load(read('sketches/checkout/screens/payment/screen.yaml'))).toEqual({ name: 'Payment', order: 1, status: 'draft', chosen: 1 });
+    expect(yaml.load(read('sketches/checkout/sketch.yaml'))).toEqual({ name: 'Checkout', designSystem: { id: 'brand', version: 1 }, frames: ['desktop'], edited: { at: expect.any(String) } });
+    // Each change marks the file it saves with when (AB-131.1); the store alone is told no name here.
+    expect(yaml.load(read('sketches/checkout/screens/payment/screen.yaml'))).toEqual({ name: 'Payment', order: 1, status: 'draft', chosen: 1, edited: { at: expect.any(String) } });
     expect(read('sketches/checkout/screens/payment/v1/desktop.html')).toBe(PAYMENT_DESKTOP);
     expect(yaml.load(read('sketches/checkout/screens/payment/v1/meta.yaml'))).toMatchObject({ madeBy: 'person', madeAt: expect.any(String) });
 
@@ -344,7 +345,7 @@ describe('the one default design system (AB-158.1)', () => {
 
 describe('done when 5: a project with no Studio work stays exactly as it was', () => {
   it('opens and reads the Studio with no folder made and every file outside .squad/studio/ untouched', async () => {
-    seedDemoBoard(bp, { speed: 1000 });
+    seedDemoBoard(bp, { speed: 1000, studio: false });
     const shared = snapshot(bp.squadDir);
     const local = snapshot(bp.localDir);
     const meta = readMeta(bp);

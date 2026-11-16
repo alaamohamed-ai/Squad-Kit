@@ -37,16 +37,38 @@ export interface SystemFile {
   madeAt: string;
 }
 
+/**
+ * When a change was made and by whom (AB-131.1). Each change writes it on the file it already saves: the sketch file
+ * for making, renaming, a new design system or frames and deleting a screen; the screen file for adding, renaming,
+ * marking or picking a screen. A drawing's mark is its own version's meta.yaml (madeAt, madeBy, madeFor). A sketch's
+ * last edit is the newest mark, worked out on read, so opening the Studio writes nothing.
+ */
+export interface EditMark {
+  at: string;
+  /** The person, or "AI Designer". Left out when the change did not say who made it. */
+  by?: string;
+  /** The person the AI Designer did it for. */
+  for?: string;
+}
+
+/** Who a change by the AI Designer is marked as, for the person who asked (AB-131.1). */
+export const AI_DESIGNER = 'AI Designer';
+
 /** `sketch.yaml`. */
 export interface SketchFile {
   name: string;
   designSystem: { id: string; version: number } | null;
   /** The frames each screen is drawn in: desktop, tablet, mobile … */
   frames: string[];
+  /** The last change this file saved (AB-131.1); left out on a sketch made before marks were kept. */
+  edited?: EditMark;
 }
 
+/** What a person can mark a screen as today. */
 export const SCREEN_STATUSES = ['draft', 'ready'] as const;
-export type ScreenStatus = (typeof SCREEN_STATUSES)[number];
+/** Every status a screen file can hold: "approved" is read already, so approving (US-15) only adds the button. */
+export const SCREEN_STATES = [...SCREEN_STATUSES, 'approved'] as const;
+export type ScreenStatus = (typeof SCREEN_STATES)[number];
 
 /** `screen.yaml`. */
 export interface ScreenFile {
@@ -55,6 +77,8 @@ export interface ScreenFile {
   status: ScreenStatus;
   /** The chosen variant's version, or null before the first one is drawn. */
   chosen: number | null;
+  /** The last change this file saved (AB-131.1). */
+  edited?: EditMark;
 }
 
 /** `v1/meta.yaml` beside a variant's frames. */
@@ -62,6 +86,8 @@ export interface VariantMetaFile {
   madeAt: string;
   /** Who drew it: a person or the AI Designer. */
   madeBy?: string;
+  /** The person the AI Designer drew it for. */
+  madeFor?: string;
   note?: string;
 }
 
@@ -102,6 +128,8 @@ export interface SketchScreen {
   order: number;
   status: ScreenStatus;
   chosen: number | null;
+  /** The last change its screen file saved. */
+  edited?: EditMark;
   variants: ScreenVariant[];
 }
 
@@ -111,6 +139,8 @@ export interface Sketch {
   designSystem: { id: string; version: number } | null;
   frames: string[];
   screens: SketchScreen[];
+  /** The newest mark on its files (AB-131.1), or null when none of them has one. */
+  lastEdit: EditMark | null;
   stamp: string;
 }
 
@@ -165,23 +195,41 @@ function readSystemFile(file: string): SystemFile {
   return { name: raw.name, default: raw.default === true, version: raw.version, madeAt: timeText(raw.madeAt) };
 }
 
+/** A name in a mark: one line, kept short. */
+function markName(x: unknown): string | undefined {
+  return typeof x === 'string' && x.trim() ? x.trim().replace(/\s+/g, ' ').slice(0, 120) : undefined;
+}
+
+/** A mark as written, or undefined when there is none or its time cannot be read: a hand edit never breaks the read. */
+function readEditMark(x: unknown): EditMark | undefined {
+  if (!isPlain(x)) return undefined;
+  const at = timeText(x.at);
+  if (Number.isNaN(Date.parse(at))) return undefined;
+  const by = markName(x.by);
+  const forWhom = markName(x.for);
+  return { at, ...(by ? { by } : {}), ...(forWhom ? { for: forWhom } : {}) };
+}
+
 export function readSketchFile(file: string): SketchFile {
   const raw = readYamlFile(file);
   if (!isPlain(raw) || typeof raw.name !== 'string') throw problem(`The sketch file ${file}`);
   const ds = raw.designSystem;
   const designSystem = isPlain(ds) && typeof ds.id === 'string' && STUDIO_ID.test(ds.id) && positive(ds.version) ? { id: ds.id, version: ds.version } : null;
   const frames = Array.isArray(raw.frames) ? raw.frames.filter((f): f is string => typeof f === 'string' && STUDIO_ID.test(f)) : [];
-  return { name: raw.name, designSystem, frames };
+  const edited = readEditMark(raw.edited);
+  return { name: raw.name, designSystem, frames, ...(edited ? { edited } : {}) };
 }
 
 export function readScreenFile(file: string): ScreenFile {
   const raw = readYamlFile(file);
   if (!isPlain(raw) || typeof raw.name !== 'string') throw problem(`The screen file ${file}`);
+  const edited = readEditMark(raw.edited);
   return {
     name: raw.name,
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
-    status: (SCREEN_STATUSES as readonly unknown[]).includes(raw.status) ? (raw.status as ScreenStatus) : 'draft',
+    status: (SCREEN_STATES as readonly unknown[]).includes(raw.status) ? (raw.status as ScreenStatus) : 'draft',
     chosen: positive(raw.chosen) ? raw.chosen : null,
+    ...(edited ? { edited } : {}),
   };
 }
 
@@ -189,8 +237,28 @@ function readVariantMeta(file: string): VariantMetaFile {
   const raw = plainFile(file) ? readYamlFile(file) : {};
   const meta: VariantMetaFile = { madeAt: isPlain(raw) ? timeText(raw.madeAt) : '' };
   if (isPlain(raw) && typeof raw.madeBy === 'string') meta.madeBy = raw.madeBy;
+  if (isPlain(raw) && typeof raw.madeFor === 'string') meta.madeFor = raw.madeFor;
   if (isPlain(raw) && typeof raw.note === 'string') meta.note = raw.note;
   return meta;
+}
+
+/**
+ * A sketch's last edit (AB-131.1): the newest mark on its sketch file, its screen files and its drawings. On equal
+ * times the sketch file's mark wins, then the screens' in their order. Null when no file has a mark.
+ */
+export function lastEditOf(sketch: SketchFile, screens: SketchScreen[]): EditMark | null {
+  const marks: EditMark[] = [];
+  if (sketch.edited) marks.push(sketch.edited);
+  for (const s of screens) {
+    if (s.edited) marks.push(s.edited);
+    for (const v of s.variants) {
+      const drawn = readEditMark({ at: v.madeAt, by: v.madeBy, for: v.madeFor });
+      if (drawn) marks.push(drawn);
+    }
+  }
+  let newest: EditMark | null = null;
+  for (const m of marks) if (!newest || Date.parse(m.at) > Date.parse(newest.at)) newest = m;
+  return newest;
 }
 
 function readTokens(file: string): Record<string, unknown> {
@@ -262,7 +330,7 @@ export function readSketch(bp: BoardPaths, id: string): Sketch | null {
     .filter((s) => STUDIO_ID.test(s) && plainFile(screenFile(bp, id, s)))
     .map((s) => readScreen(bp, id, s))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  return { id, ...sketch, screens, stamp: stamp ?? '' };
+  return { id, name: sketch.name, designSystem: sketch.designSystem, frames: sketch.frames, screens, lastEdit: lastEditOf(sketch, screens), stamp: stamp ?? '' };
 }
 
 /**

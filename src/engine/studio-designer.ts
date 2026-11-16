@@ -3,6 +3,7 @@ import path from 'node:path';
 import { rulesFor } from '../board/additions.js';
 import { readMeta, type BoardPaths } from '../board/store.js';
 import {
+  AI_DESIGNER,
   CHANGED_ELSEWHERE,
   StudioChangedElsewhere,
   checkStudioStamp,
@@ -63,6 +64,8 @@ export interface DesignerAsk {
   name?: string;
   /** The pictures added to the message, as saved with the chat on this computer (AB-130.1). */
   pictures?: string[];
+  /** The person who asked; left out, the person in the project settings. The drawing is marked as theirs (AB-131.1). */
+  for?: string;
 }
 
 export type DesignerResult =
@@ -226,7 +229,9 @@ export async function runDesigner(bp: BoardPaths, a: DesignerAsk, o: DesignerOpt
     const done = { ok: true as const, note, model, ...(cost !== undefined ? { costUsd: cost } : {}) };
     if (sketch) {
       const drawn = answer.screens.map((s) => ({ ...(s.id ? { id: s.id } : {}), name: s.name.trim(), frames: Object.fromEntries(s.frames.map((f) => [f.frame.trim(), f.html])) }));
-      const saved = saveDrawnScreens(bp, sketch.id, drawn, a.stamp!, { madeBy: 'Designer', ...(note ? { note } : {}) });
+      // Marked as the AI Designer's work for the person who asked (AB-131.1).
+      const asker = a.for?.trim() || meta.user?.name?.trim();
+      const saved = saveDrawnScreens(bp, sketch.id, drawn, a.stamp!, { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(note ? { note } : {}) });
       return { ...done, sketch: saved.sketch, saved: saved.saved };
     }
     const components = Object.fromEntries(answer.screens.map((s) => [studioIdFor(s.name.trim()), s.frames[0]!.html]));
