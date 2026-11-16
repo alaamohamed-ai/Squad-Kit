@@ -456,7 +456,8 @@ export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, ve
 export interface StudioChat {
   /** What the chat is about, when it is about one screen. */
   screen?: string;
-  messages: { role: 'person' | 'designer'; text: string; at?: string }[];
+  /** `pictures` names the message's picture files in the sketch's chat pictures folder (chatPictureFile, AB-130.1). */
+  messages: { role: 'person' | 'designer'; text: string; at?: string; pictures?: string[] }[];
 }
 
 /** An AI Designer chat about a sketch. Like thumbnails, it stays on this computer and is not part of any stamp. */

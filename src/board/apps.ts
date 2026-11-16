@@ -33,6 +33,12 @@ export function hasAppToStart(meta: BoardMeta): boolean {
   return reposOf(meta).some((r) => Boolean(r.commands.start?.trim() && r.commands.url?.trim()) || PHONE_COMMANDS.test(Object.values(r.commands).join('\n')));
 }
 
+/** True when the repo's saved commands say it is a phone app: Flutter, Xcode, React Native or Expo. */
+export function isPhoneRepo(meta: BoardMeta, repo: string): boolean {
+  const r = reposOf(meta).find((x) => x.path === repo);
+  return Boolean(r && PHONE_COMMANDS.test(Object.values(r.commands).join('\n')));
+}
+
 export function projectApps(meta: BoardMeta): ProjectApp[] {
   const all = reposOf(meta).filter((r) => repoRuns(meta, r.path)).map((r) => ({
     name: r.path === '.' ? meta.project : (repoLabel(meta, r.path) ?? r.path),

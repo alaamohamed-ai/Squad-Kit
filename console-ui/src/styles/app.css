@@ -1331,3 +1331,43 @@ ul.ticketnotes .grow, .addnote .grow { flex: 1; }
 .ds-colors { display: flex; gap: 6px; flex-wrap: wrap; }
 .ds-color { width: 28px; height: 28px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08); }
 .ds-used { font-size: 12.5px; color: var(--muted); }
+
+/* Studio: the Sketches tab's start page (US-05), the list of sketches and a sketch's workspace */
+.sk-start { max-width: 760px; margin: 48px auto 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.sk-kicker { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 3px 8px; }
+.sk-start h2 { margin: 6px 0 0; font-size: 26px; font-weight: 700; letter-spacing: -0.015em; }
+.sk-lead { margin: 0 0 10px; max-width: 560px; font-size: 14.5px; color: var(--muted); line-height: 1.5; }
+.sk-box { width: 100%; text-align: start; background: var(--surface); border: 1.5px solid var(--accent); border-radius: 16px; padding: 14px 14px 10px; box-shadow: 0 0 0 4px var(--accent-soft), var(--card-shadow); display: flex; flex-direction: column; gap: 10px; }
+.sk-box textarea { width: 100%; min-height: 72px; resize: vertical; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: 15px; line-height: 1.5; }
+.sk-box textarea:focus-visible { outline: none; }
+.sk-bar { display: flex; align-items: center; gap: 6px; }
+.sk-send { margin-left: auto; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--btn-bg); color: var(--btn-ink); }
+.sk-send:disabled { opacity: 0.35; cursor: default; }
+.sk-pics { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.sk-pics li { position: relative; width: 64px; height: 64px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); }
+.sk-pics img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sk-pic-x { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); color: #fff; }
+.sk-status { margin: 2px 0 0; }
+.sk-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.sk-chip { font-size: 13px; color: var(--muted); border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 13px; }
+.sk-chip:hover { color: var(--text); border-color: var(--line-strong); }
+.sk-from { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 16px; margin-top: 6px; font-size: 13px; color: var(--dim); }
+.sk-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.sk-link:hover:not(:disabled) { color: var(--text); }
+.sk-link:disabled { opacity: 0.5; cursor: not-allowed; }
+.sk-why { margin: 0; font-size: 12px; color: var(--dim); }
+.sk-ds { margin: 10px 0 0; font-size: 12.5px; color: var(--dim); }
+.sk-ds button { color: var(--accent); font-weight: 600; font-size: 12.5px; }
+.sk-ds button:hover { text-decoration: underline; }
+.sk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
+.sk-list li { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.sk-list a { font-weight: 600; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.sk-list a:hover { text-decoration: underline; }
+.sk-meta { margin-left: auto; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.sk-back { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.sk-back:hover { color: var(--text); }
+.sk-chat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
+.sk-msg { align-self: flex-end; max-width: 85%; background: var(--accent-soft); border-radius: 14px; padding: 10px 14px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sk-msg.designer { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
+.sk-msg .sk-pics { margin-top: 8px; }
+.sk-msg .sk-pics li { width: 120px; height: 90px; }

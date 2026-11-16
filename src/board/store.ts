@@ -926,9 +926,12 @@ export function queueImpactCheck(bp: BoardPaths, adr: string): void {
   writeMeta(bp, { ...meta, impactChecks: [...(meta.impactChecks ?? []), { adr, status: 'pending' }] });
 }
 
-/** Empties the board in both homes (the demo board starts fresh this way). */
+/**
+ * Empties the board in both homes (the demo board starts fresh this way). The Studio goes too: its sketches and design
+ * systems here, and their chats on this computer (inside localDir), so no sketch is left without its messages.
+ */
 export function clearBoard(bp: BoardPaths): void {
-  for (const dir of [bp.ticketsDir, bp.decisionsDir, bp.releasesDir, bp.rulesDir, bp.knowledgeDir, bp.localDir]) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of [bp.ticketsDir, bp.decisionsDir, bp.releasesDir, bp.rulesDir, bp.knowledgeDir, bp.studioDir, bp.localDir]) fs.rmSync(dir, { recursive: true, force: true });
 }
 
 /** A fresh id for a new project's settings. */

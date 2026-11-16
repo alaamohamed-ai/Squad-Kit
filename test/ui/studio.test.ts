@@ -13,27 +13,35 @@ const { JSDOM } = (await import(/* @vite-ignore */ new URL('../../console-ui/nod
 const URL_AT = 'http://127.0.0.1:4809/p/mawid/studio';
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: URL_AT, pretendToBeVisual: true });
 const page = dom.window.document;
+dom.window.scrollTo = () => undefined;
+vi.stubGlobal('self', dom.window);
 vi.stubGlobal('window', dom.window);
+vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
 vi.stubGlobal('document', dom.window.document);
 vi.stubGlobal('navigator', dom.window.navigator);
 vi.stubGlobal('localStorage', dom.window.localStorage);
 vi.stubGlobal('sessionStorage', dom.window.sessionStorage);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+vi.stubGlobal('FileReader', dom.window.FileReader);
 
 const React = (await import(/* @vite-ignore */ new URL('../../console-ui/node_modules/react/index.js', import.meta.url).pathname)) as { createElement(...a: unknown[]): unknown; act(fn: () => unknown): Promise<void> };
 const { createRoot } = (await import(/* @vite-ignore */ new URL('../../console-ui/node_modules/react-dom/client.js', import.meta.url).pathname)) as unknown as { createRoot(el: unknown): { render(n: unknown): void; unmount(): void } };
 const { QueryClient, QueryClientProvider } = (await import(/* @vite-ignore */ new URL('../../console-ui/node_modules/@tanstack/react-query/build/modern/index.js', import.meta.url).pathname)) as { QueryClient: new (o: object) => unknown; QueryClientProvider: unknown };
+const Router = (await import(/* @vite-ignore */ new URL('../../console-ui/node_modules/@tanstack/react-router/dist/esm/index.js', import.meta.url).pathname)) as any;
 const { act } = React;
 // The root type check does not read the board's own files, so these are found at run time.
 const board = (file: string) => import(/* @vite-ignore */ new URL(`../../console-ui/${file}`, import.meta.url).pathname);
 const S = await board('src/lib/studio.ts');
 const { StudioPage } = await board('src/pages/Studio.tsx');
+const { SketchWorkspacePage } = await board('src/pages/studio/SketchWorkspace.tsx');
 const h = React.createElement;
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 let root: { render(n: unknown): void; unmount(): void } | null = null;
+let router: any = null;
 let fetchSpy: ReturnType<typeof vi.fn>;
 
 interface Card {
@@ -46,12 +54,23 @@ interface Card {
 }
 /** What the board server's design systems call answers, as the test sets it. */
 let systems: Card[];
+/** The sketches the board server lists, as the test sets them. */
+let sketches: { id: string; name: string; designSystem: { id: string; version: number; name: string | null } | null; stamp: string; screens: [] }[];
+/** What GET /api/v1/studio/app-picture answers. */
+let appOption: { ok: boolean; why?: string; app?: string };
+/** Every change the page asked the board server for: method, address and body. */
+let changes: { method: string; url: string; body: any }[];
 
-async function open(project: string) {
+/** The Studio page and a sketch's workspace, in a router of their own, as the board serves them. */
+async function open(project: string, at = '/studio') {
   await close();
   root = createRoot(page.getElementById('root'));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  await act(async () => root!.render(h(QueryClientProvider, { client }, h(StudioPage, { project }))));
+  const top = Router.createRootRoute();
+  const studio = Router.createRoute({ getParentRoute: () => top, path: '/studio', component: () => h(StudioPage, { project }) });
+  const sketch = Router.createRoute({ getParentRoute: () => top, path: '/studio/sketches/$id', component: SketchWorkspacePage });
+  router = Router.createRouter({ routeTree: top.addChildren([studio, sketch]), history: Router.createMemoryHistory({ initialEntries: [at] }) });
+  await act(async () => root!.render(h(QueryClientProvider, { client }, h(Router.RouterProvider, { router }))));
   await settle();
 }
 async function close() {
@@ -65,9 +84,15 @@ async function click(label: string) {
   await act(async () => tab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
   await settle();
 }
-/** Waits until the Design systems tab has its answer. */
+/** Waits until the open tab, or the workspace, has its answers. */
 async function settle() {
-  for (let i = 0; i < 50 && page.getElementById('studio-panel')?.textContent === 'Reading the design systems…'; i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  const busy = () => {
+    const panel = page.getElementById('studio-panel');
+    if (panel) return /^Reading the /.test(panel.textContent) || !!panel.querySelector('.sk-status:not(.bad)');
+    return !page.querySelector('h1') || /Reading the /.test(page.body.textContent) || page.querySelector('h1').textContent === '…';
+  };
+  for (let i = 0; i < 100 && busy(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  await act(() => new Promise((r) => setTimeout(r, 0)));
 }
 
 /** A fresh browser tab: the same computer, a new tab's own memory. */
@@ -82,13 +107,40 @@ beforeEach(() => {
   dom.window.localStorage.clear();
   dom.window.localStorage.setItem('squad.console.token', 'a-token');
   systems = [];
-  // The board server: it answers the design systems list and nothing else.
+  sketches = [];
+  appOption = { ok: false, why: 'This project has no app to take a picture of yet.' };
+  changes = [];
+  // The board server: the Studio's lists, the app picture option, and the start page's two changes.
   fetchSpy = vi.fn(async (url: string, init: RequestInit = {}) => {
-    if ((init.method ?? 'GET') === 'GET' && url === '/p/mawid/api/v1/studio/design-systems') {
+    const method = init.method ?? 'GET';
+    const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
+    if (method === 'GET' && url === '/p/mawid/api/v1/studio/design-systems') {
       const def = systems.find((d) => d.isDefault);
-      return new Response(JSON.stringify({ designSystems: systems, default: def ? { id: def.id, name: def.name, version: def.version } : null }), { status: 200 });
+      return json({ designSystems: systems, default: def ? { id: def.id, name: def.name, version: def.version } : null });
     }
-    throw new Error(`The Studio must not call ${init.method ?? 'GET'} ${url}`);
+    if (method === 'GET' && url === '/p/mawid/api/v1/studio/sketches') return json({ sketches });
+    if (method === 'GET' && url === '/p/mawid/api/v1/studio/app-picture') return json(appOption);
+    const one = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)(\/chat)?$/.exec(url);
+    if (method === 'GET' && one) {
+      const s = sketches.find((x) => x.id === one[1]);
+      if (!s) return json({ error: 'not here' }, 404);
+      if (!one[2]) return json(s);
+      const sent = changes.find((c) => c.url.endsWith('/sketches/start'));
+      return json({ messages: sent ? [{ role: 'person', text: sent.body.message, pictures: sent.body.pictures.map((_: unknown, i: number) => `/api/v1/studio/sketches/${s.id}/chat/pictures/m1-${i + 1}.png`) }] : [] });
+    }
+    if (method === 'POST' && url === '/p/mawid/api/v1/studio/sketches/start') {
+      const body = JSON.parse(String(init.body));
+      changes.push({ method, url, body });
+      if (!body.message?.trim()) return json({ error: 'Write what you want to design first.' }, 400);
+      const made = { id: 'a-page-where-patients-book', name: 'A page where patients book', designSystem: null, stamp: 's1', screens: [] as [] };
+      sketches = [made];
+      return json({ id: made.id, name: made.name });
+    }
+    if (method === 'POST' && url === '/p/mawid/api/v1/studio/app-picture') {
+      changes.push({ method, url, body: null });
+      return json({ picture: { name: 'Mawid.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` } });
+    }
+    throw new Error(`The Studio must not call ${method} ${url}`);
   });
   vi.stubGlobal('fetch', fetchSpy);
   dom.window.fetch = fetchSpy;
@@ -128,15 +180,14 @@ describe('the Studio page', () => {
     expect(openTab()).toBe('Sketches');
   });
 
-  it('shows only a short "nothing yet" message on each empty tab', async () => {
+  it('shows the start page on an empty Sketches tab, and only a short message on an empty Design systems tab', async () => {
     await open('mawid');
-    for (const [label, words] of [['Sketches', 'Nothing here yet.'], ['Design systems', 'No design systems yet.']]) {
-      await click(label!);
-      expect(openTab()).toBe(label);
-      const panel = page.querySelector('[role="tabpanel"]');
-      expect(panel.textContent).toBe(words);
-      expect(panel.children).toHaveLength(1);
-    }
+    const panel = () => page.querySelector('[role="tabpanel"]');
+    expect(panel().querySelector('textarea')).not.toBeNull();
+    expect(panel().textContent).not.toContain('Nothing here yet');
+    await click('Design systems');
+    expect(panel().textContent).toBe('No design systems yet.');
+    expect(panel().children).toHaveLength(1);
   });
 
   it('remembers the last tab per project, also after a reload', async () => {
@@ -188,19 +239,19 @@ describe('the Studio page', () => {
     expect(openTab()).toBe('Design systems');
   });
 
-  it('only reads the design systems list, and saves nothing, so opening it and switching tabs creates nothing', async () => {
+  it('only reads, so opening it and switching tabs creates nothing', async () => {
     const xhr = vi.spyOn(dom.window.XMLHttpRequest.prototype, 'open');
     await open('mawid');
-    // The Sketches tab calls nothing.
-    expect(fetchSpy).not.toHaveBeenCalled();
     await click('Design systems');
     await click('Sketches');
-    expect(fetchSpy.mock.calls.map(([url, init]) => [(init as RequestInit | undefined)?.method ?? 'GET', url])).toEqual([['GET', '/p/mawid/api/v1/studio/design-systems']]);
+    const calls = fetchSpy.mock.calls.map(([url, init]) => [(init as RequestInit | undefined)?.method ?? 'GET', url]);
+    expect(new Set(calls.map((c) => c.join(' ')))).toEqual(new Set(['GET /p/mawid/api/v1/studio/sketches', 'GET /p/mawid/api/v1/studio/design-systems', 'GET /p/mawid/api/v1/studio/app-picture']));
+    expect(changes).toEqual([]);
     expect(xhr).not.toHaveBeenCalled();
-    // No way to save from the page: no sending helper, no change, only the one read.
+    // The page itself only reads: the start page's Send is the one change, in its own file.
     for (const file of ['console-ui/src/pages/Studio.tsx', 'console-ui/src/lib/studio.ts'])
       expect(read(file)).not.toMatch(/lib\/data|useAct|apiFetch|fetch\(|useMutation|\bsend\b|method:/);
-    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '../api/client', '../lib/studio']);
+    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/StartSketch']);
   });
 });
 
@@ -264,5 +315,175 @@ describe('the Design systems tab (US-33)', () => {
     await open('mawid');
     await click('Design systems');
     expect(page.querySelector('#studio-panel .note.bad').textContent).toContain('500');
+  });
+});
+
+describe('the start page on an empty Sketches tab (US-05)', () => {
+  const panel = () => page.getElementById('studio-panel');
+  const box = () => page.querySelector('textarea') as any;
+  const button = (name: string) => [...page.querySelectorAll('button')].find((b: any) => b.textContent.trim() === name || b.getAttribute('aria-label') === name) as any;
+  const press = async (el: any) => {
+    await act(async () => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })));
+    await settle();
+  };
+  const type = async (text: string) => {
+    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      set.call(box(), text);
+      box().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+  };
+  const pick = async (files: unknown[]) => {
+    const input = page.querySelector('input[type="file"]') as any;
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })));
+    for (let i = 0; i < 100 && page.querySelectorAll('.sk-pics img').length < files.length && !page.querySelector('[role="alert"]'); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  };
+  const previews = () => [...page.querySelectorAll('.sk-box .sk-pics img')].map((i: any) => i.getAttribute('alt'));
+  const until = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  };
+
+  it('shows the start page only while the project has no sketch; with one, the list of sketches', async () => {
+    await open('mawid');
+    expect(box()).not.toBeNull();
+    sketches = [{ id: 'login', name: 'Login', designSystem: { id: 'brand', version: 1, name: 'Brand' }, stamp: 's', screens: [] }];
+    await open('shop');
+    expect(box()).toBeNull();
+    const rows = [...page.querySelectorAll('.sk-list li')].map((li: any) => [li.querySelector('a').textContent, li.querySelector('a').getAttribute('href'), li.querySelector('.sk-meta').textContent]);
+    expect(rows).toEqual([['Login', '/studio/sketches/login', 'Follows Brand']]);
+  });
+
+  it('done when 1: the chat box is the main thing, focused, with an image button and Send; the options sit under it', async () => {
+    await open('mawid');
+    expect(box().getAttribute('placeholder')).toBe('Describe what you want to design');
+    expect(box().getAttribute('aria-label')).toBe('Describe what you want to design');
+    expect(page.activeElement).toBe(box());
+    expect(button('Add a picture')).toBeTruthy();
+    expect(button('Send')).toBeTruthy();
+    expect(button('Send').disabled).toBe(true);
+    // The box comes before the options, which are smaller and under it.
+    const order = [box(), ...page.querySelectorAll('.sk-chip'), button('Start from an image'), button('A screen from your app')];
+    for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...page.querySelectorAll('.sk-chip')].map((c: any) => c.textContent)).toEqual(['A login page in Arabic and English', "An admin dashboard with today's visits", 'A profile page for patients']);
+    expect([...S.EXAMPLE_PROMPTS]).toEqual(['A login page in Arabic and English', "An admin dashboard with today's visits", 'A profile page for patients']);
+    expect(panel().textContent).not.toContain('Nothing here yet');
+  });
+
+  it('done when 2: a prompt fills the box and a picked picture shows as a small preview, with nothing sent', async () => {
+    await open('mawid');
+    await press(button('A login page in Arabic and English'));
+    expect(box().value).toBe('A login page in Arabic and English');
+    expect(page.activeElement).toBe(box());
+
+    await pick([new dom.window.File([PNG], 'old-login.png', { type: 'image/png' })]);
+    expect(previews()).toEqual(['old-login.png']);
+    expect(page.querySelector('.sk-box .sk-pics img').getAttribute('src')).toBe(`data:image/png;base64,${PNG.toString('base64')}`);
+    expect(box().value).toBe('A login page in Arabic and English');
+    // Nothing is sent: the page only read.
+    expect(changes).toEqual([]);
+    expect(fetchSpy.mock.calls.every(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET')).toBe(true);
+
+    // "Start from an image" opens the same picker.
+    const input = page.querySelector('input[type="file"]') as any;
+    const opened = vi.fn();
+    input.addEventListener('click', opened);
+    await press(button('Start from an image'));
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(input.getAttribute('accept')).toBe('image/png,image/jpeg,image/webp');
+
+    // A file that is not a picture is refused, and a picture can be removed again.
+    await pick([new dom.window.File(['hi'], 'notes.txt', { type: 'text/plain' })]);
+    expect(page.querySelector('[role="alert"]').textContent).toBe('"notes.txt" is not a PNG, JPEG or WebP picture.');
+    expect(previews()).toEqual(['old-login.png']);
+    await press(button('Remove old-login.png'));
+    expect(previews()).toEqual([]);
+    expect(changes).toEqual([]);
+  });
+
+  it('takes at most four pictures of up to 10 MB each', () => {
+    expect(S.pictureProblem({ name: 'a.png', type: 'image/png', size: 1000 }, 3)).toBeNull();
+    expect(S.pictureProblem({ name: 'a.png', type: 'image/png', size: 1000 }, 4)).toBe('Add at most 4 pictures to one message.');
+    expect(S.pictureProblem({ name: 'big.jpg', type: 'image/jpeg', size: 10 * 1024 * 1024 + 1 }, 0)).toBe('"big.jpg" is larger than 10 MB.');
+    expect(S.pictureProblem({ name: 'a.webp', type: 'image/webp', size: 1 }, 0)).toBeNull();
+    expect(S.pictureProblem({ name: 'a.gif', type: 'image/gif', size: 1 }, 0)).toBe('"a.gif" is not a PNG, JPEG or WebP picture.');
+  });
+
+  it('done when 3: Send makes the sketch and opens its workspace with the message; back on Sketches, the list shows', async () => {
+    await open('mawid');
+    await type('A page where patients book a visit with their doctor');
+    expect(button('Send').disabled).toBe(false);
+    await pick([new dom.window.File([PNG], 'idea.png', { type: 'image/png' })]);
+    await press(button('Send'));
+    await until(() => router.state.location.pathname === '/studio/sketches/a-page-where-patients-book' && !!page.querySelector('.sk-msg'));
+
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/start', body: { message: 'A page where patients book a visit with their doctor', pictures: [{ name: 'idea.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` }] } }]);
+    expect(router.state.location.pathname).toBe('/studio/sketches/a-page-where-patients-book');
+    expect(page.querySelector('h1').textContent).toBe('A page where patients book');
+    expect(page.querySelector('.sk-msg').textContent).toBe('A page where patients book a visit with their doctor');
+    expect([...page.querySelectorAll('.sk-msg img')].map((i: any) => i.getAttribute('src'))).toEqual(['/p/mawid/api/v1/studio/sketches/a-page-where-patients-book/chat/pictures/m1-1.png?t=a-token']);
+
+    // Back to the Sketches tab: a sketch exists now, so the list shows instead of the start page.
+    const back = page.querySelector('.sk-back');
+    expect(back.textContent.trim()).toBe('Sketches');
+    await press(back);
+    await until(() => !!page.querySelector('.sk-list'));
+    expect(router.state.location.pathname).toBe('/studio');
+    expect(openTab()).toBe('Sketches');
+    expect(box()).toBeNull();
+    expect([...page.querySelectorAll('.sk-list a')].map((a: any) => a.textContent)).toEqual(['A page where patients book']);
+  });
+
+  it('Enter sends too, and an empty box sends nothing', async () => {
+    await open('mawid');
+    await act(async () => box().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(changes).toEqual([]);
+    await type('A profile page for patients');
+    await act(async () => box().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await until(() => changes.length > 0);
+    expect(changes.map((c) => c.body.message)).toEqual(['A profile page for patients']);
+  });
+
+  it('done when 5: with no design system, a small line offers to set one up and opens the Design systems tab; Send still works', async () => {
+    await open('mawid');
+    await until(() => !!page.querySelector('.sk-ds'));
+    const line = page.querySelector('.sk-ds');
+    expect(line.textContent).toBe('No design system yet. Set up a design system');
+    // It sits under the options.
+    expect(button('A screen from your app').compareDocumentPosition(line) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await type('A login page');
+    expect(button('Send').disabled).toBe(false);
+    await press(button('Set up a design system'));
+    expect(openTab()).toBe('Design systems');
+    expect(changes).toEqual([]);
+
+    // Once a design system exists, the line is gone.
+    systems = [{ id: 'patient-app', name: 'Patient app', isDefault: true, version: 1, colors: [], sketches: 0 }];
+    dom.window.sessionStorage.clear();
+    await open('shop');
+    await until(() => fetchSpy.mock.calls.some(([url]) => url === '/p/mawid/api/v1/studio/design-systems'));
+    await settle();
+    expect(box()).not.toBeNull();
+    expect(page.querySelector('.sk-ds')).toBeNull();
+  });
+
+  it('done when 4: "A screen from your app" is greyed out with the reason when there is no app, and adds a picture when there is one', async () => {
+    await open('mawid');
+    await until(() => !!page.querySelector('#sk-app-why'));
+    expect(button('A screen from your app').disabled).toBe(true);
+    expect(page.querySelector('#sk-app-why').textContent).toBe('This project has no app to take a picture of yet.');
+    expect(button('A screen from your app').getAttribute('aria-describedby')).toBe('sk-app-why');
+
+    appOption = { ok: true, app: 'Mawid' };
+    await open('shop');
+    await until(() => button('A screen from your app') && !button('A screen from your app').disabled);
+    expect(page.querySelector('#sk-app-why')).toBeNull();
+    await press(button('A screen from your app'));
+    await until(() => previews().length > 0);
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/app-picture', body: null }]);
+    expect(previews()).toEqual(['Mawid.png']);
+    // Ready to send with a few words.
+    await type('Make this calmer');
+    expect(button('Send').disabled).toBe(false);
   });
 });

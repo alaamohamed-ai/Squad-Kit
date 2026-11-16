@@ -20,6 +20,8 @@ import {
   type DesignSystemView,
   type SketchView,
 } from '../../board/studio-actions.js';
+import { sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
+import { appPictureOption, takeAppPicture } from '../../engine/studio-app-picture.js';
 import { act } from './act.js';
 
 /**
@@ -159,6 +161,30 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const b = await body(c);
     return run(c, () => sketchRead(createSketch(bp, b as never)));
   });
+  // The start page's Send (US-05, AB-130): makes the sketch from the first message, which is kept, with its pictures,
+  // in the sketch's chat on this computer only. Nothing calls the AI Designer yet.
+  app.post('/api/v1/studio/sketches/start', async (c) => {
+    const b = await body(c);
+    return run(c, () => startSketch(bp, b as never));
+  });
+  // A sketch's chat for its workspace, each picture as an address the page can show.
+  app.get('/api/v1/studio/sketches/:id/chat', (c) =>
+    run(c, () => {
+      const id = c.req.param('id');
+      const chat = sketchChat(bp, id);
+      return { messages: chat.messages.map((m) => ({ ...m, pictures: (m.pictures ?? []).map((f) => `/api/v1/studio/sketches/${encodeURIComponent(id)}/chat/pictures/${encodeURIComponent(f)}`) })) };
+    }),
+  );
+  app.get('/api/v1/studio/sketches/:id/chat/pictures/:file', (c) => {
+    let picture: ReturnType<typeof sketchChatPicture> = null;
+    try {
+      picture = sketchChatPicture(bp, c.req.param('id'), c.req.param('file'));
+    } catch {
+      picture = null;
+    }
+    if (!picture) return c.json({ error: 'This picture is not here.' }, 404);
+    return c.body(new Uint8Array(picture.bytes), 200, { 'content-type': picture.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
+  });
   app.patch('/api/v1/studio/sketches/:id', async (c) => {
     const { stamp, ...change } = await body(c);
     return run(c, () => sketchRead(changeSketch(bp, c.req.param('id'), change, stamp)));
@@ -167,6 +193,18 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const stamp = await deleteStamp(c);
     return run(c, () => deleteSketch(bp, c.req.param('id'), stamp));
   });
+
+  /* ── "A screen from your app" on the start page (US-05, AB-130) ── */
+  // Whether it can be used, and why not: it starts nothing and writes no file.
+  app.get('/api/v1/studio/app-picture', (c) => act(c, () => appPictureOption(bp)));
+  // One picture of the running app (started first when it is not), made in a temporary folder that is deleted again.
+  // The browser keeps it with the message until Send (AB-130.1).
+  app.post('/api/v1/studio/app-picture', (c) =>
+    act(c, async () => {
+      const shot = await takeAppPicture(bp, { signal: c.req.raw.signal });
+      return { picture: { name: `${shot.app}.png`, type: 'image/png', data: `data:image/png;base64,${shot.png.toString('base64')}` }, app: shot.app, page: shot.page };
+    }),
+  );
 
   /* ── Screens in a sketch: each brings the sketch's stamp ── */
   app.post('/api/v1/studio/sketches/:id/screens', async (c) => {

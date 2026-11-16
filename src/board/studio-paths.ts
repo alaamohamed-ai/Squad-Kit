@@ -15,6 +15,7 @@ import type { BoardPaths } from './store.js';
  *   .squad/studio/sketches/<sketch>/screens/<screen>/v1/meta.yaml
  *   ~/.squad-kit/projects/<id>/studio/thumbnails/<sketch>/<screen>/v1.png
  *   ~/.squad-kit/projects/<id>/studio/chats/<sketch>/<chat>.json
+ *   ~/.squad-kit/projects/<id>/studio/chats/<sketch>/pictures/<picture>.png
  */
 
 /** A Studio id as it is written in a folder name: lowercase letters, digits and dashes ("brand", "payment"). */
@@ -144,4 +145,17 @@ export function sketchChatsDir(bp: BoardPaths, sketch: string): string {
 
 export function chatFile(bp: BoardPaths, sketch: string, chat: string): string {
   return path.join(sketchChatsDir(bp, sketch), `${checkedStudioId(chat)}.json`);
+}
+
+/** A picture file's name in a chat: a short id and its kind, like "m1-1.png". */
+export const CHAT_PICTURE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.(?:png|jpg|webp)$/;
+
+/** The pictures added to a sketch's messages, kept with its chats on this computer (AB-130.1). */
+export function chatPicturesDir(bp: BoardPaths, sketch: string): string {
+  return path.join(sketchChatsDir(bp, sketch), 'pictures');
+}
+
+export function chatPictureFile(bp: BoardPaths, sketch: string, file: string): string {
+  if (typeof file !== 'string' || !CHAT_PICTURE.test(file)) throw new Error(`"${String(file).slice(0, 40)}" is not a picture of this sketch's messages.`);
+  return path.join(chatPicturesDir(bp, sketch), file);
 }

@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files: no commands, no file changes, no web pages. squad-kit checks its answer and saves the screens as a new
   version of the sketch; a broken answer, or a sketch changed meanwhile, saves nothing. Its runs share the limit of
   runs at once with tickets and go before the tickets that wait, without stopping any that run.
+- **The Studio's start page.** With no sketch yet, the Sketches tab opens on a chat box with the AI Designer:
+  "Describe what you want to design", with three example prompts, Start from an image and A screen from your app,
+  which starts the app when needed and adds a picture of it. Pictures stay in the browser until you send. Send makes
+  the sketch and opens it with your message; the message and its pictures stay on this computer, not in the project.
+  With no design system yet, a small line offers to set one up, without blocking Send.
 
 ## [1.3.21] — 2026-11-13
 
