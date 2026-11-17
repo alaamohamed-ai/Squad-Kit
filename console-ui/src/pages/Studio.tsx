@@ -24,6 +24,7 @@ import {
   type SketchRow,
   type StudioTab,
 } from '../lib/studio';
+import { SketchCardMenu } from './studio/SketchActions';
 import { StartSketch } from './studio/StartSketch';
 
 /* ── Studio: the project's sketches and design systems ──
@@ -68,6 +69,8 @@ function useDesignSystems(project: string) {
 function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDesignSystem: () => void }) {
   const list = useQuery({ queryKey: sketchesKey(project), queryFn: () => api<{ sketches: SketchRow[] }>(SKETCHES_PATH) });
   const systems = useDesignSystems(project);
+  // A refused Duplicate, in the server's words, until the next action.
+  const [problem, setProblem] = useState<string | null>(null);
   if (list.isPending) return <p className="note">Reading the sketches…</p>;
   if (list.isError) return <p className="note bad">{list.error.message}</p>;
   const sketches = list.data.sketches;
@@ -77,19 +80,27 @@ function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDe
     return <StartSketch project={project} noDesignSystem={noDesignSystem} onSetUpDesignSystem={onSetUpDesignSystem} />;
   }
   return (
-    <ul className="sk-cards" aria-label="Sketches">
-      {sketches.map((s) => (
-        <SketchCardView key={s.id} project={project} sketch={s} />
-      ))}
-    </ul>
+    <>
+      {problem && (
+        <p className="note bad sk-problem" role="alert">
+          {problem}
+        </p>
+      )}
+      <ul className="sk-cards" aria-label="Sketches">
+        {sketches.map((s) => (
+          <SketchCardView key={s.id} project={project} sketch={s} onProblem={setProblem} />
+        ))}
+      </ul>
+    </>
   );
 }
 
 /**
  * One sketch's card: its first screen small (desktop and mobile, as it has them), its name, screens, approved count,
- * design system and last edit. The whole card is one link to the sketch.
+ * design system and last edit. The whole card is one link to the sketch; its ⋯ menu (US-13) sits on top of it, with
+ * Rename, Duplicate and Delete.
  */
-function SketchCardView({ project, sketch }: { project: string; sketch: SketchRow }) {
+function SketchCardView({ project, sketch, onProblem }: { project: string; sketch: SketchRow; onProblem(text: string | null): void }) {
   const card = sketch.card;
   const screens = card?.screens ?? sketch.screens.length;
   const approved = approvedText(card?.approved ?? 0, screens);
@@ -117,6 +128,7 @@ function SketchCardView({ project, sketch }: { project: string; sketch: SketchRo
           )}
         </span>
       </Link>
+      <SketchCardMenu project={project} sketch={{ id: sketch.id, name: sketch.name, stamp: sketch.stamp, screens }} onProblem={onProblem} />
     </li>
   );
 }

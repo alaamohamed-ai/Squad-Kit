@@ -92,7 +92,8 @@ beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'squad-chat-')));
   vi.stubEnv('SQUAD_KIT_HOME', path.join(tmp, 'home'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  // No sample sketches: each test makes its own "Booking".
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct', quality: 'thrifty' });
 });
 

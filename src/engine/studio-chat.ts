@@ -4,10 +4,12 @@ import {
   AI_DESIGNER,
   CHANGED_ELSEWHERE,
   StudioChangedElsewhere,
+  duplicateSketch,
   readDesignSystem,
   readSketch,
   saveDesignSystem,
   saveDrawnScreens,
+  saveSketch,
   studioIdFor,
   studioStamp,
   type ChatOwner,
@@ -33,7 +35,7 @@ import { screensProblem } from './answers.js';
 import { answerAgainPrompt } from './prompts.js';
 import { demoWorker } from './studio-chat-demo.js';
 import { SCREENS_SCHEMA, type DesignerAnswer } from './studio-prompts.js';
-import { SORT_SCHEMA, chatScreenPrompt, chatSortPrompt, chatSystemPrompt, languageOf, sortProblem, type ChatBrief, type ChatLanguage, type ChatSort, type ChatWork } from './studio-chat-prompts.js';
+import { SORT_SCHEMA, chatScreenPrompt, chatSortPrompt, chatSystemPrompt, isSketchAction, languageOf, sortProblem, type ChatBrief, type ChatLanguage, type ChatSort, type ChatWork } from './studio-chat-prompts.js';
 import { openDesigner, refusedWords, type DesignerOptions } from './studio-designer.js';
 
 /**
@@ -44,6 +46,9 @@ import { openDesigner, refusedWords, type DesignerOptions } from './studio-desig
  * the message was sent, so a teammate's change in between is refused with "Changed elsewhere, reload". Stop keeps the
  * finished screens. Every run goes through the one Designer runner (AB-141.1); a sample board answers with a few
  * fixed replies instead (studio-chat-demo.ts). The board and `squad studio chat` both call this.
+ *
+ * Rename and Duplicate (US-13) are on the same list: the Designer does them through the same store calls as the card
+ * menu. Delete never is: the reply points to the card menu, so the person always sees the confirmation.
  */
 
 /** The longest conversation so far a fresh session reads, in messages. */
@@ -79,8 +84,23 @@ export interface ChatOptions extends DesignerOptions {
   onProgress?(words: string): void;
 }
 
-const WORDS: Record<ChatLanguage, { changed: (list: string) => string; stopped: (list: string) => string; stoppedNothing: string; systemChanged: (v: number) => string; partly: (why: string) => string }> = {
+const WORDS: Record<
+  ChatLanguage,
+  {
+    changed: (list: string) => string;
+    stopped: (list: string) => string;
+    stoppedNothing: string;
+    systemChanged: (v: number) => string;
+    partly: (why: string) => string;
+    renamed: (from: string, to: string) => string;
+    duplicated: (copy: string, screens: number, from: string) => string;
+    deleteHere: string;
+  }
+> = {
   English: {
+    renamed: (from, to) => `Done. "${from}" is now called "${to}".`,
+    duplicated: (copy, n, from) => `Done. I made "${copy}" with ${n === 1 ? '1 screen' : `${n} screens`}, all Draft, and no conversation. "${from}" is unchanged.`,
+    deleteHere: "To delete a sketch, use Delete in its ⋯ menu on the Sketches page: it asks first and says how many screens go with it.",
     changed: (list) => `Done. New versions: ${list}.`,
     stopped: (list) => `Stopped. The finished screens are kept as a new version: ${list}.`,
     stoppedNothing: 'Stopped before anything was finished. Nothing changed.',
@@ -88,6 +108,9 @@ const WORDS: Record<ChatLanguage, { changed: (list: string) => string; stopped: 
     partly: (why) => `The rest did not get done: ${why}`,
   },
   Arabic: {
+    renamed: (from, to) => `تم. صار اسم المخطط "${to}" بدل "${from}".`,
+    duplicated: (copy, n, from) => `تم. أنشأت "${copy}" وفيه ${n} من الشاشات، كلها مسودة، وبلا محادثة. لم يتغير "${from}".`,
+    deleteHere: 'لحذف مخطط، استخدم «حذف» من قائمة ⋯ في بطاقته في صفحة المخططات: يسألك أولًا ويذكر عدد الشاشات التي ستُحذف معه.',
     changed: (list) => `تم. النسخ الجديدة: ${list}.`,
     stopped: (list) => `توقفت. الشاشات التي انتهت محفوظة في نسخة جديدة: ${list}.`,
     stoppedNothing: 'توقفت قبل أن ينتهي أي شيء. لم يتغير شيء.',
@@ -249,6 +272,24 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   return { kind: 'changed', text, saved: rows };
 }
 
+/**
+ * Rename or Duplicate from the chat (US-13, AB-177.1): the same store calls as the card menu, with the same name rule
+ * (AB-138.1) and the stamp read when the message was sent, marked as the AI Designer's work for the person who asked
+ * (AB-131.1). A used name or a stale stamp is the reply, in plain words.
+ */
+function sketchAction(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort): Reply {
+  const W = WORDS[turn.language];
+  const asker = readMeta(bp).user?.name?.trim();
+  const who = { by: AI_DESIGNER, ...(asker ? { for: asker } : {}) };
+  if (sort.action === 'rename-sketch') {
+    const name = (sort.name ?? '').trim();
+    const saved = saveSketch(bp, { id: sketch.id, name, designSystem: sketch.designSystem, frames: sketch.frames }, turn.stamp ?? '', who);
+    return { kind: 'changed', text: W.renamed(sketch.name, saved.name) };
+  }
+  const copy = duplicateSketch(bp, sketch.id, turn.stamp ?? '', who);
+  return { kind: 'changed', text: W.duplicated(copy.name, copy.screens.length, sketch.name) };
+}
+
 async function changeSystem(bp: BoardPaths, turn: ChatTurn, sort: ChatSort, worker: ChatWorker, o: ChatOptions): Promise<Reply> {
   const W = WORDS[turn.language];
   const ds = readDesignSystem(bp, turn.owner.id)!;
@@ -280,7 +321,9 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
       worker = w;
       const sort = await w.sort(brief);
       if ('error' in sort) reply = o.signal?.aborted ? { kind: 'stopped', text: WORDS[turn.language].stoppedNothing } : { kind: 'failed', text: sort.error };
+      else if (sort.kind === 'unavailable' && sort.action === 'delete' && sketch) reply = { kind: 'unavailable', text: [sort.reply.trim(), WORDS[turn.language].deleteHere].filter(Boolean).join('\n\n') };
       else if (sort.kind !== 'change') reply = { kind: sort.kind as ChatReplyKind, text: sort.reply.trim() };
+      else if (sketch && isSketchAction(sort.action)) reply = sketchAction(bp, turn, sketch, sort);
       else if (sketch) reply = await changeSketch(bp, turn, sketch, sort, w, o);
       else reply = await changeSystem(bp, turn, sort, w, o);
     }

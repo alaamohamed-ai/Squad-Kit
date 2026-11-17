@@ -4,10 +4,11 @@ import { designSystemFile, frameFile, screenFile, sketchFile, tokensFile, varian
 import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantMetaFile } from './studio-read.js';
 
 /**
- * The sample board's Studio (US-06, AB-131): one design system, "Brand", and three sketches with edits by different
+ * The sample board's Studio (US-06, AB-131): one design system, "Brand", and six sketches with edits by different
  * people, so the Sketches home shows its cards: "Checkout" drawn for desktop and mobile and redrawn by the AI Designer
  * for Sara, "Profile" just made by Omar with nothing drawn yet, and "Onboarding" drawn for desktop only, renamed by
- * Sara yesterday, with two of its five screens approved. The files are the ones the Studio store writes, with times
+ * Sara yesterday, with two of its five screens approved. For US-13 (rename, duplicate, delete), "Booking" has two drawn
+ * screens with one Approved, "Patient profile" three, and "Login" is a name already used. The files are the ones the Studio store writes, with times
  * in the past, so the sample board looks lived in.
  */
 
@@ -62,6 +63,18 @@ function onboarding(title: string, line: string, step: number): string {
     'desktop',
   );
 }
+
+/** A simple page of the clinic sketches (US-13): a title, a line and a few rows, with one main button. */
+function clinic(title: string, line: string, rows: [string, string][], button: string, width: 'desktop' | 'mobile'): string {
+  const list = rows.map(([k, v]) => `<div class="row"><span class="muted">${k}</span><span>${v}</span></div>`).join('');
+  return page(
+    `<header><span class="logo">Al Noor Clinic</span><span class="muted">Visits · Doctors · Profile</span></header>
+<main style="max-width:760px"><h1>${title}</h1><p class="muted">${line}</p><div class="card">${list}</div><span class="btn">${button}</span></main>`,
+    width,
+  );
+}
+
+const both = (f: (w: 'desktop' | 'mobile') => string) => ({ desktop: f('desktop'), mobile: f('mobile') });
 
 interface DemoScreen {
   id: string;
@@ -122,6 +135,28 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
   // Just made by Omar an hour ago: its first screen has no picture yet.
   writeSketch(bp, 'profile', { name: 'Profile', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60, 'Omar') }, [
     { id: 'profile', name: 'Profile', status: 'draft', edited: mark(60, 'Omar'), drawings: [] },
+  ]);
+
+  // US-13's examples: "Booking" with 2 drawn screens, 1 Approved; "Patient profile" with 3; "Login", a used name.
+  const form = (w: 'desktop' | 'mobile') => clinic('Book a follow-up', 'Last visit: 2 Nov with Dr. Hana', [['Doctor', 'Dr. Hana Saleh · Cardiology'], ['Day', 'Tue 17 Nov'], ['Time', '10:00']], 'Book visit', w);
+  const booked = (w: 'desktop' | 'mobile') => clinic('Visit booked', 'We sent the details to your phone.', [['Doctor', 'Dr. Hana Saleh'], ['When', 'Tue 17 Nov · 10:00'], ['Where', 'Floor 2, Room 14']], 'Add to calendar', w);
+  writeSketch(bp, 'booking', { name: 'Booking', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24, 'Sara') }, [
+    { id: 'form', name: 'Form', status: 'approved', edited: mark(30, 'Sara'), drawings: [{ minutes: 60 * 5, by: AI_DESIGNER, for: 'Sara', frames: both(form) }] },
+    { id: 'confirmation', name: 'Confirmation', status: 'draft', edited: mark(60 * 5, 'Sara'), drawings: [{ minutes: 60 * 5, by: AI_DESIGNER, for: 'Sara', frames: both(booked) }] },
+  ]);
+  writeSketch(bp, 'patient-profile', { name: 'Patient profile', designSystem: brand, frames: ['desktop'], edited: mark(60 * 24 * 2, 'Omar') }, [
+    ['overview', 'Overview', 'Mona Adel', [['Born', '12 Mar 1958'], ['Phone', '+20 100 555 0101']], 'Edit details'],
+    ['visits', 'Visits', 'Your last visits', [['2 Nov', 'Dr. Hana Saleh'], ['14 Sep', 'Dr. Karim Nour']], 'Book a visit'],
+    ['edit', 'Edit details', 'Keep your details up to date', [['Phone', '+20 100 555 0101'], ['Email', 'mona@example.com']], 'Save'],
+  ].map(([id, name, line, rows, button]) => ({
+    id: id as string,
+    name: name as string,
+    status: 'draft' as ScreenStatus,
+    edited: mark(60 * 3, 'Omar'),
+    drawings: [{ minutes: 60 * 3, by: 'Omar', frames: { desktop: clinic(name as string, line as string, rows as [string, string][], button as string, 'desktop') } }],
+  })));
+  writeSketch(bp, 'login', { name: 'Login', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 2, 'Sara') }, [
+    { id: 'sign-in', name: 'Sign in', status: 'draft', edited: mark(60 * 24 * 2, 'Sara'), drawings: [{ minutes: 60 * 24 * 2, by: 'Sara', frames: both((w) => clinic('Sign in', 'Welcome back to Al Noor Clinic.', [['Phone', '+20 100 555 0101'], ['Password', '••••••••']], 'Sign in', w)) }] },
   ]);
 
   // Drawn for desktop only, renamed by Sara yesterday; two of its five screens approved.

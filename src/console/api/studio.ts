@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { SquadPaths } from '../../core/paths.js';
 import { boardPaths } from '../../board/store.js';
-import { StudioChangedElsewhere, StudioInUse, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
+import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
 import {
   StudioNotFound,
   addScreen,
@@ -14,6 +14,7 @@ import {
   deleteScreen,
   deleteSketch,
   designSystemList,
+  duplicateSketch,
   getDesignSystem,
   getSketch,
   sketchCover,
@@ -38,7 +39,8 @@ import { mountStudioChatApi } from './studio-chat.js';
  * default design system.
  *
  * Every change and delete sends the `stamp` it started from (AB-129.1). A stale one comes back as 409 with "Changed
- * elsewhere, reload"; a design system that sketches follow comes back as 409 with those sketches. A missing item is
+ * elsewhere, reload"; a design system that sketches follow comes back as 409 with those sketches, and a sketch name
+ * another sketch uses (AB-138.1) as 409 with "A sketch called … already exists. Pick another name." A missing item is
  * 404, and any other refusal 400 with its words. Reading never writes a file and never makes a folder, so opening the
  * Studio writes nothing (AB-127.1). Lists name the HTML files a version has; reading one item also sends their HTML.
  */
@@ -119,6 +121,7 @@ async function run(c: Context, fn: () => unknown) {
   } catch (err) {
     if (err instanceof StudioChangedElsewhere) return c.json({ error: err.message, changedElsewhere: true }, 409);
     if (err instanceof StudioInUse) return c.json({ error: err.message, followedBy: err.sketches }, 409);
+    if (err instanceof StudioNameTaken) return c.json({ error: err.message, nameTaken: { id: err.sketch, name: err.taken } }, 409);
     if (err instanceof StudioNotFound) return c.json({ error: err.message }, 404);
     if (err instanceof ChatBusy) return c.json({ error: err.message, busy: true }, 409);
     return act(c, () => {
@@ -205,9 +208,15 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const { stamp, ...change } = await body(c);
     return run(c, () => sketchRead(changeSketch(bp, c.req.param('id'), change, stamp)));
   });
+  // Delete answers with the sketch's name and how many screens went with it (US-13).
   app.delete('/api/v1/studio/sketches/:id', async (c) => {
     const stamp = await deleteStamp(c);
     return run(c, () => deleteSketch(bp, c.req.param('id'), stamp));
+  });
+  // The card menu's Duplicate (US-13, AB-138): brings the source's stamp, answers with the copy.
+  app.post('/api/v1/studio/sketches/:id/duplicate', async (c) => {
+    const { stamp } = await body(c);
+    return run(c, () => sketchRead(duplicateSketch(bp, c.req.param('id'), stamp)));
   });
 
   /* ── "A screen from your app" on the start page (US-05, AB-130) ── */

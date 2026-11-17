@@ -215,6 +215,31 @@ export interface StartedSketch {
   name: string;
 }
 
+/* ── Rename, Duplicate and Delete a sketch (US-13, AB-138) ── */
+
+/** One sketch on the board server: PATCH renames it, DELETE deletes it. Each brings the stamp it read (AB-129.1). */
+export const sketchApiPath = (id: string) => `/api/v1/studio/sketches/${encodeURIComponent(id)}`;
+export const duplicatePath = (id: string) => `${sketchApiPath(id)}/duplicate`;
+/** Where one sketch is read for its workspace. */
+export const sketchKey = (project: string, id: string) => ['studio', project, 'sketch', id];
+
+/** What a delete answers: the sketch's name and how many screens went with it. */
+export interface DeletedSketch {
+  deleted: string;
+  name: string;
+  screens: number;
+}
+
+/** The delete confirmation's question and its line about the screens. */
+export function deleteQuestion(name: string, screens: number): { title: string; holds: string } {
+  return {
+    title: `Delete "${name}"?`,
+    holds: screens
+      ? `It holds ${screens === 1 ? '1 screen' : `${screens} screens`}. ${screens === 1 ? 'It goes' : 'They go'} with it, every version too, and the sketch cannot be brought back.`
+      : 'It holds no screens yet. The sketch cannot be brought back.',
+  };
+}
+
 /** The sketch workspace's address, under the project's base. */
 export const sketchPath = (id: string) => `/studio/sketches/${encodeURIComponent(id)}`;
 

@@ -10,7 +10,7 @@ import { chatFile, sketchChatsDir } from '../src/board/studio-paths.js';
 
 /**
  * The sample board starts fresh each time (US-05, AB-130), with the same sample Studio (US-06, AB-131): the "Brand"
- * design system and three sketches, so the Sketches home shows its cards. A sketch made on the last run does not stay
+ * design system and six sketches, so the Sketches home shows its cards. A sketch made on the last run does not stay
  * behind without its first message, which lived with its chat on this computer. Its first-run start has no Studio
  * work, so the Sketches tab opens on the start page there.
  */
@@ -27,7 +27,7 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const SAMPLE = ['checkout', 'profile', 'onboarding'];
+const SAMPLE = ['checkout', 'booking', 'profile', 'patient-profile', 'onboarding', 'login'];
 
 describe('a fresh sample board', () => {
   it('has the sample sketches, newest edit first, and the Brand design system', () => {

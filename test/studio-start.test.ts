@@ -156,7 +156,8 @@ describe('POST /api/v1/studio/sketches/start', () => {
     const one = await call<{ id: string }>('POST', '/sketches/start', { message: 'A profile page for patients' });
     const two = await call<{ id: string; name: string }>('POST', '/sketches/start', { message: 'A profile page for patients.' });
     expect([one.data.id, two.data.id]).toEqual(['a-profile-page-for-patients', 'a-profile-page-for-patients-2']);
-    expect(two.data.name).toBe('A profile page for patients');
+    // One name per project (AB-138.1): the second sketch gets the next free name too.
+    expect(two.data.name).toBe('A profile page for patients 2');
   });
 
   it('refuses an empty message, or a picture that is not one, and writes nothing', async () => {

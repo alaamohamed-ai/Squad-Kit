@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Rename, duplicate and delete sketches.** Each sketch card has a ⋯ menu with Rename, Duplicate and Delete, and a
+  click on the name in a sketch's header renames it (Enter saves, Escape cancels). Sketch names are unique in a
+  project: a used name is refused in plain words. Duplicate makes "Booking copy", then "Booking copy 2", with every
+  screen as Draft at the drawing it shows now and no conversation. Delete asks first and says how many screens go with
+  it. The AI Designer can rename and duplicate too. From the terminal: `squad studio sketch list`, `rename`,
+  `duplicate` and `delete`, with the same rules.
 - **Talk with the AI Designer.** A chat on the left of every sketch and design system: ask questions and get advice
   without changing anything, or ask for a change, which the Designer makes one screen at a time ("Changing screen 2
   of 2") with a Stop button that keeps the finished screens as a new version. Something the Studio cannot do yet, like

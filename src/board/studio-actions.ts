@@ -6,6 +6,7 @@ import {
   deleteDesignSystem as removeDesignSystem,
   deleteScreen as removeScreen,
   deleteSketch as removeSketch,
+  duplicateSketch as copySketch,
   readDefaultDesignSystem,
   readDesignSystem,
   readSketch,
@@ -349,7 +350,10 @@ export interface SketchChange {
   frames?: string[];
 }
 
-/** Renames a sketch, or changes the design system it follows or its frames. What is left out stays, its screens too. */
+/**
+ * Renames a sketch, or changes the design system it follows or its frames. What is left out stays, its screens too. A
+ * name another sketch uses is refused with StudioNameTaken (AB-138.1).
+ */
 export function changeSketch(bp: BoardPaths, id: string, change: SketchChange, stamp: unknown): SketchView {
   const from = checkedStamp(stamp);
   if (!isPlain(change as unknown)) throw new Error('Say what to change in the sketch.');
@@ -359,12 +363,27 @@ export function changeSketch(bp: BoardPaths, id: string, change: SketchChange, s
   return getSketch(bp, id);
 }
 
-/** Deletes a sketch, its screens and every variant, for good. */
-export function deleteSketch(bp: BoardPaths, id: string, stamp: unknown): { deleted: string } {
+/**
+ * Deletes a sketch, its screens and every variant, for good, and says how many screens it removed (US-13). The
+ * confirmation before it is the board's and the terminal's; this only deletes.
+ */
+export function deleteSketch(bp: BoardPaths, id: string, stamp: unknown): { deleted: string; name: string; screens: number } {
+  const from = checkedStamp(stamp);
+  const { name } = getSketch(bp, id);
+  const { screens } = removeSketch(bp, id, from);
+  return { deleted: id, name, screens };
+}
+
+/**
+ * Duplicates a sketch (US-13, AB-138): "Booking copy", then "Booking copy 2" …, with every screen at the drawing it
+ * shows now, as Draft, and no conversation. The source stays as it is. A stale stamp is refused with "Changed
+ * elsewhere, reload".
+ */
+export function duplicateSketch(bp: BoardPaths, id: string, stamp: unknown): SketchView {
   const from = checkedStamp(stamp);
   getSketch(bp, id);
-  removeSketch(bp, id, from);
-  return { deleted: id };
+  const copy = copySketch(bp, id, from, personEditing(bp));
+  return getSketch(bp, copy.id);
 }
 
 /* ── Screens in a sketch: each change checks the sketch's stamp ── */

@@ -61,7 +61,7 @@ const EXCUSED: Record<string, string> = {
   'additions.ts:LOCK_WAIT_MS': 'How long one save waits for another. It ends in a plain "try again".',
   'studio-lock.ts:LOCK_LEFT_MS': 'A Studio lock a closed program left behind. A save takes a moment, and nobody waits on this.',
   'studio-lock.ts:LOCK_WAIT_MS': 'How long one Studio save waits for another. It ends in a plain "try again".',
-  'studio.ts:MAX_NAME': 'How long a sketch, screen or design system name may be. It says so in plain words when a name is longer.',
+  'studio-names.ts:MAX_NAME':'How long a sketch, screen or design system name may be. It says so in plain words when a name is longer.',
   'studio-actions.ts:MAX_COLORS': 'How many colours a design system card shows. It changes a preview, and stops nothing.',
   'studio-prompts.ts:MAX_SCREENS': "How many screens one Designer run may hand in. A longer answer is refused in plain words that say the number, and nothing is saved.",
   'studio-prompts.ts:MAX_PAGE_BYTES': 'How big one page the Designer draws may be. A bigger one is refused in plain words that say the size, and nothing is saved.',

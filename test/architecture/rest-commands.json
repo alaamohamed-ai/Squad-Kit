@@ -150,7 +150,10 @@
     "POST /api/v1/studio/sketches/:id/chats/:chat/stop": "squad studio chat <sketch> --stop",
     "POST /api/v1/studio/design-systems/:id/chats": "squad studio chat <system> --design-system --new",
     "POST /api/v1/studio/design-systems/:id/chats/:chat/messages": "squad studio chat <system> <message> --design-system",
-    "POST /api/v1/studio/design-systems/:id/chats/:chat/stop": "squad studio chat <system> --design-system --stop"
+    "POST /api/v1/studio/design-systems/:id/chats/:chat/stop": "squad studio chat <system> --design-system --stop",
+    "PATCH /api/v1/studio/sketches/:id": "squad studio sketch rename <sketch> <name> --stamp <stamp>",
+    "POST /api/v1/studio/sketches/:id/duplicate": "squad studio sketch duplicate <sketch> --stamp <stamp>",
+    "DELETE /api/v1/studio/sketches/:id": "squad studio sketch delete <sketch> --stamp <stamp> --yes"
   },
   "allowed": [
     { "route": "POST /api/v1/connections/:name/sign-in/cancel", "reason": "Cancel on the board's sign-in code: stops the sign-in this board started. In the terminal, Ctrl-C stops squad connect." },
@@ -164,8 +167,6 @@
     { "route": "PATCH /api/v1/studio/design-systems/:id", "reason": "Changes a Studio design system. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "DELETE /api/v1/studio/design-systems/:id", "reason": "Deletes a Studio design system. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "POST /api/v1/studio/sketches", "reason": "Makes a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
-    { "route": "PATCH /api/v1/studio/sketches/:id", "reason": "Changes a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
-    { "route": "DELETE /api/v1/studio/sketches/:id", "reason": "Deletes a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "POST /api/v1/studio/sketches/:id/screens", "reason": "Adds a screen to a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "PATCH /api/v1/studio/sketches/:id/screens/:screen", "reason": "Changes a screen of a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "DELETE /api/v1/studio/sketches/:id/screens/:screen", "reason": "Deletes a screen of a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },

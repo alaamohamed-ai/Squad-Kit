@@ -9,7 +9,7 @@ import type { ChatLanguage, ChatSort } from './studio-chat-prompts.js';
 /**
  * The sample board's AI Designer (US-52): no AI and no sign-in, only a few fixed replies, so the Studio's chat can be
  * shown. A question gets an answer and a "maybe" a question back, both changing nothing; export, frames and approving
- * are "not available yet"; anything else changes every screen, one at a time, slowly enough to press Stop. A sketch
+ * are "not available yet"; "rename the sketch to …" and "duplicate this sketch" are done, and "delete this sketch" points to the card menu; anything else changes every screen, one at a time, slowly enough to press Stop. A sketch
  * with no screens gets a booking form and its confirmation.
  */
 
@@ -29,9 +29,30 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 const T = (language: ChatLanguage, en: string, ar: string) => (language === 'Arabic' ? ar : en);
 
+/**
+ * The sample Designer's words for the sketch's own actions: each needs "the sketch" (or "this sketch", "my sketch"),
+ * in English or Arabic, right after the verb, so a change to a part of a screen is never taken for one.
+ */
+const SKETCH = String.raw`(?:this|the|my)\s+sketch\b`;
+const SKETCH_AR = '(?:هذا\\s+)?المخطط';
+const SKETCH_WORDS = {
+  delete: new RegExp(String.raw`\b(?:delete|remove)\s+${SKETCH}|(?:احذف|حذف)\s+${SKETCH_AR}`),
+  rename: new RegExp(String.raw`\brename\s+${SKETCH}|\bcall\s+${SKETCH}|(?:أعد\s+تسمية|غيّر\s+اسم|غير\s+اسم)\s+${SKETCH_AR}`),
+  duplicate: new RegExp(String.raw`\b(?:duplicate|copy)\s+${SKETCH}|\bmake\s+a\s+copy\s+of\s+${SKETCH}|(?:انسخ|كرّر|كرر)\s+${SKETCH_AR}`),
+};
+
 /** What the sample Designer makes of a message, by a few plain rules. */
-export function demoSort(text: string, language: ChatLanguage, lastReply: string | undefined, screens: { id: string; name: string }[]): ChatSort {
+export function demoSort(text: string, language: ChatLanguage, lastReply: string | undefined, screens: { id: string; name: string }[], onSketch = true): ChatSort {
   const t = text.trim().toLowerCase();
+  if (onSketch) {
+    // The sketch's own actions (US-13): rename and duplicate are done; delete points to the card menu. Only a message
+    // that names the sketch itself counts: "Delete the footer", "Copy the header from Checkout" and "Rename the button
+    // to Confirm" are about a screen, so they go on to the rules below.
+    if (SKETCH_WORDS.delete.test(t)) return { kind: 'unavailable', action: 'delete', reply: T(language, 'I do not delete sketches from the chat.', 'لا أحذف المخططات من المحادثة.') };
+    const renamed = SKETCH_WORDS.rename.test(t) ? newNameIn(text) : null;
+    if (renamed) return { kind: 'change', action: 'rename-sketch', name: renamed, reply: T(language, `I will rename the sketch to "${renamed}".`, `سأغيّر اسم المخطط إلى "${renamed}".`) };
+    if (SKETCH_WORDS.duplicate.test(t)) return { kind: 'change', action: 'duplicate-sketch', reply: T(language, 'I will make a copy of the sketch.', 'سأنشئ نسخة من المخطط.') };
+  }
   const unavailable: [RegExp, string, string, string][] = [
     [/export|pdf|png|download|تصدير|تنزيل/, 'export', 'Exporting', 'التصدير'],
     [/\bframe\b|\bmobile frame|\btablet\b|إطار/, 'add-frame', 'Adding a frame', 'إضافة إطار'],
@@ -55,6 +76,14 @@ export function demoSort(text: string, language: ChatLanguage, lastReply: string
   if (yes && lastReply === undefined) return { kind: 'answer', reply: T(language, 'Tell me what to change first.', 'أخبرني أولًا بما تريد تغييره.') };
   const work = screens.length ? screens.map((s) => ({ id: s.id, name: s.name, change: text })) : [{ name: 'Form', change: text }, { name: 'Confirmation', change: text }];
   return { kind: 'change', reply: T(language, screens.length ? `I will change ${work.length === 1 ? 'the screen' : `the ${work.length} screens`}, one at a time.` : 'I will draw the booking form and its confirmation.', screens.length ? 'سأغيّر الشاشات واحدة بعد الأخرى.' : 'سأرسم نموذج الحجز وصفحة التأكيد.'), screens: work };
+}
+
+/** The new name in "Rename the sketch to "Book a visit"": the words in quotes, or else the words after "to". */
+function newNameIn(text: string): string | null {
+  const quoted = /["“«']([^"”»']{1,120})["”»']/.exec(text)?.[1]?.trim();
+  if (quoted) return quoted;
+  const after = /\b(?:to|as)\s+(.{1,120})$/i.exec(text.trim())?.[1]?.replace(/[.!]+$/, '').trim();
+  return after || null;
 }
 
 const PAGE = (body: string) =>
@@ -82,7 +111,7 @@ export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null
       if (o.signal?.aborted) return { error: 'You stopped the Designer.' };
       const before = readConversation(bp, turn.owner, turn.chat).messages.slice(0, -1);
       const lastReply = [...before].reverse().find((m) => m.role === 'designer')?.kind;
-      return demoSort(turn.text, L, lastReply, sketch ? sketch.screens.map((s) => ({ id: s.id, name: s.name })) : [{ id: 'components', name: 'Components' }]);
+      return demoSort(turn.text, L, lastReply, sketch ? sketch.screens.map((s) => ({ id: s.id, name: s.name })) : [{ id: 'components', name: 'Components' }], sketch !== null);
     },
     async screen(w) {
       await sleep(DEMO_SCREEN_MS, o.signal);

@@ -3,13 +3,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
-import { lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchesKey, type SketchFull, type WorkspaceView } from '../../lib/studio';
+import { lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
+import { SketchNameHeader } from './SketchActions';
 
 /* ── A sketch's workspace (US-05, US-52) ──
    The chat with the AI Designer is always open on the left: it is how the screens are made and changed. On the right,
    the chosen variant of the picked screen in the picked frame. Which screen and frame are picked stays in this
-   browser tab (AB-127.1); opening the workspace writes nothing. */
+   browser tab (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch
+   (US-13). */
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -18,7 +20,7 @@ export function SketchWorkspacePage() {
 
 export function SketchWorkspace({ project, id }: { project: string; id: string }) {
   const base = `/api/v1/studio/sketches/${encodeURIComponent(id)}`;
-  const key = ['studio', project, 'sketch', id];
+  const key = sketchKey(project, id);
   const qc = useQueryClient();
   const sketch = useQuery({ queryKey: key, queryFn: () => api<SketchFull>(base) });
   const [view, setView] = useState<WorkspaceView>(() => readWorkspaceView(project, id));
@@ -47,7 +49,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
         <Link to="/studio" className="sk-back" onClick={() => saveStudioTab(project, 'sketches')}>
           <ChevronLeft size={15} /> Sketches
         </Link>
-        <h1 dir="auto">{s?.name ?? (sketch.isError ? 'Sketch' : '…')}</h1>
+        {s ? <SketchNameHeader key={`${s.id}:${s.name}`} project={project} sketch={{ id: s.id, name: s.name, stamp: s.stamp, screens: s.screens.length }} /> : <h1 dir="auto">{sketch.isError ? 'Sketch' : '…'}</h1>}
         {s && <span className="note">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'Follows no design system'}</span>}
       </div>
       {sketch.isError ? (

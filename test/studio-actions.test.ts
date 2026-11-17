@@ -159,7 +159,7 @@ describe('done when 2: each step answers with what is saved, and a deleted scree
     const drawn = addVariant(bp, 'login', 'sign-in', { frames: { desktop: '<main/>' } }, login.stamp);
     saveThumbnail(bp, 'login', 'sign-in', 1, Buffer.from('png'));
     saveChat(bp, 'login', 'talk', { messages: [{ role: 'person', text: 'Hi' }] });
-    expect(deleteSketch(bp, 'login', drawn.stamp)).toEqual({ deleted: 'login' });
+    expect(deleteSketch(bp, 'login', drawn.stamp)).toEqual({ deleted: 'login', name: 'Login', screens: 2 });
     expect(fs.existsSync(sketchDir(bp, 'login'))).toBe(false);
     expect(fs.existsSync(thumbnailFile(bp, 'login', 'sign-in', 1))).toBe(false);
     expect(fs.existsSync(chatFile(bp, 'login', 'talk'))).toBe(false);

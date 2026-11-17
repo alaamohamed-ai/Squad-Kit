@@ -11,8 +11,10 @@ import {
   designSystemsDir,
   frameFile,
   ownerChatFile,
+  STUDIO_ID,
   screenDir,
   screenFile,
+  screensDir,
   screenThumbnailsDir,
   sketchChatsDir,
   sketchDir,
@@ -25,8 +27,9 @@ import {
   variantMetaFile,
   type ChatOwner,
 } from './studio-paths.js';
-import { dumpYaml, idsIn, plainFile, sha1, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
+import { dumpYaml, folders, idsIn, plainFile, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
+import { MAX_NAME, checkSketchNameFree, checkedName, freeSketchId, freeSketchName, studioIdFor } from './studio-names.js';
 import {
   SCREEN_STATES,
   readDesignSystem,
@@ -51,7 +54,8 @@ import {
  * team gets them through git the way it gets tickets. Every Studio save, read and delete goes through this module:
  * later Studio stories import from here only. Its parts: studio-paths.ts (every location, from BoardPaths),
  * studio-read.ts (the saved shapes, the reads and the default design system), studio-files.ts (listing, the change
- * stamp and writing) and studio-lock.ts (one change at a time per project).
+ * stamp and writing), studio-lock.ts (one change at a time per project) and studio-names.ts (one sketch name per
+ * project, and the free-name and free-id helpers, AB-138.1).
  *
  * Each item (one design system, one sketch) is its own folder of plain YAML, JSON and HTML. Versions (v1, v2 …) only
  * grow: a saved version is never written again, so every variant stays pickable. Each item is read back with a change
@@ -87,6 +91,7 @@ export {
   type StudioKind,
 } from './studio-read.js';
 export { stampOfFolder } from './studio-files.js';
+export { StudioNameTaken, freeSketchId, freeSketchName, sketchNameKey, sketchUsingName, studioIdFor } from './studio-names.js';
 
 /* ── Changes ────────────────────────────────────────────── */
 
@@ -127,29 +132,6 @@ export function changeStudioItem<T>(bp: BoardPaths, item: StudioItem, stamp: str
     checkStudioStamp(bp, item, stamp);
     return write();
   });
-}
-
-const MAX_NAME = 120;
-
-function checkedName(name: unknown, what: string): string {
-  const n = typeof name === 'string' ? name.trim() : '';
-  if (!n) throw new Error(`Give the ${what} a name.`);
-  if (n.length > MAX_NAME || /[\r\n]/.test(n)) throw new Error(`The ${what}'s name must be one line of up to ${MAX_NAME} letters.`);
-  return n;
-}
-
-/** A short id from a name: "Checkout" → "checkout", "Order history" → "order-history". */
-export function studioIdFor(name: string): string {
-  const id = name
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64)
-    .replace(/-+$/g, '');
-  // A name with no Latin letters (Arabic, Japanese …) still gets a short id that stays the same for the same name.
-  return id || `item-${sha1(name).slice(0, 8)}`;
 }
 
 function checkedHtml(files: unknown, what: string): Record<string, string> {
@@ -300,6 +282,8 @@ export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | n
   return changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
     const sketch: SketchFile = { name, designSystem: ds ? { id: ds.id, version: ds.version } : null, frames };
     const sketchBefore = stamp === null ? null : readSketchFile(sketchFile(bp, id));
+    // Only a new name is checked: two "Login" sketches a merge brought both stay, until one of them is renamed.
+    if (sketchBefore?.name !== name) checkSketchNameFree(bp, name, id);
     writeMarked(sketchFile(bp, id), sketchBefore, sketch, who);
     for (const s of screens) {
       const file = screenFile(bp, id, s.id);
@@ -463,12 +447,47 @@ export function deleteDesignSystem(bp: BoardPaths, id: string, stamp: string): v
   });
 }
 
-/** Deletes a sketch, its screens and every variant for good, with this computer's thumbnails and chats for it. */
-export function deleteSketch(bp: BoardPaths, id: string, stamp: string): void {
-  changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
+/**
+ * Deletes a sketch, its screens and every variant for good, with this computer's thumbnails and chats for it. Gives
+ * back how many screens it removed, counted under the lock.
+ */
+export function deleteSketch(bp: BoardPaths, id: string, stamp: string): { screens: number } {
+  return changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
+    const screens = folders(screensDir(bp, id)).filter((s) => STUDIO_ID.test(s) && plainFile(screenFile(bp, id, s))).length;
     fs.rmSync(sketchDir(bp, id), { recursive: true, force: true });
     fs.rmSync(sketchThumbnailsDir(bp, id), { recursive: true, force: true });
     fs.rmSync(sketchChatsDir(bp, id), { recursive: true, force: true });
+    return { screens };
+  });
+}
+
+/**
+ * Duplicates a sketch (US-13, AB-138), with the stamp of the source the caller read: a new sketch named "Booking copy"
+ * (then "Booking copy 2" …, AB-138.1) with the same design system and frames, and each screen with the same name and
+ * order, as Draft, with the drawing it shows now saved as its version 1. Older variants, thumbnails and the
+ * conversation are not copied. The copy is marked as made by `who` (AB-131.1); the source is not touched.
+ */
+export function duplicateSketch(bp: BoardPaths, source: string, stamp: string, who: EditBy = {}): Sketch {
+  checkedStudioId(source);
+  return holdStudio(bp, () => {
+    checkStudioStamp(bp, { kind: 'sketch', id: source }, stamp);
+    const from = readSketch(bp, source);
+    if (!from) throw new StudioChangedElsewhere();
+    const name = freeSketchName(bp, `${from.name.slice(0, MAX_NAME - ' copy'.length).trimEnd()} copy`);
+    const id = freeSketchId(bp, name);
+    // The screens first and the sketch file last: a copy cut short is never read as a sketch.
+    for (const s of from.screens) {
+      const drawn = s.variants.find((v) => v.version === s.chosen);
+      if (drawn) {
+        const meta: VariantMetaFile = { madeAt: drawn.madeAt, ...(drawn.madeBy ? { madeBy: drawn.madeBy } : {}), ...(drawn.madeFor ? { madeFor: drawn.madeFor } : {}), ...(drawn.note ? { note: drawn.note } : {}) };
+        const files: Record<string, string> = { [variantMetaFile(bp, id, s.id, 1)]: dumpYaml(meta) };
+        for (const [f, html] of Object.entries(drawn.frames)) files[frameFile(bp, id, s.id, 1, f)] = html;
+        writeNewVersion(variantDir(bp, id, s.id, 1), files);
+      }
+      writeMarked<ScreenFile>(screenFile(bp, id, s.id), null, { name: s.name, order: s.order, status: 'draft', chosen: drawn ? 1 : null }, who);
+    }
+    writeMarked<SketchFile>(sketchFile(bp, id), null, { name, designSystem: from.designSystem, frames: from.frames }, who);
+    return readSketch(bp, id)!;
   });
 }
 

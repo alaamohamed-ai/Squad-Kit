@@ -1,16 +1,18 @@
 import fs from 'node:fs';
 import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
-import { readChat, saveChat, studioIdFor, type StudioChat } from './studio.js';
+import { freeSketchId, freeSketchName, readChat, saveChat, type StudioChat } from './studio.js';
 import { createSketch, getSketch, newSketchDesignSystem } from './studio-actions.js';
 import { writeShared } from './studio-files.js';
-import { CHAT_PICTURE, chatPictureFile, sketchDir } from './studio-paths.js';
+import { CHAT_PICTURE, chatPictureFile } from './studio-paths.js';
+
+export { freeSketchId } from './studio.js';
 
 /**
  * The first message on the Studio's start page (US-05, AB-130): it makes the sketch and keeps the message.
  *
- * The sketch is made through the Studio actions (AB-128.2): its name comes from the message's first words, its id from
- * the name (with -2, -3 … when taken), and it follows the project's Default design system, or none. The message and
+ * The sketch is made through the Studio actions (AB-128.2): its name comes from the message's first words (with 2, 3 …
+ * when another sketch has it, AB-138.1), its id from the name (with -2, -3 … when taken), and it follows the project's Default design system, or none. The message and
  * its pictures are kept only in this computer's chat folder for the sketch (AB-130.1), never in the project. Nothing
  * calls the AI Designer yet: its answer comes in a later story, through the one Designer runner (AB-141.1).
  */
@@ -23,8 +25,6 @@ export const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
 /** How many of the message's first words name the sketch. */
 const NAME_WORDS = 6;
 const NAME_MAX = 60;
-/** The id is kept short, so -2, -3 … always fit. */
-const ID_MAX = 40;
 
 export const PICTURE_KINDS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const;
 type PictureKind = keyof typeof PICTURE_KINDS;
@@ -77,16 +77,6 @@ export function sketchNameFrom(message: string): string {
   return name.replace(/[\s.,;:!?،؛-]+$/u, '') || 'New sketch';
 }
 
-/** A short id from the name, with -2, -3 … when the project already has a sketch by it. */
-export function freeSketchId(bp: BoardPaths, name: string): string {
-  const base = studioIdFor(name).slice(0, ID_MAX).replace(/-+$/, '') || 'sketch';
-  for (let n = 1; n < 1000; n++) {
-    const id = n === 1 ? base : `${base}-${n}`;
-    if (!fs.existsSync(sketchDir(bp, id))) return id;
-  }
-  throw new Error('This project has too many sketches with that name. Use other words.');
-}
-
 /**
  * Makes the sketch from the first message and keeps the message, with its pictures, in the sketch's chat on this
  * computer. An empty message is refused, and so is a picture that is not one, before anything is written.
@@ -98,7 +88,8 @@ export function startSketch(bp: BoardPaths, input: StartSketchInput): { id: stri
   if (message.length > MAX_MESSAGE) throw new Error(`Keep the message under ${MAX_MESSAGE} letters.`);
   const pictures = checkedPictures(input.pictures);
 
-  const name = sketchNameFrom(message);
+  // The same rule as every other name (AB-138.1): a used one becomes "… 2", "… 3".
+  const name = freeSketchName(bp, sketchNameFrom(message));
   const def = newSketchDesignSystem(bp);
   const sketch = createSketch(bp, { id: freeSketchId(bp, name), name, designSystem: def ? { id: def.id, version: def.version } : null });
 

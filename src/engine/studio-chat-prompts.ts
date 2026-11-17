@@ -24,15 +24,26 @@ export function languageOf(text: string): ChatLanguage {
  */
 export const STUDIO_ACTIONS: readonly { id: string; words: string; on: 'sketch' | 'design-system' | 'both'; available: boolean }[] = [
   { id: 'change-screens', words: 'Change screens of the sketch, or draw new screens in its frames', on: 'sketch', available: true },
+  { id: 'rename-sketch', words: 'Rename the sketch: put the new name in "name". A name another sketch uses is refused', on: 'sketch', available: true },
+  { id: 'duplicate-sketch', words: 'Duplicate the sketch as "… copy", every screen as Draft at the drawing it shows now, with no conversation', on: 'sketch', available: true },
   { id: 'change-design-system', words: "Change the design system's tokens (colors, fonts, spacing, corners) and its components", on: 'design-system', available: true },
   { id: 'add-frame', words: 'Add a frame to the sketch (mobile, tablet …) or remove one', on: 'sketch', available: false },
   { id: 'export', words: 'Export screens or the design system (PDF, PNG, HTML, code)', on: 'both', available: false },
   { id: 'approve-screen', words: 'Approve a screen, or mark it ready', on: 'sketch', available: false },
   { id: 'pick-variant', words: 'Use another variant or an older version of a screen', on: 'sketch', available: false },
   { id: 'make-default', words: 'Make a design system the default, or move the sketch to another design system', on: 'both', available: false },
-  { id: 'delete', words: 'Delete a sketch, a screen or a design system', on: 'both', available: false },
+  // Never done from the chat (US-13): the person deletes a sketch from its card's menu, so they see the confirmation.
+  { id: 'delete', words: "Delete a sketch, a screen or a design system (a sketch is deleted with Delete in its card's ⋯ menu on the Sketches page, which asks first)", on: 'both', available: false },
   { id: 'make-ticket', words: 'Turn screens into a ticket for the squad to build', on: 'sketch', available: false },
 ];
+
+/** The actions on the sketch itself (US-13): a change with no screens to draw. */
+export const SKETCH_ACTIONS = ['rename-sketch', 'duplicate-sketch'] as const;
+export type SketchAction = (typeof SKETCH_ACTIONS)[number];
+
+export function isSketchAction(x: unknown): x is SketchAction {
+  return (SKETCH_ACTIONS as readonly unknown[]).includes(x);
+}
 
 export type ChatKind = 'answer' | 'ask' | 'unavailable' | 'change';
 export const CHAT_KINDS: readonly ChatKind[] = ['answer', 'ask', 'unavailable', 'change'];
@@ -46,6 +57,7 @@ export const SORT_SCHEMA = {
     kind: { type: 'string', enum: [...CHAT_KINDS] },
     reply: STR,
     action: STR,
+    name: STR,
     screens: {
       type: 'array',
       maxItems: MAX_SCREENS,
@@ -66,6 +78,8 @@ export interface ChatSort {
   kind: ChatKind;
   reply: string;
   action?: string;
+  /** A rename's new name. */
+  name?: string;
   screens?: ChatWork[];
 }
 
@@ -76,6 +90,8 @@ export function sortProblem(x: unknown, on: 'sketch' | 'design-system'): string 
   if (!CHAT_KINDS.includes(a.kind as ChatKind)) return `"kind" must be one of ${CHAT_KINDS.join(', ')}`;
   if (typeof a.reply !== 'string' || !a.reply.trim()) return '"reply" must say something to the person';
   if (a.kind !== 'change' || on === 'design-system') return null;
+  if (a.action === 'rename-sketch') return typeof a.name === 'string' && a.name.trim() ? null : 'a rename must put the new name in "name"';
+  if (a.action === 'duplicate-sketch') return null;
   if (!Array.isArray(a.screens) || !a.screens.length) return 'a change must list the screens to change or draw, one per item';
   if (a.screens.length > MAX_SCREENS) return `a change may list at most ${MAX_SCREENS} screens`;
   for (const s of a.screens as unknown[]) {
@@ -134,8 +150,8 @@ export function chatSortPrompt(b: ChatBrief): string {
     `Sort the message into one kind:
 - answer: a question, or a request for advice or your opinion ("Which variant suits older patients?", "Why this color?"). Answer it in "reply". Change nothing and do not offer to.
 - ask: it might want a change but does not clearly ask for one (a maybe, a wish, a half idea: "Maybe a softer blue?"). Put one short question in "reply", like "Do you want me to change it?". Change nothing yet.
-- unavailable: it asks for something the list above marks "not available yet". Say plainly in "reply" that this is not available yet, naming it, and put its id in "action".
-- change: it clearly asks for a change you can make, or says yes to a change you asked about. ${b.target.kind === 'sketch' ? 'List in "screens" each screen to change or draw, one per item, in order: "id" for a screen the sketch has, a short "name", and in "change" what to do on it. ' : ''}Put one short sentence on what you will do in "reply".`,
+- unavailable: it asks for something the list above marks "not available yet". Say plainly in "reply" that this is not available yet, naming it, and put its id in "action". A delete is never done here: put "delete" in "action".
+- change: it clearly asks for a change you can make, or says yes to a change you asked about. ${b.target.kind === 'sketch' ? 'To rename or duplicate the sketch, put "rename-sketch" (with the new name in "name") or "duplicate-sketch" in "action" and list no screens. Otherwise list in "screens" each screen to change or draw, one per item, in order: "id" for a screen the sketch has, a short "name", and in "change" what to do on it. ' : ''}Put one short sentence on what you will do in "reply".`,
     `Write "reply" in ${b.language}, the language the person wrote in, in plain words.`,
     `The person writes:\n${b.message.trim()}`,
   );

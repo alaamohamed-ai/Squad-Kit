@@ -63,7 +63,8 @@ beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'squad-chat-api-')));
   vi.stubEnv('SQUAD_KIT_HOME', path.join(tmp, 'home'));
   bp = boardPaths(buildPaths(tmp).squadDir);
-  seedDemoBoard(bp, { speed: 50 });
+  // No sample sketches: each test makes its own "Booking".
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct', quality: 'thrifty' });
   app = new Hono();
   mountStudioApi(app, { paths: buildPaths(tmp) });
