@@ -2,14 +2,15 @@ import fs from 'node:fs';
 import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
 import {
-  chatFile,
   checkedStudioId,
   componentFile,
+  designSystemChatsDir,
   designSystemDir,
   designSystemFile,
   designSystemVersionDir,
   designSystemsDir,
   frameFile,
+  ownerChatFile,
   screenDir,
   screenFile,
   screenThumbnailsDir,
@@ -22,6 +23,7 @@ import {
   tokensFile,
   variantDir,
   variantMetaFile,
+  type ChatOwner,
 } from './studio-paths.js';
 import { dumpYaml, idsIn, plainFile, sha1, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
@@ -448,7 +450,8 @@ export function sketchesFollowing(bp: BoardPaths, designSystem: string): { id: s
 }
 
 /**
- * Deletes a design system and every version of it, for good, with the stamp the caller read. Refused with
+ * Deletes a design system and every version of it, for good, with this computer's chats about it, with the stamp the
+ * caller read. Refused with
  * StudioInUse, naming the sketches, while any sketch follows it.
  */
 export function deleteDesignSystem(bp: BoardPaths, id: string, stamp: string): void {
@@ -456,6 +459,7 @@ export function deleteDesignSystem(bp: BoardPaths, id: string, stamp: string): v
     const following = sketchesFollowing(bp, id);
     if (following.length) throw new StudioInUse(id, following);
     fs.rmSync(designSystemDir(bp, id), { recursive: true, force: true });
+    fs.rmSync(designSystemChatsDir(bp, id), { recursive: true, force: true });
   });
 }
 
@@ -485,6 +489,8 @@ export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, sta
 
 /* ── This computer's part: thumbnails and AI Designer chats ── */
 
+export type { ChatOwner } from './studio-paths.js';
+
 /**
  * A thumbnail of one variant of a screen. It goes only into this computer's folder for the project, never into
  * `.squad/`, and is not part of any stamp: a teammate makes their own.
@@ -502,26 +508,56 @@ export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, ve
   return fs.existsSync(file) ? fs.readFileSync(file) : null;
 }
 
+/** What the AI Designer did with a message (AB-177.1). */
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed';
+
+export interface StudioChatMessage {
+  role: 'person' | 'designer';
+  text: string;
+  at?: string;
+  /** The message's picture files in its chats' pictures folder (ownerChatPictureFile, AB-130.1). */
+  pictures?: string[];
+  /** A Designer reply: what it did with the message. Only "changed" and "stopped" ever saved a version. */
+  kind?: ChatReplyKind;
+  /** A Designer reply that saved work: each screen (or component) with its new version. */
+  saved?: { screen: string; name?: string; version?: number }[];
+  /** A person's message: the screen and frame they were looking at. */
+  lookingAt?: { screen?: string; frame?: string };
+}
+
 export interface StudioChat {
   /** What the chat is about, when it is about one screen. */
   screen?: string;
-  /** `pictures` names the message's picture files in the sketch's chat pictures folder (chatPictureFile, AB-130.1). */
-  messages: { role: 'person' | 'designer'; text: string; at?: string; pictures?: string[] }[];
+  /** When the conversation was started. */
+  startedAt?: string;
+  /** The AI tool's own session for this conversation: the next message resumes it. */
+  session?: string;
+  messages: StudioChatMessage[];
 }
 
-/** An AI Designer chat about a sketch. Like thumbnails, it stays on this computer and is not part of any stamp. */
-export function saveChat(bp: BoardPaths, sketch: string, chat: string, contents: StudioChat): string {
-  checkedStudioId(sketch);
-  if (!plainFile(sketchFile(bp, sketch))) throw new Error(`This project has no sketch "${sketch}".`);
+/** A sketch id alone means the sketch. */
+function chatOwner(owner: string | ChatOwner): ChatOwner {
+  return typeof owner === 'string' ? { kind: 'sketch', id: owner } : owner;
+}
+
+/**
+ * An AI Designer chat about a sketch or a design system. Like thumbnails, it stays on this computer and is not part of
+ * any stamp.
+ */
+export function saveChat(bp: BoardPaths, owner: string | ChatOwner, chat: string, contents: StudioChat): string {
+  const o = chatOwner(owner);
+  checkedStudioId(o.id);
+  const saved = o.kind === 'design-system' ? designSystemFile(bp, o.id) : sketchFile(bp, o.id);
+  if (!plainFile(saved)) throw new Error(`This project has no ${KIND_WORDS[o.kind]} "${o.id}".`);
   if (contents.screen !== undefined) checkedStudioId(contents.screen);
   if (!Array.isArray(contents.messages)) throw new Error('A chat is a list of messages.');
-  const file = chatFile(bp, sketch, chat);
+  const file = ownerChatFile(bp, o, chat);
   writeShared(file, `${JSON.stringify(contents, null, 2)}\n`);
   return file;
 }
 
-export function readChat(bp: BoardPaths, sketch: string, chat: string): StudioChat | null {
-  const file = chatFile(bp, sketch, chat);
+export function readChat(bp: BoardPaths, owner: string | ChatOwner, chat: string): StudioChat | null {
+  const file = ownerChatFile(bp, chatOwner(owner), chat);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as StudioChat;

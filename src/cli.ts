@@ -79,6 +79,7 @@ import { runDecided } from './commands/decided.js';
 import { runConfigBudget, runConfigPayment, runCost } from './commands/cost.js';
 import { runAuthLogin, runAuthStatus, runAuthLogout } from './commands/auth/index.js';
 import { requirementsCommand } from './commands/requirements.js';
+import { studioCommand } from './commands/studio.js';
 import { readInstalledPackage } from './core/package-info.js';
 import { chooseProject } from './core/paths.js';
 import { findProject } from './core/projects.js';
@@ -690,8 +691,7 @@ program
   .option('--sprint <name>', 'Which sprint, for example "Sprint 1" (default: the current one)')
   .option('--all', 'Everything open, in every sprint')
   .action(wrapArgs(runBacklog));
-program.addCommand(requirementsCommand());
-
+program.addCommand(requirementsCommand()).addCommand(studioCommand());
 program
   .command('list')
   .description('List stories and their plan state')

@@ -26,11 +26,11 @@ const NAME_MAX = 60;
 /** The id is kept short, so -2, -3 … always fit. */
 const ID_MAX = 40;
 
-const KINDS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const;
-type PictureKind = keyof typeof KINDS;
+export const PICTURE_KINDS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const;
+type PictureKind = keyof typeof PICTURE_KINDS;
 
 /** What the bytes are, from their first bytes: a file is never taken for what its name or its type says. */
-function kindOf(bytes: Buffer): PictureKind | null {
+export function pictureKindOf(bytes: Buffer): PictureKind | null {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
   if (bytes.length >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
@@ -50,7 +50,7 @@ export interface StartSketchInput {
 }
 
 /** The pictures of the message, as bytes, checked before anything is written. */
-function checkedPictures(pictures: unknown): { kind: PictureKind; bytes: Buffer }[] {
+export function checkedPictures(pictures: unknown): { kind: PictureKind; bytes: Buffer }[] {
   if (pictures === undefined || pictures === null) return [];
   if (!Array.isArray(pictures)) throw new Error('The pictures must be a list.');
   if (pictures.length > MAX_START_PICTURES) throw new Error(`Add at most ${MAX_START_PICTURES} pictures to one message.`);
@@ -60,7 +60,7 @@ function checkedPictures(pictures: unknown): { kind: PictureKind; bytes: Buffer 
     if (!m) throw new Error(`Picture ${i + 1} could not be read. Add it again.`);
     const bytes = Buffer.from(m[2]!, 'base64');
     if (bytes.length > MAX_PICTURE_BYTES) throw new Error(`Picture ${i + 1} is larger than 10 MB.`);
-    const kind = kindOf(bytes);
+    const kind = pictureKindOf(bytes);
     if (!kind) throw new Error(`Picture ${i + 1} is not a PNG, JPEG or WebP picture.`);
     return { kind, bytes };
   });
@@ -104,7 +104,7 @@ export function startSketch(bp: BoardPaths, input: StartSketchInput): { id: stri
 
   // This computer's part: the pictures, then the chat that names them.
   const files = pictures.map((p, i) => {
-    const file = `m1-${i + 1}.${KINDS[p.kind]}`;
+    const file = `m1-${i + 1}.${PICTURE_KINDS[p.kind]}`;
     writeShared(chatPictureFile(bp, sketch.id, file), p.bytes);
     return file;
   });
@@ -135,6 +135,6 @@ export function sketchChatPicture(bp: BoardPaths, sketch: string, file: string):
   const at = chatPictureFile(bp, sketch, file);
   if (!fs.existsSync(at)) return null;
   const bytes = fs.readFileSync(at);
-  const kind = kindOf(bytes);
+  const kind = pictureKindOf(bytes);
   return kind ? { bytes, type: kind } : null;
 }

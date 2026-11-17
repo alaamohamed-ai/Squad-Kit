@@ -11,6 +11,7 @@ import { mountAppApi } from '../../src/console/api/app.js';
 import { mountUpdateApi } from '../../src/console/api/update.js';
 import { mountSupportApi } from '../../src/console/api/support.js';
 import { requirementsCommand } from '../../src/commands/requirements.js';
+import { studioCommand } from '../../src/commands/studio.js';
 
 /**
  * Design rule 3 (ADR-005): every action is one REST call, and every button has a terminal command. Each route that
@@ -92,6 +93,7 @@ function cliCommands(): Map<string, CliCommand> {
     for (const sub of c.commands) add(sub, [...words, sub.name()]);
   };
   add(requirementsCommand(), ['requirements']);
+  add(studioCommand(), ['studio']);
   return found;
 }
 

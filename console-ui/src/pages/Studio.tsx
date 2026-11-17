@@ -204,7 +204,11 @@ function DesignSystemCardView({ ds }: { ds: DesignSystemCard }) {
   return (
     <li className="ds-card" aria-label={ds.name}>
       <div className="ds-head">
-        <h4 dir="auto">{ds.name}</h4>
+        <h4 dir="auto">
+          <Link to="/studio/design-systems/$id" params={{ id: ds.id }} className="ds-card-link">
+            {ds.name}
+          </Link>
+        </h4>
         {ds.isDefault && <span className="pill ok sm">Default</span>}
         <span className="ds-v">v{ds.version}</span>
       </div>

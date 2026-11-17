@@ -22,7 +22,7 @@ import {
    pictures with the sketch's chat on this computer, and opens the sketch's workspace. */
 
 /** One picked file, read into the browser as a data address. */
-function readPicture(file: File): Promise<MessagePicture> {
+export function readPicture(file: File): Promise<MessagePicture> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve({ name: file.name, type: file.type, data: String(reader.result) });

@@ -144,7 +144,13 @@
     "POST /api/v1/requirements/:id/items/:key/start": "squad requirements start <id> <story>",
     "POST /api/v1/requirements/:id/decided/:d": "squad requirements decided <id> <entry> [text...]",
     "POST /api/v1/requirements/:id/build": "squad requirements build <id>",
-    "POST /api/v1/requirements/:id/send": "squad requirements send <id>"
+    "POST /api/v1/requirements/:id/send": "squad requirements send <id>",
+    "POST /api/v1/studio/sketches/:id/chats": "squad studio chat <sketch> --new",
+    "POST /api/v1/studio/sketches/:id/chats/:chat/messages": "squad studio chat <sketch> <message>",
+    "POST /api/v1/studio/sketches/:id/chats/:chat/stop": "squad studio chat <sketch> --stop",
+    "POST /api/v1/studio/design-systems/:id/chats": "squad studio chat <system> --design-system --new",
+    "POST /api/v1/studio/design-systems/:id/chats/:chat/messages": "squad studio chat <system> <message> --design-system",
+    "POST /api/v1/studio/design-systems/:id/chats/:chat/stop": "squad studio chat <system> --design-system --stop"
   },
   "allowed": [
     { "route": "POST /api/v1/connections/:name/sign-in/cancel", "reason": "Cancel on the board's sign-in code: stops the sign-in this board started. In the terminal, Ctrl-C stops squad connect." },

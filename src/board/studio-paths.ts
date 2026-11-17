@@ -16,6 +16,8 @@ import type { BoardPaths } from './store.js';
  *   ~/.squad-kit/projects/<id>/studio/thumbnails/<sketch>/<screen>/v1.png
  *   ~/.squad-kit/projects/<id>/studio/chats/<sketch>/<chat>.json
  *   ~/.squad-kit/projects/<id>/studio/chats/<sketch>/pictures/<picture>.png
+ *   ~/.squad-kit/projects/<id>/studio/chats/_design-systems/<system>/<chat>.json
+ *   ~/.squad-kit/projects/<id>/studio/chats/_design-systems/<system>/pictures/<picture>.png
  */
 
 /** A Studio id as it is written in a folder name: lowercase letters, digits and dashes ("brand", "payment"). */
@@ -138,21 +140,51 @@ export function chatsDir(bp: BoardPaths): string {
   return path.join(bp.studioLocalDir, 'chats');
 }
 
+/** What a chat is about: a sketch or a design system. */
+export interface ChatOwner {
+  kind: 'sketch' | 'design-system';
+  id: string;
+}
+
 /** One sketch's AI Designer chats on this computer. */
 export function sketchChatsDir(bp: BoardPaths, sketch: string): string {
   return path.join(chatsDir(bp), checkedStudioId(sketch));
 }
 
+/** One design system's AI Designer chats. "_" is never in a Studio id, so this folder never meets a sketch's. */
+export function designSystemChatsDir(bp: BoardPaths, system: string): string {
+  return path.join(chatsDir(bp), '_design-systems', checkedStudioId(system));
+}
+
+/** The chats of a sketch or a design system on this computer. */
+export function ownerChatsDir(bp: BoardPaths, owner: ChatOwner): string {
+  return owner.kind === 'design-system' ? designSystemChatsDir(bp, owner.id) : sketchChatsDir(bp, owner.id);
+}
+
+export function ownerChatFile(bp: BoardPaths, owner: ChatOwner, chat: string): string {
+  return path.join(ownerChatsDir(bp, owner), `${checkedStudioId(chat)}.json`);
+}
+
 export function chatFile(bp: BoardPaths, sketch: string, chat: string): string {
-  return path.join(sketchChatsDir(bp, sketch), `${checkedStudioId(chat)}.json`);
+  return ownerChatFile(bp, { kind: 'sketch', id: sketch }, chat);
 }
 
 /** A picture file's name in a chat: a short id and its kind, like "m1-1.png". */
 export const CHAT_PICTURE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.(?:png|jpg|webp)$/;
 
-/** The pictures added to a sketch's messages, kept with its chats on this computer (AB-130.1). */
+/** The pictures added to the messages of a sketch or a design system, kept with its chats on this computer (AB-130.1). */
+export function ownerChatPicturesDir(bp: BoardPaths, owner: ChatOwner): string {
+  return path.join(ownerChatsDir(bp, owner), 'pictures');
+}
+
+export function ownerChatPictureFile(bp: BoardPaths, owner: ChatOwner, file: string): string {
+  if (typeof file !== 'string' || !CHAT_PICTURE.test(file)) throw new Error(`"${String(file).slice(0, 40)}" is not a picture of these messages.`);
+  return path.join(ownerChatPicturesDir(bp, owner), file);
+}
+
+/** The pictures added to a sketch's messages. */
 export function chatPicturesDir(bp: BoardPaths, sketch: string): string {
-  return path.join(sketchChatsDir(bp, sketch), 'pictures');
+  return ownerChatPicturesDir(bp, { kind: 'sketch', id: sketch });
 }
 
 export function chatPictureFile(bp: BoardPaths, sketch: string, file: string): string {

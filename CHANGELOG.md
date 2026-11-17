@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Talk with the AI Designer.** A chat on the left of every sketch and design system: ask questions and get advice
+  without changing anything, or ask for a change, which the Designer makes one screen at a time ("Changing screen 2
+  of 2") with a Stop button that keeps the finished screens as a new version. Something the Studio cannot do yet, like
+  export, is named as not available yet. Add a picture or paste a screenshot to a message; Arabic messages and answers
+  read right to left. Conversations stay on this computer and come back when you reopen the sketch; New conversation
+  starts fresh and keeps every version. From the terminal: `squad studio chat <sketch> "<message>"`.
 - A Studio page in every project's sidebar, after Architecture, with Sketches and Design systems tabs. It remembers
   the last tab per project while squad-kit's browser tab stays open, and creates nothing in the project until you make
   something.

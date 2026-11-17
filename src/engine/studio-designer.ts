@@ -40,7 +40,8 @@ import { activePause, startPause } from './usage-limit.js';
  * the tickets waiting (studio-places.ts); it reads the team's rules for the Designer; it runs the AI tool with read
  * files only on the project, the Studio files and the pictures from the message; it checks the answer against
  * SCREENS_SCHEMA, asking once more when it does not fit; then squad-kit saves the screens as a new version through
- * the Studio store, with the change stamp the person read at the start (AB-128.1, AB-129.1).
+ * the Studio store, with the change stamp the person read at the start (AB-128.1, AB-129.1). The chat with the
+ * Designer (studio-chat.ts) opens this same runner (openDesigner) for each message.
  */
 
 /** The Designer's role, in usage lines and levels. */
@@ -100,7 +101,7 @@ function sharedPlace(bp: BoardPaths) {
 }
 
 /** The pictures of the message: files saved with the chat on this computer, and nothing else. */
-function checkedPictures(bp: BoardPaths, pictures: string[]): string[] {
+export function checkedPictures(bp: BoardPaths, pictures: string[]): string[] {
   if (pictures.length > MAX_DESIGNER_PICTURES) throw new Error(`Add at most ${MAX_DESIGNER_PICTURES} pictures to one message.`);
   const home = path.resolve(chatsDir(bp));
   return pictures.map((p) => {
@@ -134,6 +135,95 @@ function briefOf(bp: BoardPaths, a: DesignerAsk, project: string, pictures: stri
   return { step: a.step, ask: a.ask, project, target, ...(designSystem ? { designSystem } : {}), pictures };
 }
 
+/** The one Designer runner, opened for one Studio action: its place is taken, its tool, level and rules are set. */
+export interface DesignerRunner {
+  /** The model, as people read it. */
+  model: string;
+  /** The most one run may use. */
+  caps: { turns: number; spendUsd: number };
+  /** One run of the AI tool, read files only, with the answer's shape; `resume` goes on in the same session. */
+  run(prompt: string, o: { schema: object; resume?: string }): Promise<AgentResult>;
+  /** Why a run that was not ok stopped, in plain words. */
+  failed(r: AgentResult): string;
+  /** What the runs cost so far, when the tool said. */
+  costUsd(): number | undefined;
+  /** Gives the place back. */
+  release: StudioPlace;
+}
+
+/**
+ * Opens the Designer for one Studio action (AB-141.1). On a sample board, or with a tool squad-kit cannot run, it says
+ * why in plain words. Otherwise it waits for a place in the one limit, ahead of the waiting tickets, and every run it
+ * makes reads files only, with the team's rules and the message's pictures. Every Studio AI action comes through here.
+ */
+export async function openDesigner(bp: BoardPaths, a: { step: string; target: StudioItem; pictures: string[] }, o: DesignerOptions = {}): Promise<DesignerRunner | { error: string }> {
+  const meta = readMeta(bp);
+  if (meta.engine !== 'live') return { error: 'A sample board has no Designer. Open a real project to draw in the Studio.' };
+  const agent = readAgent(bp, DESIGNER_ROLE);
+  const tool = aiTool(agent.tool);
+  if (!tool?.canRun) {
+    const can = AI_TOOLS.filter((t) => t.canRun).map((t) => t.label).join(' or ');
+    return { error: `The Designer is set to ${tool?.label ?? agent.tool}, which squad-kit cannot run yet. Switch it to ${can} on the Harness page, under Agents.` };
+  }
+  // Its place in the one limit, ahead of the tickets that wait. It never stops a run that is going.
+  const key = `__designer:${a.target.kind}:${a.target.id}:${Date.now().toString(36)}`;
+  const release = await (o.place ?? sharedPlace(bp))({ root: bp.root, key, ...(o.signal ? { signal: o.signal } : {}), ...(o.onWait ? { onWait: o.onWait } : {}) });
+
+  const quality = meta.quality ?? DEFAULT_QUALITY;
+  const lv = resolveLevel({ role: DESIGNER_ROLE, step: a.step, quality }, agent.levels, personLevels());
+  const effort = effortOn(tool, lv.effort);
+  const caps = stepCaps({ role: DESIGNER_ROLE, step: a.step, quality });
+  const runCaps = { ...(tool.caps?.turns ? { turns: caps.turns } : {}), ...(tool.caps?.spend ? { spendUsd: caps.spendUsd } : {}) };
+  const model = describeLevel(lv, tool);
+  // The team's own rules for the Designer (.squad/rules/designer.md, and its step), then the rules added on Harness.
+  const instructions = [designerRules(), selfRule(bp), agentInstructions(agent, a.step), rulesFor(bp, DESIGNER_ROLE)].filter(Boolean).join('\n\n');
+  const secrets = await secretFiles(bp, bp.root);
+  const addDirs = [...new Set(a.pictures.map((p) => path.dirname(p)))];
+  const used = { role: DESIGNER_ROLE as 'designer', step: a.step, level: lv.level, model: lv.model || tool.modelFor(lv.level) };
+  let cost: number | undefined;
+  return {
+    model,
+    caps,
+    release,
+    costUsd: () => cost,
+    async run(prompt, r) {
+      const out: AgentResult = await tool.run({
+        cwd: bp.root,
+        prompt,
+        permissions: DESIGNER_PERMISSIONS,
+        schema: r.schema,
+        instructions,
+        secretFiles: secrets,
+        privatePlaces: agentPrivatePlaces(),
+        level: lv.level,
+        ...(effort ? { effort } : {}),
+        ...(lv.model ? { model: lv.model } : {}),
+        ...(Object.keys(runCaps).length ? { caps: runCaps } : {}),
+        ...(addDirs.length ? { addDirs } : {}),
+        timeoutMs: DESIGNER_RUN_MS,
+        ...(o.signal ? { signal: o.signal } : {}),
+        logDir: bp.chatsDir,
+        direct: meta.runner === 'direct',
+        ...(r.resume ? { resume: r.resume } : {}),
+      } satisfies AgentRun);
+      // A Studio run has no ticket: it counts on the project's own line, and in the month.
+      recordUsage(bp, undefined, used, out.usage);
+      if (typeof out.usage?.costUsd === 'number') cost = (cost ?? 0) + out.usage.costUsd;
+      return out;
+    },
+    failed(r) {
+      if (r.limit) {
+        startPause(r.limit, { project: meta.project });
+        return `Your ${r.limit.name} usage limit is reached, so the Designer stopped. Ask again once it resets.`;
+      }
+      if (r.capped) return `The Designer used the most one run may use ($${caps.spendUsd} or ${caps.turns} turns), so it stopped. Ask for fewer screens at once.`;
+      if (o.signal?.aborted) return 'You stopped the Designer.';
+      writeLog({ level: 'warn', project: meta.project, text: `The Designer did not answer: ${r.detail ?? r.error ?? 'no answer'}` });
+      return r.error && ownRunWords(r.error, tool) ? r.error : 'The Designer stopped before it answered, on something technical. Ask again.';
+    },
+  };
+}
+
 /**
  * Runs the Designer once and saves what it drew. Never throws for what the person can fix: the result says it in
  * plain words, and nothing is saved unless the whole answer fits and the stamp is still the one read.
@@ -151,82 +241,28 @@ export async function runDesigner(bp: BoardPaths, a: DesignerAsk, o: DesignerOpt
     if (!forSystem && !sketch) return { ok: false, error: `This project has no sketch "${a.target.id}".` };
     const system = forSystem ? readDesignSystem(bp, a.target.id) : null;
     const pictures = checkedPictures(bp, a.pictures ?? []);
+    const d = await openDesigner(bp, { step: a.step, target: a.target, pictures }, o);
+    if ('error' in d) return { ok: false, error: d.error };
+    release = d.release;
     const meta = readMeta(bp);
-    if (meta.engine !== 'live') return { ok: false, error: 'A sample board has no Designer. Open a real project to draw in the Studio.' };
-    const agent = readAgent(bp, DESIGNER_ROLE);
-    const tool = aiTool(agent.tool);
-    if (!tool?.canRun) {
-      const can = AI_TOOLS.filter((t) => t.canRun).map((t) => t.label).join(' or ');
-      return { ok: false, error: `The Designer is set to ${tool?.label ?? agent.tool}, which squad-kit cannot run yet. Switch it to ${can} on the Harness page, under Agents.` };
-    }
-    // Its place in the one limit, ahead of the tickets that wait. It never stops a run that is going.
-    const key = `__designer:${a.target.kind}:${a.target.id}:${Date.now().toString(36)}`;
-    release = await (o.place ?? sharedPlace(bp))({ root: bp.root, key, ...(o.signal ? { signal: o.signal } : {}), ...(o.onWait ? { onWait: o.onWait } : {}) });
-
-    const quality = meta.quality ?? DEFAULT_QUALITY;
-    const lv = resolveLevel({ role: DESIGNER_ROLE, step: a.step, quality }, agent.levels, personLevels());
-    const effort = effortOn(tool, lv.effort);
-    const caps = stepCaps({ role: DESIGNER_ROLE, step: a.step, quality });
-    const runCaps = { ...(tool.caps?.turns ? { turns: caps.turns } : {}), ...(tool.caps?.spend ? { spendUsd: caps.spendUsd } : {}) };
-    const model = describeLevel(lv, tool);
-    // The team's own rules for the Designer (.squad/rules/designer.md, and its step), then the rules added on Harness.
-    const instructions = [designerRules(), selfRule(bp), agentInstructions(agent, a.step), rulesFor(bp, DESIGNER_ROLE)].filter(Boolean).join('\n\n');
     const prompt = designerPrompt(briefOf(bp, a, meta.project, pictures, sketch, system));
-    const secrets = await secretFiles(bp, bp.root);
-    const addDirs = [...new Set(pictures.map((p) => path.dirname(p)))];
-    const used = { role: DESIGNER_ROLE as 'designer', step: a.step, level: lv.level, model: lv.model || tool.modelFor(lv.level) };
-    let cost: number | undefined;
-    const run = async (p: string, resume?: string): Promise<AgentResult> => {
-      const r: AgentResult = await tool.run({
-        cwd: bp.root,
-        prompt: p,
-        permissions: DESIGNER_PERMISSIONS,
-        schema: SCREENS_SCHEMA,
-        instructions,
-        secretFiles: secrets,
-        privatePlaces: agentPrivatePlaces(),
-        level: lv.level,
-        ...(effort ? { effort } : {}),
-        ...(lv.model ? { model: lv.model } : {}),
-        ...(Object.keys(runCaps).length ? { caps: runCaps } : {}),
-        ...(addDirs.length ? { addDirs } : {}),
-        timeoutMs: DESIGNER_RUN_MS,
-        ...(o.signal ? { signal: o.signal } : {}),
-        logDir: bp.chatsDir,
-        direct: meta.runner === 'direct',
-        ...(resume ? { resume } : {}),
-      } satisfies AgentRun);
-      // A Studio run has no ticket: it counts on the project's own line, and in the month.
-      recordUsage(bp, undefined, used, r.usage);
-      if (typeof r.usage?.costUsd === 'number') cost = (cost ?? 0) + r.usage.costUsd;
-      return r;
-    };
-    const failed = (r: AgentResult): DesignerResult => {
-      const out = (error: string): DesignerResult => ({ ok: false, error, model, ...(cost !== undefined ? { costUsd: cost } : {}) });
-      if (r.limit) {
-        startPause(r.limit, { project: meta.project });
-        return out(`Your ${r.limit.name} usage limit is reached, so the Designer stopped. Ask again once it resets.`);
-      }
-      if (r.capped) return out(`The Designer used the most one run may use ($${caps.spendUsd} or ${caps.turns} turns), so it stopped. Ask for fewer screens at once.`);
-      if (o.signal?.aborted) return out('You stopped the Designer.');
-      writeLog({ level: 'warn', project: meta.project, text: `The Designer did not answer: ${r.detail ?? r.error ?? 'no answer'}` });
-      return out(r.error && ownRunWords(r.error, tool) ? r.error : 'The Designer stopped before it answered, on something technical. Ask again.');
-    };
+    const priced = () => ({ model: d.model, ...(d.costUsd() !== undefined ? { costUsd: d.costUsd() } : {}) });
+    const failed = (r: AgentResult): DesignerResult => ({ ok: false, error: d.failed(r), ...priced() });
     const frames = sketch ? sketch.frames : ['desktop'];
-    let r = await run(prompt);
+    let r = await d.run(prompt, { schema: SCREENS_SCHEMA });
     if (!r.ok) return failed(r);
     let problem = screensProblem(r.structured, { frames });
     if (problem) {
       // A broken answer is asked for once more, in the same conversation; then it is refused and nothing is saved.
-      const again = await run(answerAgainPrompt(problem), r.sessionId || undefined);
+      const again = await d.run(answerAgainPrompt(problem), { schema: SCREENS_SCHEMA, ...(r.sessionId ? { resume: r.sessionId } : {}) });
       if (!again.ok) return failed(again);
       r = again;
       problem = screensProblem(r.structured, { frames });
-      if (problem) return { ok: false, error: refusedWords(problem), model, ...(cost !== undefined ? { costUsd: cost } : {}) };
+      if (problem) return { ok: false, error: refusedWords(problem), ...priced() };
     }
     const answer = r.structured as DesignerAnswer;
     const note = answer.note.trim();
-    const done = { ok: true as const, note, model, ...(cost !== undefined ? { costUsd: cost } : {}) };
+    const done = { ok: true as const, note, ...priced() };
     if (sketch) {
       const drawn = answer.screens.map((s) => ({ ...(s.id ? { id: s.id } : {}), name: s.name.trim(), frames: Object.fromEntries(s.frames.map((f) => [f.frame.trim(), f.html])) }));
       // Marked as the AI Designer's work for the person who asked (AB-131.1).

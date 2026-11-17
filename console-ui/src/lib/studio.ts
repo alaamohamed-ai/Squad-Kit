@@ -218,11 +218,128 @@ export interface StartedSketch {
 /** The sketch workspace's address, under the project's base. */
 export const sketchPath = (id: string) => `/studio/sketches/${encodeURIComponent(id)}`;
 
-/** One message of a sketch's chat, as GET /api/v1/studio/sketches/<id>/chat sends it. */
+/** What the AI Designer did with a message: only "changed" and "stopped" saved a version. */
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed';
+
+/** One message of a chat, as the board server sends it. */
 export interface ChatMessageView {
   role: 'person' | 'designer';
   text: string;
   at?: string;
   /** Addresses of the message's pictures, served from this computer's chat folder. */
   pictures: string[];
+  kind?: ChatReplyKind;
+  /** The screens (or components) a change saved, each with its new version. */
+  saved?: { screen: string; name?: string; version?: number }[];
 }
+
+/* ── The chat with the AI Designer (US-52, AB-177) ── */
+
+export type ChatOwnerKind = 'sketch' | 'design-system';
+
+/** Where a sketch's or a design system's conversations are, on the board server. */
+export const chatsPath = (kind: ChatOwnerKind, id: string) => `/api/v1/studio/${kind === 'sketch' ? 'sketches' : 'design-systems'}/${encodeURIComponent(id)}/chats`;
+export const chatsKey = (project: string, kind: ChatOwnerKind, id: string) => ['studio', project, kind, id, 'chats'];
+
+/** A conversation in the list, newest first. */
+export interface ConversationRow {
+  id: string;
+  startedAt: string | null;
+  messages: number;
+  first: string | null;
+  lastAt: string | null;
+}
+
+export interface ConversationList {
+  conversations: ConversationRow[];
+  /** The one the chat opens on: the newest. */
+  current: string;
+}
+
+/** One conversation, and what the Designer is doing in it now, if anything. */
+export interface ConversationData {
+  id: string;
+  owner: { kind: ChatOwnerKind; id: string; name: string };
+  startedAt: string | null;
+  messages: ChatMessageView[];
+  working: { doing: string; since: string } | null;
+}
+
+/** Arabic text reads right to left: the direction of a message, from most of its letters. */
+export function textDir(text: string): 'rtl' | 'ltr' {
+  const arabic = (text.match(/[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  return arabic > 0 && arabic >= latin ? 'rtl' : 'ltr';
+}
+
+/** What the Designer is looking at: "Booking / Form, desktop". */
+export function lookingAtText(name: string, screen?: string | null, frame?: string | null): string {
+  return `${name}${screen ? ` / ${screen}` : ''}${frame ? `, ${frame}` : ''}`;
+}
+
+/** A message's time, like 16:02. */
+export function timeOf(at?: string | null): string {
+  if (!at) return '';
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** A conversation's name in the list: "Conversation 2 · 16 Nov, 16:02 · 4 messages". */
+export function conversationLabel(row: ConversationRow, n: number): string {
+  const d = row.startedAt ? new Date(row.startedAt) : null;
+  const when = d && !Number.isNaN(d.getTime()) ? ` · ${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${timeOf(row.startedAt)}` : '';
+  return `Conversation ${n}${when} · ${row.messages === 1 ? '1 message' : `${row.messages} messages`}`;
+}
+
+/** Choices kept in this browser tab only (AB-127.1): the conversation, screen and frame picked, per sketch or design system. */
+function readTab<T>(key: string): T | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveTab(key: string, value: unknown): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Private windows and full storage: the choice is just forgotten.
+  }
+}
+
+export const pickedChatKey = (project: string, kind: ChatOwnerKind, id: string) => `squad-studio-chat:${project}:${kind}:${id}`;
+export const readPickedChat = (project: string, kind: ChatOwnerKind, id: string) => readTab<string>(pickedChatKey(project, kind, id));
+export const savePickedChat = (project: string, kind: ChatOwnerKind, id: string, chat: string) => saveTab(pickedChatKey(project, kind, id), chat);
+
+/** The screen and frame shown in a sketch's workspace. */
+export interface WorkspaceView {
+  screen?: string;
+  frame?: string;
+}
+export const workspaceViewKey = (project: string, sketch: string) => `squad-studio-view:${project}:${sketch}`;
+export const readWorkspaceView = (project: string, sketch: string): WorkspaceView => readTab<WorkspaceView>(workspaceViewKey(project, sketch)) ?? {};
+export const saveWorkspaceView = (project: string, sketch: string, view: WorkspaceView) => saveTab(workspaceViewKey(project, sketch), view);
+
+/** One sketch read on its own, with each variant's HTML by frame. */
+export interface SketchFull {
+  id: string;
+  name: string;
+  designSystem: { id: string; version: number; name: string | null } | null;
+  frames: string[];
+  stamp: string;
+  screens: { id: string; name: string; order: number; status: string; chosen: number | null; variants: { version: number; frames: string[]; madeAt?: string; madeBy?: string; html: Record<string, string> }[] }[];
+}
+
+/** One design system read on its own, with each version's components' HTML. */
+export interface DesignSystemFull {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  version: number;
+  stamp: string;
+  versions: { version: number; tokens: Record<string, unknown>; components: string[]; html: Record<string, string> }[];
+}
+
+export const designSystemPath = (id: string) => `/studio/design-systems/${encodeURIComponent(id)}`;

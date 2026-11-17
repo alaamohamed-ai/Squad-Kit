@@ -125,13 +125,17 @@ beforeEach(() => {
     if (method === 'GET' && url === '/p/mawid/api/v1/studio/app-picture') return json(appOption);
     const cover = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)\/cover$/.exec(url);
     if (method === 'GET' && cover) return covers[cover[1]!] ? json(covers[cover[1]!]) : json({ error: 'not here' }, 404);
-    const one = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)(\/chat)?$/.exec(url);
+    // A sketch, and its conversations with the AI Designer (US-52): the start page's message is the first one.
+    const one = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)(\/chats(\/main)?)?$/.exec(url);
     if (method === 'GET' && one) {
       const s = sketches.find((x) => x.id === one[1]);
       if (!s) return json({ error: 'not here' }, 404);
-      if (!one[2]) return json(s);
+      // One sketch read on its own, as the server sends it: its frames, and each screen with its variants.
+      if (!one[2]) return json({ ...s, frames: ['desktop'], screens: (s.screens as { id: string }[]).map((sc) => ({ variants: [], chosen: null, ...sc })) });
       const sent = changes.find((c) => c.url.endsWith('/sketches/start'));
-      return json({ messages: sent ? [{ role: 'person', text: sent.body.message, pictures: sent.body.pictures.map((_: unknown, i: number) => `/api/v1/studio/sketches/${s.id}/chat/pictures/m1-${i + 1}.png`) }] : [] });
+      const messages = sent ? [{ role: 'person', text: sent.body.message, pictures: sent.body.pictures.map((_: unknown, i: number) => `/api/v1/studio/sketches/${s.id}/chats/main/pictures/m1-${i + 1}.png`) }] : [];
+      if (!one[3]) return json({ conversations: messages.length ? [{ id: 'main', startedAt: null, messages: 1, first: messages[0]!.text, lastAt: null }] : [], current: 'main' });
+      return json({ id: 'main', owner: { kind: 'sketch', id: s.id, name: s.name }, startedAt: null, messages, working: null });
     }
     if (method === 'POST' && url === '/p/mawid/api/v1/studio/sketches/start') {
       const body = JSON.parse(String(init.body));
@@ -289,7 +293,9 @@ describe('the Design systems tab (US-33)', () => {
     expect(page.querySelectorAll('.ds-card .pill')).toHaveLength(1);
     // Nothing to make one here: those come in later stories.
     const panel = page.getElementById('studio-panel');
-    expect(panel.querySelectorAll('button, textarea, input, a')).toHaveLength(0);
+    expect(panel.querySelectorAll('button, textarea, input')).toHaveLength(0);
+    // Each card's name opens its page, with the chat beside it (US-52).
+    expect([...panel.querySelectorAll('a')].map((a: any) => a.getAttribute('href'))).toEqual(['/studio/design-systems/patient-app', '/studio/design-systems/admin-dashboard', '/studio/design-systems/kiosk']);
     expect(panel.textContent).not.toMatch(/New design system|Describe your brand|coming soon/i);
   });
 
@@ -420,13 +426,14 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     expect(button('Send').disabled).toBe(false);
     await pick([new dom.window.File([PNG], 'idea.png', { type: 'image/png' })]);
     await press(button('Send'));
-    await until(() => router.state.location.pathname === '/studio/sketches/a-page-where-patients-book' && !!page.querySelector('.sk-msg'));
+    await until(() => router.state.location.pathname === '/studio/sketches/a-page-where-patients-book' && !!page.querySelector('.dc-msg'));
 
     expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/start', body: { message: 'A page where patients book a visit with their doctor', pictures: [{ name: 'idea.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` }] } }]);
     expect(router.state.location.pathname).toBe('/studio/sketches/a-page-where-patients-book');
     expect(page.querySelector('h1').textContent).toBe('A page where patients book');
-    expect(page.querySelector('.sk-msg').textContent).toBe('A page where patients book a visit with their doctor');
-    expect([...page.querySelectorAll('.sk-msg img')].map((i: any) => i.getAttribute('src'))).toEqual(['/p/mawid/api/v1/studio/sketches/a-page-where-patients-book/chat/pictures/m1-1.png?t=a-token']);
+    // The first message opens the chat with the AI Designer, on the left of the workspace.
+    expect(page.querySelector('.dc-msg.person .dc-text').textContent).toBe('A page where patients book a visit with their doctor');
+    expect([...page.querySelectorAll('.dc-msg img')].map((i: any) => i.getAttribute('src'))).toEqual(['/p/mawid/api/v1/studio/sketches/a-page-where-patients-book/chats/main/pictures/m1-1.png?t=a-token']);
 
     // Back to the Sketches tab: a sketch exists now, so the list shows instead of the start page.
     const back = page.querySelector('.sk-back');

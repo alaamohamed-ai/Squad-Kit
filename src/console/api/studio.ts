@@ -24,7 +24,9 @@ import {
 } from '../../board/studio-actions.js';
 import { sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
 import { appPictureOption, takeAppPicture } from '../../engine/studio-app-picture.js';
+import { ChatBusy } from '../../engine/studio-chat-runs.js';
 import { act } from './act.js';
+import { mountStudioChatApi } from './studio-chat.js';
 
 /**
  * The Studio API (US-04, AB-129), under /api/v1/studio; the server serves it for each project at
@@ -118,6 +120,7 @@ async function run(c: Context, fn: () => unknown) {
     if (err instanceof StudioChangedElsewhere) return c.json({ error: err.message, changedElsewhere: true }, 409);
     if (err instanceof StudioInUse) return c.json({ error: err.message, followedBy: err.sketches }, 409);
     if (err instanceof StudioNotFound) return c.json({ error: err.message }, 404);
+    if (err instanceof ChatBusy) return c.json({ error: err.message, busy: true }, 409);
     return act(c, () => {
       throw err;
     });
@@ -232,4 +235,7 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const stamp = await deleteStamp(c);
     return run(c, () => sketchRead(deleteScreen(bp, c.req.param('id'), c.req.param('screen'), stamp)));
   });
+
+  /* ── The chat with the AI Designer, for sketches and design systems (US-52, AB-177) ── */
+  mountStudioChatApi(app, bp, { run, body });
 }

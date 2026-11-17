@@ -92,6 +92,8 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
       { id: 'draw', name: 'Draw' },
       { id: 'change', name: 'Change' },
       { id: 'system', name: 'Design system' },
+      // The Studio chat (US-52) goes through the same runner, as its own step.
+      { id: 'chat', name: 'Chat' },
     ]);
     const a = new Hono();
     mountBoardApi(a, { paths: buildPaths(tmp) });
@@ -100,11 +102,12 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
     expect(agents.map((x) => x.role)).toContain('designer');
     const designer = agents.find((x) => x.role === 'designer')!;
     expect(designer.name).toBe('Designer');
-    expect(designer.stepList.map((s) => s.id)).toEqual(['draw', 'change', 'system']);
+    expect(designer.stepList.map((s) => s.id)).toEqual(['draw', 'change', 'system', 'chat']);
     expect(designer.levels.map((l) => [l.step, l.name, l.now.level, l.now.effort])).toEqual([
       ['draw', 'Draw', 'balanced', 'high'],
       ['change', 'Change', 'balanced', 'medium'],
       ['system', 'Design system', 'balanced', 'high'],
+      ['chat', 'Chat', 'balanced', 'high'],
     ]);
     for (const l of designer.levels) expect(l.now).toMatchObject(resolveLevel({ role: 'designer', step: l.step, quality: 'thrifty' }));
     expect(designer.levels.every((l) => l.now.modelName === 'Sonnet')).toBe(true);
@@ -113,7 +116,7 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
     expect(fs.existsSync(path.join(bp.rulesDir, 'designer.md'))).toBe(true);
     // Its core prompts show on the page too, one per step.
     const core = (await (await a.request('/api/v1/agents/designer/prompts')).json()) as { prompts: { step: string; prompt: string }[] };
-    expect(core.prompts.map((p) => p.step)).toEqual(['draw', 'change', 'system']);
+    expect(core.prompts.map((p) => p.step)).toEqual(['draw', 'change', 'system', 'chat']);
     expect(core.prompts.every((p) => p.prompt.includes('You are the Designer'))).toBe(true);
   });
 
