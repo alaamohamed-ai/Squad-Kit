@@ -50,12 +50,14 @@ export interface DesignSystemCard {
   colors: string[];
   /** How many sketches follow it. */
   sketches: number;
+  /** The frames its sketches are drawn in (AB-133.1): Desktop and Mobile unless it says otherwise. */
+  frames?: string[];
 }
 
 export interface DesignSystemList {
   /** The default first, then the others in the order they were made. */
   designSystems: DesignSystemCard[];
-  default: { id: string; name: string; version: number } | null;
+  default: { id: string; name: string; version: number; frames?: string[] } | null;
 }
 
 export const DESIGN_SYSTEMS_PATH = '/api/v1/studio/design-systems';
@@ -209,10 +211,39 @@ export interface AppPictureOption {
   app?: string;
 }
 
-/** What Send gives back: the new sketch, whose workspace opens next. */
+/** What Send gives back: the new sketch, whose workspace opens next, with what the AI Designer started doing on it. */
 export interface StartedSketch {
   id: string;
   name: string;
+  working?: { doing: string; since: string } | null;
+}
+
+/* ── The start page's chips (US-08, AB-133) ── */
+
+/** The frames a design system has when its file names none, and a sketch with no design system starts with. */
+export const DEFAULT_FRAMES = ['desktop', 'mobile'] as const;
+export const MIN_VARIANTS = 1;
+export const MAX_VARIANTS = 3;
+export const DEFAULT_VARIANTS = 2;
+
+/** "desktop" → "Desktop". */
+export function frameLabel(frame: string): string {
+  return frame ? frame[0]!.toUpperCase() + frame.slice(1) : frame;
+}
+
+/** A design system's frames, Desktop and Mobile when it names none. */
+export function framesOf(ds: { frames?: string[] } | null | undefined): string[] {
+  return ds?.frames?.length ? ds.frames : [...DEFAULT_FRAMES];
+}
+
+/** What a run on the start page will make: "1 screen × 2 frames × 2 variants", "1 screen × 1 frame × 3 variants". */
+export function runLine(frames: number, variants: number): string {
+  return `1 screen × ${frames} ${frames === 1 ? 'frame' : 'frames'} × ${variants} ${variants === 1 ? 'variant' : 'variants'}`;
+}
+
+/** A design system in the start page's list: "Patient app · default · Desktop, Mobile", "Admin · Desktop". */
+export function designSystemOption(ds: { name: string; isDefault: boolean; frames?: string[] }): string {
+  return `${ds.name}${ds.isDefault ? ' · default' : ''} · ${framesOf(ds).map(frameLabel).join(', ')}`;
 }
 
 /* ── Rename, Duplicate and Delete a sketch (US-13, AB-138) ── */

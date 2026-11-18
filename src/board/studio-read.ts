@@ -35,7 +35,15 @@ export interface SystemFile {
   version: number;
   /** When it was made, for working out the default when there are none or several marked. */
   madeAt: string;
+  /**
+   * The frames its sketches are drawn in (AB-133.1): desktop and mobile when it is made. A file made before the list
+   * was kept has none and is read as DEFAULT_FRAMES, without being written again.
+   */
+  frames?: string[];
 }
+
+/** The frames a new design system starts with, and what a design system saved without a list is read as (AB-133.1). */
+export const DEFAULT_FRAMES: readonly string[] = ['desktop', 'mobile'];
 
 /**
  * When a change was made and by whom (AB-131.1). Each change writes it on the file it already saves: the sketch file
@@ -111,6 +119,8 @@ export interface DesignSystem {
   /** The current version. */
   version: number;
   madeAt: string;
+  /** Its frames (AB-133.1), in order: DEFAULT_FRAMES when its file has no list. */
+  frames: string[];
   versions: DesignSystemVersion[];
   /** A fingerprint of every shared file in the folder; every change must bring the one it read. */
   stamp: string;
@@ -189,10 +199,18 @@ function timeText(x: unknown): string {
   return typeof x === 'string' ? x : '';
 }
 
-function readSystemFile(file: string): SystemFile {
+export function readSystemFile(file: string): SystemFile {
   const raw = readYamlFile(file);
   if (!isPlain(raw) || typeof raw.name !== 'string' || !positive(raw.version)) throw problem(`The design system file ${file}`);
-  return { name: raw.name, default: raw.default === true, version: raw.version, madeAt: timeText(raw.madeAt) };
+  const frames = framesIn(raw.frames);
+  return { name: raw.name, default: raw.default === true, version: raw.version, madeAt: timeText(raw.madeAt), ...(frames ? { frames } : {}) };
+}
+
+/** A saved frames list: each frame id once, in order. Undefined when there is no usable list: it is read as DEFAULT_FRAMES. */
+function framesIn(x: unknown): string[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  const frames = [...new Set(x.filter((f): f is string => typeof f === 'string' && STUDIO_ID.test(f)))];
+  return frames.length ? frames : undefined;
 }
 
 /** A name in a mark: one line, kept short. */
@@ -285,7 +303,7 @@ export function readDesignSystem(bp: BoardPaths, id: string): DesignSystem | nul
     tokens: readTokens(tokensFile(bp, id, version)),
     components: htmlFiles(componentsDir(bp, id, version)),
   }));
-  return { id, name: system.name, markedDefault: system.default, version: system.version, madeAt: system.madeAt, versions, stamp: stamp ?? '' };
+  return { id, name: system.name, markedDefault: system.default, version: system.version, madeAt: system.madeAt, frames: system.frames ?? [...DEFAULT_FRAMES], versions, stamp: stamp ?? '' };
 }
 
 /** A made time to compare: one that cannot be read counts as made last. */

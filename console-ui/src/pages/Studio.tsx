@@ -25,7 +25,7 @@ import {
   type StudioTab,
 } from '../lib/studio';
 import { SketchCardMenu } from './studio/SketchActions';
-import { StartSketch } from './studio/StartSketch';
+import { NewSketchButton, StartSketch } from './studio/StartSketch';
 
 /* ── Studio: the project's sketches and design systems ──
    The tab the person last used stays in this browser tab, one per project (lib/studio). Both tabs read from the board
@@ -65,22 +65,32 @@ function useDesignSystems(project: string) {
   return useQuery({ queryKey: designSystemsKey(project), queryFn: () => api<DesignSystemList>(DESIGN_SYSTEMS_PATH) });
 }
 
-/** The Sketches tab: the start page while the project has no sketch, then a card per sketch, newest edit first (US-06). */
+/**
+ * The Sketches tab: the start page while the project has no sketch, then a card per sketch, newest edit first (US-06).
+ * New sketch (US-08) opens the same start page over the cards; it is this page's own choice and saves nothing.
+ */
 function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDesignSystem: () => void }) {
   const list = useQuery({ queryKey: sketchesKey(project), queryFn: () => api<{ sketches: SketchRow[] }>(SKETCHES_PATH) });
   const systems = useDesignSystems(project);
   // A refused Duplicate, in the server's words, until the next action.
   const [problem, setProblem] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   if (list.isPending) return <p className="note">Reading the sketches…</p>;
   if (list.isError) return <p className="note bad">{list.error.message}</p>;
   const sketches = list.data.sketches;
-  if (!sketches.length) {
+  if (!sketches.length || starting) {
     // The line about design systems shows only once the list says there are none: never while it is read.
     const noDesignSystem = systems.isSuccess && systems.data.designSystems.length === 0;
-    return <StartSketch project={project} noDesignSystem={noDesignSystem} onSetUpDesignSystem={onSetUpDesignSystem} />;
+    // The design systems give the start page's chips (US-08): the default one and its frames.
+    // Until they are read (or when they cannot be), Send leaves them to the server: the default and its frames.
+    const listed = systems.isSuccess ? systems.data.designSystems : undefined;
+    return <StartSketch project={project} noDesignSystem={noDesignSystem} onSetUpDesignSystem={onSetUpDesignSystem} systems={listed} onBack={sketches.length ? () => setStarting(false) : undefined} />;
   }
   return (
     <>
+      <div className="sk-toolbar">
+        <NewSketchButton onClick={() => setStarting(true)} />
+      </div>
       {problem && (
         <p className="note bad sk-problem" role="alert">
           {problem}

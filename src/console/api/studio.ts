@@ -23,9 +23,10 @@ import {
   type SketchCard,
   type SketchView,
 } from '../../board/studio-actions.js';
-import { sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
+import { FIRST_CHAT, sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
+import { writeLog } from '../../core/app-log.js';
 import { appPictureOption, takeAppPicture } from '../../engine/studio-app-picture.js';
-import { ChatBusy } from '../../engine/studio-chat-runs.js';
+import { ChatBusy, startChatJob } from '../../engine/studio-chat-runs.js';
 import { act } from './act.js';
 import { mountStudioChatApi } from './studio-chat.js';
 
@@ -55,6 +56,8 @@ function designSystemRow(ds: DesignSystem, isDefault: boolean) {
     markedDefault: ds.markedDefault,
     version: ds.version,
     madeAt: ds.madeAt,
+    /** The frames its sketches are drawn in (AB-133.1): Desktop and Mobile when its file has no list. */
+    frames: ds.frames,
     stamp: ds.stamp,
     versions: ds.versions.map((v) => ({ version: v.version, tokens: v.tokens, components: Object.keys(v.components) })),
   };
@@ -177,11 +180,23 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const b = await body(c);
     return run(c, () => sketchRead(createSketch(bp, b as never)));
   });
-  // The start page's Send (US-05, AB-130): makes the sketch from the first message, which is kept, with its pictures,
-  // in the sketch's chat on this computer only. Nothing calls the AI Designer yet.
+  // The start page's Send (US-05, US-08): makes the sketch from the first message with the design system, frames and
+  // variants its chips chose; the message is kept, with its pictures, in the sketch's chat on this computer only. The
+  // AI Designer's first turn starts on it at once, in the background, through the one Designer runner (AB-141.1), so
+  // its workspace opens with the Designer already working.
   app.post('/api/v1/studio/sketches/start', async (c) => {
     const b = await body(c);
-    return run(c, () => startSketch(bp, b as never));
+    return run(c, () => {
+      const made = startSketch(bp, b as never);
+      let working: { doing: string; since: string } | null = null;
+      try {
+        working = startChatJob(bp, { owner: { kind: 'sketch', id: made.id }, chat: FIRST_CHAT }).working;
+      } catch (err) {
+        // The sketch and its message are kept: the workspace offers "Answer it" instead.
+        writeLog({ level: 'warn', text: `The AI Designer could not start on the new sketch: ${err instanceof Error ? err.message : String(err)}` });
+      }
+      return { ...made, working };
+    });
   });
   // A sketch's chat for its workspace, each picture as an address the page can show.
   app.get('/api/v1/studio/sketches/:id/chat', (c) =>

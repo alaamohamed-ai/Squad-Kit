@@ -10,7 +10,6 @@ import {
   designSystemVersionDir,
   designSystemsDir,
   frameFile,
-  ownerChatFile,
   STUDIO_ID,
   screenDir,
   screenFile,
@@ -21,7 +20,6 @@ import {
   sketchFile,
   sketchThumbnailsDir,
   sketchesDir,
-  thumbnailFile,
   tokensFile,
   variantDir,
   variantMetaFile,
@@ -31,8 +29,10 @@ import { dumpYaml, folders, idsIn, plainFile, versionsIn, writeNewVersion, write
 import { holdStudio } from './studio-lock.js';
 import { MAX_NAME, checkSketchNameFree, checkedName, freeSketchId, freeSketchName, studioIdFor } from './studio-names.js';
 import {
+  DEFAULT_FRAMES,
   SCREEN_STATES,
   readDesignSystem,
+  readSystemFile,
   readScreenFile,
   readSketch,
   readSketchFile,
@@ -43,6 +43,7 @@ import {
   type ScreenStatus,
   type Sketch,
   type SketchFile,
+  type SketchScreen,
   type StudioItem,
   type StudioKind,
   type SystemFile,
@@ -54,8 +55,8 @@ import {
  * team gets them through git the way it gets tickets. Every Studio save, read and delete goes through this module:
  * later Studio stories import from here only. Its parts: studio-paths.ts (every location, from BoardPaths),
  * studio-read.ts (the saved shapes, the reads and the default design system), studio-files.ts (listing, the change
- * stamp and writing), studio-lock.ts (one change at a time per project) and studio-names.ts (one sketch name per
- * project, and the free-name and free-id helpers, AB-138.1).
+ * stamp and writing), studio-lock.ts (one change at a time per project), studio-names.ts (one sketch name per
+ * project, and the free-name and free-id helpers, AB-138.1) and studio-local.ts (thumbnails and chats, on this computer).
  *
  * Each item (one design system, one sketch) is its own folder of plain YAML, JSON and HTML. Versions (v1, v2 …) only
  * grow: a saved version is never written again, so every variant stays pickable. Each item is read back with a change
@@ -68,6 +69,7 @@ import {
 
 export {
   AI_DESIGNER,
+  DEFAULT_FRAMES,
   SCREEN_STATES,
   SCREEN_STATUSES,
   byMadeOrder,
@@ -167,6 +169,14 @@ export interface DesignSystemInput {
   tokens?: Record<string, unknown>;
   /** Component id → its HTML. */
   components?: Record<string, string>;
+  /** Its frames (AB-133.1). Left out, a new one gets Desktop and Mobile, and a save keeps what its file has. */
+  frames?: string[];
+}
+
+/** A list of frames: at least one, each a frame id (desktop, mobile …), each once, in order. */
+export function checkedFrameList(frames: unknown, what: string): string[] {
+  if (!Array.isArray(frames) || !frames.length || frames.some((f) => typeof f !== 'string')) throw new Error(`Give the ${what} at least one frame, like desktop.`);
+  return [...new Set((frames as string[]).map((f) => checkedStudioId(f)))];
 }
 
 /** Another design system is already saved in the project, readable or not. */
@@ -185,6 +195,7 @@ export function saveDesignSystem(bp: BoardPaths, input: DesignSystemInput, stamp
   const id = checkedStudioId(input.id ?? studioIdFor(name));
   const tokens = checkedTokens(input.tokens);
   const components = checkedHtml(input.components, 'component');
+  const frames = input.frames === undefined ? undefined : checkedFrameList(input.frames, 'design system');
   return changeStudioItem(bp, { kind: 'design-system', id }, stamp, () => {
     const before = stamp === null ? null : readDesignSystem(bp, id);
     const current = before?.versions.find((v) => v.version === before.version);
@@ -199,9 +210,13 @@ export function saveDesignSystem(bp: BoardPaths, input: DesignSystemInput, stamp
       for (const [c, html] of Object.entries(nextComponents)) files[componentFile(bp, id, version, c)] = html;
       writeNewVersion(designSystemVersionDir(bp, id, version), files);
     }
+    // Its frames (AB-133.1): a new one starts with Desktop and Mobile; a save keeps the list its file has, and a file
+    // made before the list was kept stays without one (it is read as Desktop and Mobile).
+    const savedFrames = before ? readSystemFile(designSystemFile(bp, id)).frames : undefined;
+    const nextFrames = frames ?? savedFrames ?? (before ? undefined : [...DEFAULT_FRAMES]);
     const system: SystemFile = before
-      ? { name, default: before.markedDefault, version, madeAt: before.madeAt || new Date().toISOString() }
-      : { name, default: !otherDesignSystemSaved(bp, id), version, madeAt: new Date().toISOString() };
+      ? { name, default: before.markedDefault, version, madeAt: before.madeAt || new Date().toISOString(), ...(nextFrames ? { frames: nextFrames } : {}) }
+      : { name, default: !otherDesignSystemSaved(bp, id), version, madeAt: new Date().toISOString(), ...(nextFrames ? { frames: nextFrames } : {}) };
     writeShared(designSystemFile(bp, id), dumpYaml(system));
     return readDesignSystem(bp, id)!;
   });
@@ -390,6 +405,76 @@ export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScr
   });
 }
 
+/** The screen of a sketch a drawing goes to: found by id, then by name (capital letters aside), or null when it is new. */
+function screenNamed(current: SketchScreen[], screen: { id?: string; name: string }): SketchScreen | null {
+  const key = screen.name.trim().toLowerCase();
+  return current.find((c) => screen.id !== undefined && c.id === screen.id) ?? current.find((c) => c.name.trim().toLowerCase() === key) ?? null;
+}
+
+/** Writes a new screen file after the others, under the lock, and gives back its id. */
+function writeNewScreen(bp: BoardPaths, sketch: string, current: SketchScreen[], name: string, who: EditBy): string {
+  const id = checkedStudioId(studioIdFor(name));
+  if (current.some((c) => c.id === id)) throw new Error('Two screens in the sketch have the same name.');
+  const order = Math.max(0, ...current.map((c) => c.order)) + 1;
+  writeMarked<ScreenFile>(screenFile(bp, sketch, id), null, { name, order, status: 'draft', chosen: null }, who);
+  return id;
+}
+
+/**
+ * Saves several variants of one screen in one change, under one stamp check (US-08): the AI Designer's first screen of
+ * a sketch started from the start page, drawn once per variant. The screen is found by id, then by name, or made new.
+ * Each variant becomes its next version, and the first of them is picked; the others stay, pickable later. An old
+ * stamp writes nothing: "Changed elsewhere, reload".
+ */
+export function saveScreenVariants(
+  bp: BoardPaths,
+  sketch: string,
+  screen: { id?: string; name: string },
+  variants: Record<string, string>[],
+  stamp: string,
+  by: { madeBy?: string; madeFor?: string; note?: string } = {},
+): { sketch: Sketch; screen: string; versions: number[] } {
+  checkedStudioId(sketch);
+  const name = checkedName(screen.name, 'screen');
+  if (!variants.length) throw new Error('There are no variants to save.');
+  const drawn = variants.map((v) => checkedHtml(v, 'frame'));
+  if (drawn.some((d) => !Object.keys(d).length)) throw new Error('A variant needs at least one frame.');
+  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
+    for (const d of drawn) checkFrames(bp, sketch, d);
+    const current = readSketch(bp, sketch)!.screens;
+    const id = screenNamed(current, { ...(screen.id ? { id: screen.id } : {}), name })?.id ?? writeNewScreen(bp, sketch, current, name, { by: by.madeBy, for: by.madeFor });
+    const versions = drawn.map((frames, i) => writeVariant(bp, sketch, id, frames, { ...by, choose: i === 0 }));
+    return { sketch: readSketch(bp, sketch)!, screen: id, versions };
+  });
+}
+
+/**
+ * Names a sketch started from the start page and its first screen, as the AI Designer suggests them (US-08), in one
+ * change under the stamp the turn read. The sketch's name goes through the one free-name helper (AB-138.1): "Booking"
+ * becomes "Booking 2" when another sketch has it. The first screen is the sketch's first one when it has one (renamed),
+ * or a new one with no drawing yet. Both files are marked with who did it (AB-131.1). Each can be renamed later.
+ */
+export function nameSketchAndFirstScreen(bp: BoardPaths, sketch: string, names: { sketch: string; screen: string }, stamp: string, who: EditBy = {}): { sketch: Sketch; screen: string } {
+  checkedStudioId(sketch);
+  const wanted = checkedName(names.sketch, 'sketch');
+  const screenName = checkedName(names.screen, 'screen');
+  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
+    const before = readSketchFile(sketchFile(bp, sketch));
+    const name = freeSketchName(bp, wanted, sketch);
+    writeMarked(sketchFile(bp, sketch), before, { ...before, name }, who);
+    const current = readSketch(bp, sketch)!.screens;
+    const first = current[0];
+    let screen: string;
+    if (first) {
+      screen = first.id;
+      const file = screenFile(bp, sketch, first.id);
+      const was = readScreenFile(file);
+      writeMarked(file, was, { ...was, name: screenName }, who);
+    } else screen = writeNewScreen(bp, sketch, current, screenName, who);
+    return { sketch: readSketch(bp, sketch)!, screen };
+  });
+}
+
 /** Marks one saved variant of a screen as the chosen one. The others stay, pickable later. The screen file gets the mark. */
 export function pickVariant(bp: BoardPaths, sketch: string, screen: string, version: number, stamp: string, who: EditBy = {}): Sketch {
   checkedStudioId(sketch);
@@ -506,81 +591,6 @@ export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, sta
   });
 }
 
-/* ── This computer's part: thumbnails and AI Designer chats ── */
+/* ── This computer's part: thumbnails and AI Designer chats (studio-local.ts) ── */
 
-export type { ChatOwner } from './studio-paths.js';
-
-/**
- * A thumbnail of one variant of a screen. It goes only into this computer's folder for the project, never into
- * `.squad/`, and is not part of any stamp: a teammate makes their own.
- */
-export function saveThumbnail(bp: BoardPaths, sketch: string, screen: string, version: number, png: Buffer): string {
-  existingScreen(bp, checkedStudioId(sketch), screen);
-  if (!Buffer.isBuffer(png) || !png.length) throw new Error('The thumbnail is empty.');
-  const file = thumbnailFile(bp, sketch, screen, version);
-  writeShared(file, png);
-  return file;
-}
-
-export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, version: number): Buffer | null {
-  const file = thumbnailFile(bp, sketch, screen, version);
-  return fs.existsSync(file) ? fs.readFileSync(file) : null;
-}
-
-/** What the AI Designer did with a message (AB-177.1). */
-export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed';
-
-export interface StudioChatMessage {
-  role: 'person' | 'designer';
-  text: string;
-  at?: string;
-  /** The message's picture files in its chats' pictures folder (ownerChatPictureFile, AB-130.1). */
-  pictures?: string[];
-  /** A Designer reply: what it did with the message. Only "changed" and "stopped" ever saved a version. */
-  kind?: ChatReplyKind;
-  /** A Designer reply that saved work: each screen (or component) with its new version. */
-  saved?: { screen: string; name?: string; version?: number }[];
-  /** A person's message: the screen and frame they were looking at. */
-  lookingAt?: { screen?: string; frame?: string };
-}
-
-export interface StudioChat {
-  /** What the chat is about, when it is about one screen. */
-  screen?: string;
-  /** When the conversation was started. */
-  startedAt?: string;
-  /** The AI tool's own session for this conversation: the next message resumes it. */
-  session?: string;
-  messages: StudioChatMessage[];
-}
-
-/** A sketch id alone means the sketch. */
-function chatOwner(owner: string | ChatOwner): ChatOwner {
-  return typeof owner === 'string' ? { kind: 'sketch', id: owner } : owner;
-}
-
-/**
- * An AI Designer chat about a sketch or a design system. Like thumbnails, it stays on this computer and is not part of
- * any stamp.
- */
-export function saveChat(bp: BoardPaths, owner: string | ChatOwner, chat: string, contents: StudioChat): string {
-  const o = chatOwner(owner);
-  checkedStudioId(o.id);
-  const saved = o.kind === 'design-system' ? designSystemFile(bp, o.id) : sketchFile(bp, o.id);
-  if (!plainFile(saved)) throw new Error(`This project has no ${KIND_WORDS[o.kind]} "${o.id}".`);
-  if (contents.screen !== undefined) checkedStudioId(contents.screen);
-  if (!Array.isArray(contents.messages)) throw new Error('A chat is a list of messages.');
-  const file = ownerChatFile(bp, o, chat);
-  writeShared(file, `${JSON.stringify(contents, null, 2)}\n`);
-  return file;
-}
-
-export function readChat(bp: BoardPaths, owner: string | ChatOwner, chat: string): StudioChat | null {
-  const file = ownerChatFile(bp, chatOwner(owner), chat);
-  if (!fs.existsSync(file)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8')) as StudioChat;
-  } catch {
-    return null;
-  }
-}
+export { readChat, readThumbnail, saveChat, saveThumbnail, type ChatOwner, type ChatReplyKind, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';

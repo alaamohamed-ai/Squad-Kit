@@ -308,9 +308,11 @@ describe('done when 4: conversations come back, and New conversation starts fres
 
   it("answers the start page's first message, which stays the first one, reading it as the conversation so far", async () => {
     const made = startSketch(bp, { message: 'Booking' });
-    answers.push({ kind: 'answer', reply: 'Tell me what the booking page should hold.' });
+    // Its first turn also names the sketch and its first screen (US-08).
+    answers.push({ kind: 'answer', reply: 'Tell me what the booking page should hold.', sketchName: 'Booking', screenName: 'Form' });
     const r = await sendChatMessage(bp, { owner: { kind: 'sketch', id: made.id } }, { place });
     expect(r.reply.kind).toBe('answer');
+    expect(r.reply.text).toContain('Tell me what the booking page should hold.');
     expect(calls[0]!.prompt).toContain('The person writes:\nBooking');
     expect(chats.readConversation(bp, { kind: 'sketch', id: made.id }, 'main').messages.map((m) => m.role)).toEqual(['person', 'designer']);
   });

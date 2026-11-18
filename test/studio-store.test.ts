@@ -102,7 +102,7 @@ describe('done when 1: the layout in .squad/studio/', () => {
       'sketches/checkout/sketch.yaml',
     ]);
     const read = (rel: string) => fs.readFileSync(path.join(bp.studioDir, rel), 'utf8');
-    expect(yaml.load(read('design-systems/brand/system.yaml'))).toEqual({ name: 'Brand', default: true, version: 1, madeAt: expect.any(String) });
+    expect(yaml.load(read('design-systems/brand/system.yaml'))).toEqual({ name: 'Brand', default: true, version: 1, madeAt: expect.any(String), frames: ['desktop', 'mobile'] });
     expect(Number.isNaN(Date.parse((yaml.load(read('design-systems/brand/system.yaml')) as { madeAt: string }).madeAt))).toBe(false);
     // The first design system made is the project's default.
     expect(readStudio(bp).defaultDesignSystem).toBe('brand');

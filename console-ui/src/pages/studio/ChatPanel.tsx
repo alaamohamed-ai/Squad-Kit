@@ -39,11 +39,13 @@ export interface ChatPanelProps {
   stamp?: string;
   /** The Designer finished a message: the page reads the sketch or design system again. */
   onAnswered?: () => void;
+  /** What the Designer is doing now, or null: called each time it changes, so the page can read its work so far. */
+  onWorking?: (doing: string | null) => void;
 }
 
 const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work' };
 
-export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered }: ChatPanelProps) {
+export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking }: ChatPanelProps) {
   const base = chatsPath(kind, id);
   const qc = useQueryClient();
   const list = useQuery({ queryKey: chatsKey(project, kind, id), queryFn: () => api<ConversationList>(base) });
@@ -74,6 +76,12 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
     }
     wasWorking.current = Boolean(working);
   }, [working, qc, project, kind, id, onAnswered]);
+
+  // Each step of the work (a name given, a variant drawn) is told to the page, which reads the sketch again.
+  const doing = working?.doing ?? null;
+  useEffect(() => {
+    onWorking?.(doing);
+  }, [doing, onWorking]);
 
   // A block, not an arrow's value: newer browsers return a promise from scrollIntoView, and React takes any value
   // an effect returns for its cleanup.

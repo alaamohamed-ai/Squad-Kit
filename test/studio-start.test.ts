@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,6 +35,7 @@ const actions = await import('../src/board/studio-actions.js');
 const start = await import('../src/board/studio-start.js');
 const { chatFile, chatPictureFile } = await import('../src/board/studio-paths.js');
 const { NO_APP } = await import('../src/engine/studio-app-picture.js');
+const { chatJobsDone, chatWorking, stopChatJobs } = await import('../src/engine/studio-chat-runs.js');
 
 const TOKEN = 'd'.repeat(64);
 const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
@@ -86,6 +87,14 @@ afterAll(async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+/** Send starts the AI Designer in the background (US-08): these tests stop it before they look, so it writes nothing more. */
+async function stopDesigner() {
+  stopChatJobs();
+  await chatJobsDone();
+}
+
+afterEach(stopDesigner);
+
 beforeEach(() => {
   fs.rmSync(bp.studioDir, { recursive: true, force: true });
   fs.rmSync(bp.studioLocalDir, { recursive: true, force: true });
@@ -96,16 +105,17 @@ describe('POST /api/v1/studio/sketches/start', () => {
     const before = filesIn(project);
     const r = await call<{ id: string; name: string }>('POST', '/sketches/start', { message: 'A page where patients book a visit with their doctor' });
     expect(r.status).toBe(200);
-    expect(r.data).toEqual({ id: 'a-page-where-patients-book', name: 'A page where patients book' });
+    expect(r.data).toEqual({ id: 'a-page-where-patients-book', name: 'A page where patients book', working: { doing: 'Reading your message', since: expect.any(String) } });
+    await stopDesigner();
 
     // The project gains the sketch's own file and nothing else: no message, no picture.
     const added = filesIn(project).filter((f) => !before.includes(f));
     expect(added).toEqual(['.squad/studio/sketches/a-page-where-patients-book/sketch.yaml']);
-    expect(actions.getSketch(bp, r.data.id)).toMatchObject({ name: 'A page where patients book', designSystem: null, frames: ['desktop'], screens: [] });
+    expect(actions.getSketch(bp, r.data.id)).toMatchObject({ name: 'A page where patients book', designSystem: null, frames: ['desktop', 'mobile'], screens: [] });
 
     // The message is in the sketch's chat in this computer's folder for the project, outside the project.
     const chat = JSON.parse(fs.readFileSync(chatFile(bp, r.data.id, 'main'), 'utf8'));
-    expect(chat.messages).toEqual([{ role: 'person', text: 'A page where patients book a visit with their doctor', at: expect.any(String) }]);
+    expect(chat.messages[0]).toEqual({ role: 'person', text: 'A page where patients book a visit with their doctor', at: expect.any(String), start: { variants: 2, unnamed: true } });
     expect(path.relative(project, bp.studioLocalDir).startsWith('..')).toBe(true);
 
     // The list now has it, so the Sketches tab shows the list instead of the start page.
@@ -130,13 +140,14 @@ describe('POST /api/v1/studio/sketches/start', () => {
       ],
     });
     expect(r.status).toBe(200);
+    await stopDesigner();
     expect(fs.readFileSync(chatPictureFile(bp, r.data.id, 'm1-1.png'))).toEqual(PNG);
     expect(fs.readFileSync(chatPictureFile(bp, r.data.id, 'm1-2.jpg'))).toEqual(JPEG);
     expect(filesIn(bp.studioDir)).toEqual([`sketches/${r.data.id}/sketch.yaml`]);
     expect(filesIn(project).filter((f) => /\.(png|jpe?g|webp)$/.test(f))).toEqual([]);
 
     const chat = await call<{ messages: { role: string; text: string; pictures: string[] }[] }>('GET', `/sketches/${r.data.id}/chat`);
-    expect(chat.data.messages).toEqual([
+    expect(chat.data.messages.slice(0, 1)).toEqual([
       {
         role: 'person',
         text: 'Like this, but calmer',

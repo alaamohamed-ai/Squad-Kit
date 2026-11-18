@@ -76,6 +76,14 @@ export function stopChatJob(bp: BoardPaths, owner: ChatOwner, chat: string): boo
   return true;
 }
 
+/** Stops every answer going now, in every project: for tests, and for a board that closes. The finished screens are kept. */
+export function stopChatJobs(): void {
+  for (const job of jobs.values()) {
+    job.doing = 'Stopping';
+    job.controller.abort();
+  }
+}
+
 /** Waits until every answer going now has ended: for tests, and for a board that closes. */
 export async function chatJobsDone(): Promise<void> {
   await Promise.all([...jobs.values()].map((j) => j.done));

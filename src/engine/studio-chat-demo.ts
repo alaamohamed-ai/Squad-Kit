@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { BoardPaths } from '../board/store.js';
 import type { Sketch } from '../board/studio.js';
 import { readConversation } from '../board/studio-chats.js';
+import { sketchNameFrom } from '../board/studio-start.js';
 import type { ChatOptions, ChatTurn, ChatWorker } from './studio-chat.js';
 import type { ChatLanguage, ChatSort } from './studio-chat-prompts.js';
 
@@ -10,7 +11,9 @@ import type { ChatLanguage, ChatSort } from './studio-chat-prompts.js';
  * The sample board's AI Designer (US-52): no AI and no sign-in, only a few fixed replies, so the Studio's chat can be
  * shown. A question gets an answer and a "maybe" a question back, both changing nothing; export, frames and approving
  * are "not available yet"; "rename the sketch to …" and "duplicate this sketch" are done, and "delete this sketch" points to the card menu; anything else changes every screen, one at a time, slowly enough to press Stop. A sketch
- * with no screens gets a booking form and its confirmation.
+ * with no screens gets a booking form and its confirmation. A sketch started from the start page (US-08) is named from
+ * a few plain words ("book" → Booking / Form); a short first message gets two questions first, a longer one has its
+ * first screen drawn once per variant, each a little different.
  */
 
 /** How long the sample Designer takes on one screen, so its progress and Stop can be seen. */
@@ -78,6 +81,46 @@ export function demoSort(text: string, language: ChatLanguage, lastReply: string
   return { kind: 'change', reply: T(language, screens.length ? `I will change ${work.length === 1 ? 'the screen' : `the ${work.length} screens`}, one at a time.` : 'I will draw the booking form and its confirmation.', screens.length ? 'سأغيّر الشاشات واحدة بعد الأخرى.' : 'سأرسم نموذج الحجز وصفحة التأكيد.'), screens: work };
 }
 
+/** The sample Designer's names for a started sketch and its first screen, by a few plain words; else the message's first words. */
+const DEMO_NAMES: [RegExp, string, string, string, string][] = [
+  // The first that fits wins: "An admin dashboard with today's visits" is a dashboard, not a booking.
+  [/dashboard|لوحة/i, 'Dashboard', 'Today', 'لوحة التحكم', 'اليوم'],
+  [/\blog ?in\b|\bsign ?in\b|دخول/i, 'Login', 'Sign in', 'الدخول', 'تسجيل الدخول'],
+  [/profile|ملف/i, 'Profile', 'Details', 'الملف الشخصي', 'التفاصيل'],
+  [/checkout|\bcart\b|\bpay|دفع|سلة/i, 'Checkout', 'Cart', 'الدفع', 'السلة'],
+  [/\bbook|appointment|visit|حجز|موعد/i, 'Booking', 'Form', 'الحجز', 'النموذج'],
+];
+
+export function demoNames(text: string, language: ChatLanguage): { sketchName: string; screenName: string } {
+  const hit = DEMO_NAMES.find(([re]) => re.test(text));
+  if (hit) return language === 'Arabic' ? { sketchName: hit[3], screenName: hit[4] } : { sketchName: hit[1], screenName: hit[2] };
+  return { sketchName: sketchNameFrom(text).slice(0, 60), screenName: T(language, 'Main', 'الرئيسية') };
+}
+
+/** A first message this short gets questions first: there is too little to draw from. */
+const FEW_WORDS = 5;
+
+/**
+ * The sample Designer's first turn on a sketch started from the start page (US-08): it names the sketch and its first
+ * screen, then asks two questions when the message is short or a question, or else draws the first screen.
+ */
+export function demoFirstSort(text: string, language: ChatLanguage): ChatSort {
+  const names = demoNames(text, language);
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words < FEW_WORDS || /[?؟]\s*$/.test(text.trim())) {
+    return {
+      kind: 'ask',
+      ...names,
+      reply: T(
+        language,
+        `Two quick questions first: who uses it most, and on which device? What must ${names.screenName} show? Answer them, or say "just draw" and I start.`,
+        `سؤالان سريعان أولًا: من يستخدمها أكثر، وعلى أي جهاز؟ وماذا يجب أن تعرض "${names.screenName}"؟ أجب، أو قل «ارسم» وأبدأ.`,
+      ),
+    };
+  }
+  return { kind: 'change', ...names, reply: T(language, `I will draw ${names.screenName} first.`, `سأرسم "${names.screenName}" أولًا.`), screens: [{ name: names.screenName, change: text }] };
+}
+
 /** The new name in "Rename the sketch to "Book a visit"": the words in quotes, or else the words after "to". */
 function newNameIn(text: string): string | null {
   const quoted = /["“«']([^"”»']{1,120})["”»']/.exec(text)?.[1]?.trim();
@@ -89,10 +132,21 @@ function newNameIn(text: string): string | null {
 const PAGE = (body: string) =>
   `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:system-ui,sans-serif;color:#0f172a;background:#fff}header{display:flex;align-items:center;gap:8px;padding:14px 24px;border-bottom:1px solid #e2e8f0;font-weight:600}header i{width:14px;height:14px;border-radius:3px;background:#1f6fb2;display:inline-block}main{padding:24px;max-width:720px}h1{font-size:22px;margin:0 0 6px}p{color:#64748b;margin:0 0 18px}label{display:block;font-size:13px;color:#475569;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}button{margin-top:22px;width:100%;padding:12px;border:0;border-radius:8px;background:#1f6fb2;color:#fff;font:inherit;font-weight:600}</style></head><body><header><i></i>Al Noor Clinic</header><main>${body}</main></body></html>`;
 
-/** The sample pages for a sketch with no screens yet. */
-function samplePage(name: string): string {
-  if (/confirm/i.test(name)) return PAGE('<h1>Your visit is booked</h1><p>Tue 17 at 10:00 with Dr. Hana Saleh, Cardiology.</p><button>Add to calendar</button>');
-  return PAGE('<h1>Book a follow-up</h1><p>Last visit: 2 Nov with Dr. Hana</p><label>Doctor</label><input value="Dr. Hana Saleh · Cardiology"><label>Reason</label><input value="Follow-up after test results"><label>Day and time</label><input value="Tue 17, 10:00"><button>Book visit</button>');
+/** How each variant after the first looks different: one step at a time, then a centred card. */
+const VARIANT_LOOKS = [
+  '',
+  '<style>main::before{content:"Step 1 of 3";display:block;font-size:13px;font-weight:600;color:#1f6fb2;margin-bottom:8px}h1{font-size:28px}button{font-size:1.2em;padding:16px 28px;border-radius:12px}</style>',
+  '<style>body{background:#f1f5f9}main{margin:32px auto;background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(15,23,42,.08)}button{border-radius:999px}</style>',
+];
+
+/** The sample pages for a sketch with no screens yet; a variant after the first looks different. */
+function samplePage(name: string, variant = 1): string {
+  let page: string;
+  if (/confirm/i.test(name)) page = PAGE('<h1>Your visit is booked</h1><p>Tue 17 at 10:00 with Dr. Hana Saleh, Cardiology.</p><button>Add to calendar</button>');
+  else if (/sign|log|دخول/i.test(name)) page = PAGE('<h1>Sign in</h1><p>Welcome back · أهلًا بعودتك</p><label>Phone number</label><input value="+966 5x xxx xxxx"><label>Password</label><input type="password" value="secret"><button>Sign in</button>');
+  else page = PAGE('<h1>Book a follow-up</h1><p>Last visit: 2 Nov with Dr. Hana</p><label>Doctor</label><input value="Dr. Hana Saleh · Cardiology"><label>Reason</label><input value="Follow-up after test results"><label>Day and time</label><input value="Tue 17, 10:00"><button>Book visit</button>');
+  const look = VARIANT_LOOKS[(variant - 1) % VARIANT_LOOKS.length]!;
+  return look ? page.replace('</head>', `${look}</head>`) : page;
 }
 
 /** The sample change: bigger buttons, added to the page's own style. */
@@ -106,11 +160,18 @@ export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null
   const L = turn.language;
   return {
     release: () => undefined,
-    async sort() {
+    async sort(brief) {
       await sleep(600, o.signal);
       if (o.signal?.aborted) return { error: 'You stopped the Designer.' };
+      if (brief.naming) return demoFirstSort(turn.text, L);
       const before = readConversation(bp, turn.owner, turn.chat).messages.slice(0, -1);
       const lastReply = [...before].reverse().find((m) => m.role === 'designer')?.kind;
+      // The answer to its questions: the first screen is still to be drawn.
+      const first = brief.firstScreen && sketch?.screens[0];
+      if (first) {
+        const sorted = demoSort(turn.text, L, lastReply, [{ id: first.id, name: first.name }], true);
+        return sorted.kind === 'change' && !sorted.action ? { ...sorted, reply: T(L, `I will draw ${first.name} now.`, `سأرسم "${first.name}" الآن.`) } : sorted;
+      }
       return demoSort(turn.text, L, lastReply, sketch ? sketch.screens.map((s) => ({ id: s.id, name: s.name })) : [{ id: 'components', name: 'Components' }], sketch !== null);
     },
     async screen(w) {
@@ -119,7 +180,7 @@ export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null
       const frames: Record<string, string> = {};
       for (const f of w.frames) {
         const file = w.files[f] ? path.join(bp.root, w.files[f]!) : null;
-        frames[f] = file && fs.existsSync(file) ? changed(fs.readFileSync(file, 'utf8')) : samplePage(w.work.name);
+        frames[f] = file && fs.existsSync(file) ? changed(fs.readFileSync(file, 'utf8')) : samplePage(w.work.name, w.variant?.n);
       }
       return { frames, note: '' };
     },

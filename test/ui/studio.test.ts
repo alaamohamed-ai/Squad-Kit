@@ -429,7 +429,7 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     await press(button('Send'));
     await until(() => router.state.location.pathname === '/studio/sketches/a-page-where-patients-book' && !!page.querySelector('.dc-msg'));
 
-    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/start', body: { message: 'A page where patients book a visit with their doctor', pictures: [{ name: 'idea.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` }] } }]);
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/start', body: { message: 'A page where patients book a visit with their doctor', pictures: [{ name: 'idea.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` }], designSystem: null, frames: ['desktop', 'mobile'], variants: 2 } }]);
     expect(router.state.location.pathname).toBe('/studio/sketches/a-page-where-patients-book');
     expect(page.querySelector('h1').textContent).toBe('A page where patients book');
     // The first message opens the chat with the AI Designer, on the left of the workspace.
@@ -498,6 +498,104 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     // Ready to send with a few words.
     await type('Make this calmer');
     expect(button('Send').disabled).toBe(false);
+  });
+
+  /* ── US-08 New sketch from the chat (AB-133): the chips under the box and the line ── */
+  const patientApp = { id: 'patient-app', name: 'Patient app', isDefault: true, version: 2, colors: [], sketches: 0, frames: ['desktop', 'mobile'] };
+  const admin = { id: 'admin', name: 'Admin', isDefault: false, version: 1, colors: [], sketches: 0, frames: ['desktop'] };
+  const chips = () => [...page.querySelectorAll('.sk-chips .sk-opt')].map((c: any) => c.textContent.trim());
+  const line = () => page.querySelector('.sk-run')?.textContent;
+  const frameChip = (name: string) => [...page.querySelectorAll('.sk-frame')].find((b: any) => b.textContent.trim() === name) as any;
+  const openWithChips = async () => {
+    systems = [patientApp, admin];
+    await open('mawid');
+    await until(() => chips()[0] === 'Patient app · default');
+  };
+
+  it('US-08 done when 1: a chat box, not a form, with the chips "Patient app · default", Desktop, Mobile and "2 variants", and the line', async () => {
+    await openWithChips();
+    // No form fields: the only thing to type in is the chat box.
+    expect(page.querySelectorAll('.sk-start input:not([type="file"]), .sk-start select')).toHaveLength(0);
+    expect(page.querySelectorAll('.sk-start textarea')).toHaveLength(1);
+    expect(chips()).toEqual(['Patient app · default', 'Desktop', 'Mobile', '2 variants']);
+    expect([frameChip('Desktop'), frameChip('Mobile')].map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+    expect(line()).toBe('1 screen × 2 frames × 2 variants');
+    // The chips sit under the box.
+    expect(box().compareDocumentPosition(page.querySelector('.sk-chips')) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(changes).toEqual([]);
+  });
+
+  it('US-08 done when 2: Mobile off, variants to 3, or another design system: the line updates at once, and nothing is saved', async () => {
+    await openWithChips();
+    await press(frameChip('Mobile'));
+    expect(frameChip('Mobile').getAttribute('aria-pressed')).toBe('false');
+    expect(line()).toBe('1 screen × 1 frame × 2 variants');
+    // At least one frame always stays on.
+    expect(frameChip('Desktop').getAttribute('aria-disabled')).toBe('true');
+    await press(frameChip('Desktop'));
+    expect(frameChip('Desktop').getAttribute('aria-pressed')).toBe('true');
+    expect(line()).toBe('1 screen × 1 frame × 2 variants');
+
+    // Variants go only from 1 to 3.
+    await press(button('More variants'));
+    expect(line()).toBe('1 screen × 1 frame × 3 variants');
+    expect(button('More variants').disabled).toBe(true);
+    await press(button('Fewer variants'));
+    await press(button('Fewer variants'));
+    expect(chips()).toContain('1 variant');
+    expect(button('Fewer variants').disabled).toBe(true);
+    await press(button('More variants'));
+    await press(button('More variants'));
+    await press(frameChip('Mobile'));
+    expect(line()).toBe('1 screen × 2 frames × 3 variants');
+
+    // Another design system, whose only frame is Desktop: its frames, all on.
+    const ds = button('Design system: Patient app, default');
+    expect(ds.getAttribute('aria-expanded')).toBe('false');
+    await press(ds);
+    const options = [...page.querySelectorAll('[role="menuitemradio"]')] as any[];
+    expect(options.map((o) => o.textContent)).toEqual(['Patient app · default · Desktop, Mobile', 'Admin · Desktop']);
+    expect(options.map((o) => o.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    await press(options[1]);
+    expect(page.querySelector('[role="menu"]')).toBeNull();
+    expect(chips()).toEqual(['Admin', 'Desktop', '3 variants']);
+    expect(line()).toBe('1 screen × 1 frame × 3 variants');
+
+    // Nothing was sent: the page only read.
+    expect(changes).toEqual([]);
+    expect(fetchSpy.mock.calls.every(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET')).toBe(true);
+  });
+
+  it('US-08 done when 4: Send takes the chips along, the design system, its frames and the variants', async () => {
+    await openWithChips();
+    await type('A page where patients book a follow-up visit with their last doctor');
+    await press(button('Send'));
+    await until(() => changes.length > 0);
+    expect(changes[0]!.body).toEqual({ message: 'A page where patients book a follow-up visit with their last doctor', pictures: [], designSystem: 'patient-app', frames: ['desktop', 'mobile'], variants: 2 });
+  });
+
+  it('US-08: New sketch on the Sketches home opens the chat box, not a form, and All sketches goes back; nothing is saved', async () => {
+    systems = [patientApp, admin];
+    sketches = [{ id: 'login', name: 'Login', designSystem: { id: 'patient-app', version: 2, name: 'Patient app' }, stamp: 's', screens: [] }];
+    await open('mawid');
+    expect(box()).toBeNull();
+    await press(button('New sketch'));
+    await until(() => chips()[0] === 'Patient app · default');
+    expect(box()).not.toBeNull();
+    expect(page.querySelectorAll('.sk-start input:not([type="file"]), .sk-start select')).toHaveLength(0);
+    expect(line()).toBe('1 screen × 2 frames × 2 variants');
+    await press(button('All sketches'));
+    expect(box()).toBeNull();
+    expect(page.querySelectorAll('.sk-card')).toHaveLength(1);
+    expect(changes).toEqual([]);
+  });
+
+  it('US-08: the line and the list say it in plain words', () => {
+    expect(S.runLine(2, 2)).toBe('1 screen × 2 frames × 2 variants');
+    expect(S.runLine(1, 3)).toBe('1 screen × 1 frame × 3 variants');
+    expect(S.runLine(1, 1)).toBe('1 screen × 1 frame × 1 variant');
+    expect(S.designSystemOption({ name: 'Old', isDefault: false })).toBe('Old · Desktop, Mobile');
+    expect(S.framesOf(null)).toEqual(['desktop', 'mobile']);
   });
 });
 

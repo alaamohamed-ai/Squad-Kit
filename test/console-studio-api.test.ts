@@ -229,7 +229,7 @@ describe('Studio API', () => {
       { id: 'patient-app', name: 'Patient app', isDefault: true, version: 2, colors: ['#1d6fb8', '#e6f0fa'], sketches: 4 },
       { id: 'admin-dashboard', name: 'Admin dashboard', isDefault: false, version: 1, colors: ['#5b47d6'], sketches: 1 },
     ]);
-    expect(r.data.default).toEqual({ id: 'patient-app', name: 'Patient app', version: 2 });
+    expect(r.data.default).toEqual({ id: 'patient-app', name: 'Patient app', version: 2, frames: ['desktop', 'mobile'] });
     expect(r.data.default).toEqual(actions.newSketchDesignSystem(bp));
     expect(r.data.designSystems[0]!.stamp).toBe(actions.getDesignSystem(bp, 'patient-app').stamp);
     // Reading the list writes nothing.

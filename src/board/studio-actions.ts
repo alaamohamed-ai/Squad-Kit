@@ -130,7 +130,7 @@ export interface DesignSystemList {
   /** The default first, then the others in the order they were made. */
   designSystems: DesignSystemCard[];
   /** The project's one default (AB-158.1), which a new sketch starts with; null when the project has none. */
-  default: { id: string; name: string; version: number } | null;
+  default: { id: string; name: string; version: number; frames: string[] } | null;
 }
 
 const MAX_COLORS = 6;
@@ -166,6 +166,7 @@ export function colorsOf(tokens: unknown): string[] {
  * read this same answer. It only reads: nothing is written, not even to settle which one is the default.
  */
 export function designSystemList(bp: BoardPaths): DesignSystemList {
+  // Each card carries its frames (AB-133.1), for the start page's chips.
   const studio = readStudio(bp);
   const following = new Map<string, number>();
   for (const s of studio.sketches) if (s.designSystem) following.set(s.designSystem.id, (following.get(s.designSystem.id) ?? 0) + 1);
@@ -177,7 +178,7 @@ export function designSystemList(bp: BoardPaths): DesignSystemList {
   }));
   cards.sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || byMadeOrder(a, b));
   const def = cards.find((c) => c.isDefault);
-  return { designSystems: cards, default: def ? { id: def.id, name: def.name, version: def.version } : null };
+  return { designSystems: cards, default: def ? { id: def.id, name: def.name, version: def.version, frames: def.frames } : null };
 }
 
 /** The design system a new sketch starts with: the project's one default, at its current version, or null when it has none. */
@@ -203,7 +204,8 @@ export interface DesignSystemChange {
  */
 export function createDesignSystem(bp: BoardPaths, input: DesignSystemInput): DesignSystemView {
   if (!isPlain(input as unknown)) throw new Error('Give the design system a name.');
-  const saved = saveDesignSystem(bp, { id: maybeText(input.id, 'id'), name: input.name, tokens: input.tokens, components: input.components }, null);
+  // Its frames start as Desktop and Mobile unless it says its own (AB-133.1).
+  const saved = saveDesignSystem(bp, { id: maybeText(input.id, 'id'), name: input.name, tokens: input.tokens, components: input.components, ...(input.frames !== undefined ? { frames: input.frames } : {}) }, null);
   return getDesignSystem(bp, saved.id);
 }
 

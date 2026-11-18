@@ -35,6 +35,17 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qc, project, id]);
 
+  // While the AI Designer works (US-08), the sketch is read again at each step: its new name, its first screen.
+  const [doing, setDoing] = useState<string | null>(null);
+  const working = useCallback(
+    (now: string | null) => {
+      setDoing(now);
+      if (now) void qc.invalidateQueries({ queryKey: key, exact: true });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [qc, project, id],
+  );
+
   const s = sketch.data;
   const screens = [...(s?.screens ?? [])].sort((a, b) => a.order - b.order);
   const screen = screens.find((x) => x.id === view.screen) ?? screens[0];
@@ -67,6 +78,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               look={{ ...(screen ? { screen: screen.id } : {}), ...(frame ? { frame } : {}) }}
               stamp={s.stamp}
               onAnswered={answered}
+              onWorking={working}
             />
           ) : (
             <aside className="dc" aria-label="Chat with the AI Designer" />
@@ -98,6 +110,10 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
                 <p className="note">Reading the sketch…</p>
               ) : html !== undefined ? (
                 <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
+              ) : doing ? (
+                <p className="ws-empty" role="status">
+                  The AI Designer draws here. {doing}…
+                </p>
               ) : (
                 <p className="ws-empty">
                   {screens.length

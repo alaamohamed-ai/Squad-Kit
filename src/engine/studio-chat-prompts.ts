@@ -58,6 +58,9 @@ export const SORT_SCHEMA = {
     reply: STR,
     action: STR,
     name: STR,
+    // The first message of a sketch started from the start page (US-08): the names the Designer suggests.
+    sketchName: STR,
+    screenName: STR,
     screens: {
       type: 'array',
       maxItems: MAX_SCREENS,
@@ -80,15 +83,29 @@ export interface ChatSort {
   action?: string;
   /** A rename's new name. */
   name?: string;
+  /** The first message of a started sketch (US-08): the sketch's name and its first screen's name, as suggested. */
+  sketchName?: string;
+  screenName?: string;
   screens?: ChatWork[];
 }
 
-/** Why a sorting answer cannot be used, or null when it can. A change on a sketch must name the screens. */
-export function sortProblem(x: unknown, on: 'sketch' | 'design-system'): string | null {
+/** The longest sketch name the Designer may suggest. */
+export const MAX_SKETCH_NAME = 60;
+
+/**
+ * Why a sorting answer cannot be used, or null when it can. A change on a sketch must name the screens. The first
+ * message of a started sketch (`naming`) must also suggest the sketch's name and its first screen's name.
+ */
+export function sortProblem(x: unknown, on: 'sketch' | 'design-system', naming = false): string | null {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return 'the answer is not in the shape asked for';
   const a = x as Record<string, unknown>;
   if (!CHAT_KINDS.includes(a.kind as ChatKind)) return `"kind" must be one of ${CHAT_KINDS.join(', ')}`;
   if (typeof a.reply !== 'string' || !a.reply.trim()) return '"reply" must say something to the person';
+  if (naming && on === 'sketch') {
+    const oneLine = (v: unknown, max: number) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= max && !/[\r\n]/.test(v);
+    if (!oneLine(a.sketchName, MAX_SKETCH_NAME)) return `"sketchName" must name the sketch in a few words, up to ${MAX_SKETCH_NAME} letters`;
+    if (!oneLine(a.screenName, MAX_SCREEN_NAME)) return `"screenName" must name its first screen in a few words, up to ${MAX_SCREEN_NAME} letters`;
+  }
   if (a.kind !== 'change' || on === 'design-system') return null;
   if (a.action === 'rename-sketch') return typeof a.name === 'string' && a.name.trim() ? null : 'a rename must put the new name in "name"';
   if (a.action === 'duplicate-sketch') return null;
@@ -115,6 +132,10 @@ export interface ChatBrief {
   language: ChatLanguage;
   /** The conversation so far, when no session goes on: the run starts fresh and reads it as data. */
   earlier: { role: 'person' | 'designer'; text: string }[];
+  /** The first message of a sketch started from the start page: the Designer suggests its names (US-08). */
+  naming?: boolean;
+  /** The sketch's first screen is still to be drawn, as this many variants (US-08). */
+  firstScreen?: { variants: number };
 }
 
 function actionsText(on: 'sketch' | 'design-system'): string {
@@ -153,16 +174,28 @@ export function chatSortPrompt(b: ChatBrief): string {
 - unavailable: it asks for something the list above marks "not available yet". Say plainly in "reply" that this is not available yet, naming it, and put its id in "action". A delete is never done here: put "delete" in "action".
 - change: it clearly asks for a change you can make, or says yes to a change you asked about. ${b.target.kind === 'sketch' ? 'To rename or duplicate the sketch, put "rename-sketch" (with the new name in "name") or "duplicate-sketch" in "action" and list no screens. Otherwise list in "screens" each screen to change or draw, one per item, in order: "id" for a screen the sketch has, a short "name", and in "change" what to do on it. ' : ''}Put one short sentence on what you will do in "reply".`,
     `Write "reply" in ${b.language}, the language the person wrote in, in plain words.`,
-    `The person writes:\n${b.message.trim()}`,
   );
+  if (b.naming) {
+    parts.push(
+      `This is the first message of a new sketch, started from the Studio's start page. Suggest a short name for the sketch in "sketchName" (one to three words, like "Booking") and a short name for its first screen in "screenName" (like "Form"), in ${b.language}. The person can rename both later.`,
+    );
+  }
+  if (b.firstScreen) {
+    const n = b.firstScreen.variants;
+    parts.push(
+      `The sketch's first screen is not drawn yet. If you need answers before you can draw it well, use "ask" and put up to three short questions in "reply". Otherwise use "change" and list only that first screen in "screens": you draw it as ${n === 1 ? 'one variant' : `${n} variants`} in its frames (${b.target.kind === 'sketch' ? b.target.frames.join(', ') : 'desktop'}).`,
+    );
+  }
+  parts.push(`The person writes:\n${b.message.trim()}`);
   return parts.join('\n\n');
 }
 
-/** The prompt for one screen of a change, in the same session as the sorting. */
-export function chatScreenPrompt(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage }): string {
+/** The prompt for one screen of a change, in the same session as the sorting. A first screen drawn as variants says which one. */
+export function chatScreenPrompt(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage; variant?: { n: number; of: number } }): string {
   const files = Object.entries(o.files);
   return [
     `Now screen ${o.n} of ${o.of}: "${o.work.name}"${o.work.id ? ` (id ${o.work.id})` : ', a new screen'}.`,
+    ...(o.variant && o.variant.of > 1 ? [`Draw it as variant ${o.variant.n} of ${o.variant.of}: ${o.variant.n === 1 ? 'your best answer.' : 'a real alternative to the variants before it (another layout or flow), not a copy of them.'}`] : []),
     files.length ? `Its current pages: ${files.map(([f, file]) => `${f}: ${file}`).join(', ')}. Read them first and keep what was not asked to change.` : 'It has no pages yet: draw it.',
     `What to do: ${o.work.change.trim()}`,
     `Hand in exactly this one screen${o.work.id ? `, with its id "${o.work.id}"` : ''}, with one page for each frame (${o.frames.join(', ')}), named as the frame, and a note of one sentence in ${o.language}.`,

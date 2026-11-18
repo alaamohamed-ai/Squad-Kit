@@ -281,11 +281,11 @@ describe('US-33: the first design system made is the one default (AB-158.1)', ()
     expect(admin.isDefault).toBe(false);
 
     // The saved files: only Patient app's own file says default, and each has the time it was made.
-    expect(systemYaml('patient-app')).toEqual({ name: 'Patient app', default: true, version: 1, madeAt: patient.madeAt });
-    expect(systemYaml('admin-dashboard')).toEqual({ name: 'Admin dashboard', default: false, version: 1, madeAt: admin.madeAt });
+    expect(systemYaml('patient-app')).toEqual({ name: 'Patient app', default: true, version: 1, madeAt: patient.madeAt, frames: ['desktop', 'mobile'] });
+    expect(systemYaml('admin-dashboard')).toEqual({ name: 'Admin dashboard', default: false, version: 1, madeAt: admin.madeAt, frames: ['desktop', 'mobile'] });
     expect(Number.isNaN(Date.parse(patient.madeAt))).toBe(false);
 
-    expect(newSketchDesignSystem(bp)).toEqual({ id: 'patient-app', name: 'Patient app', version: 1 });
+    expect(newSketchDesignSystem(bp)).toEqual({ id: 'patient-app', name: 'Patient app', version: 1, frames: ['desktop', 'mobile'] });
     expect(designSystemList(bp).designSystems.filter((d) => d.isDefault).map((d) => d.name)).toEqual(['Patient app']);
   });
 
@@ -294,9 +294,9 @@ describe('US-33: the first design system made is the one default (AB-158.1)', ()
     const admin = createDesignSystem(bp, { name: 'Admin dashboard' });
     changeDesignSystem(bp, 'admin-dashboard', { name: 'Admin', tokens: { colors: { brand: '#5b47d6' } } }, admin.stamp);
     changeDesignSystem(bp, 'patient-app', { tokens: { colors: { brand: '#1d6fb8' } } }, patient.stamp);
-    expect(systemYaml('admin-dashboard')).toEqual({ name: 'Admin', default: false, version: 2, madeAt: admin.madeAt });
-    expect(systemYaml('patient-app')).toEqual({ name: 'Patient app', default: true, version: 2, madeAt: patient.madeAt });
-    expect(newSketchDesignSystem(bp)).toEqual({ id: 'patient-app', name: 'Patient app', version: 2 });
+    expect(systemYaml('admin-dashboard')).toEqual({ name: 'Admin', default: false, version: 2, madeAt: admin.madeAt, frames: ['desktop', 'mobile'] });
+    expect(systemYaml('patient-app')).toEqual({ name: 'Patient app', default: true, version: 2, madeAt: patient.madeAt, frames: ['desktop', 'mobile'] });
+    expect(newSketchDesignSystem(bp)).toEqual({ id: 'patient-app', name: 'Patient app', version: 2, frames: ['desktop', 'mobile'] });
   });
 
   it('gives exactly one Default when two are marked (two first ones merged): the older marked one', () => {
@@ -320,7 +320,7 @@ describe('US-33: the first design system made is the one default (AB-158.1)', ()
     const list = designSystemList(bp);
     // The Default first, then the others in the order they were made.
     expect(list.designSystems.map((d) => [d.name, d.isDefault])).toEqual([['Kiosk', true], ['Patient app', false], ['Admin dashboard', false]]);
-    expect(newSketchDesignSystem(bp)).toEqual({ id: 'kiosk', name: 'Kiosk', version: 1 });
+    expect(newSketchDesignSystem(bp)).toEqual({ id: 'kiosk', name: 'Kiosk', version: 1, frames: ['desktop', 'mobile'] });
   });
 
   it('has no default and no card while the project has no design system', () => {
@@ -338,7 +338,7 @@ describe('US-33: the Design systems list', () => {
       { name: 'Patient app', version: 2, isDefault: true, colors: ['#1D6FB8', '#e6f0fa', 'rgb(34 160 90)', '#0f1f33', 'hsl(210 20% 88%)', '#ffffff'], sketches: 4 },
       { name: 'Admin dashboard', version: 1, isDefault: false, colors: ['#5b47d6', '#eeeaff'], sketches: 1 },
     ]);
-    expect(list.default).toEqual({ id: 'patient-app', name: 'Patient app', version: 2 });
+    expect(list.default).toEqual({ id: 'patient-app', name: 'Patient app', version: 2, frames: ['desktop', 'mobile'] });
     // Each card keeps the stamp it was read with, for later changes.
     expect(list.designSystems[0]!.stamp).toBe(getDesignSystem(bp, 'patient-app').stamp);
   });

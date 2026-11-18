@@ -68,6 +68,8 @@ const EXCUSED: Record<string, string> = {
   'studio-prompts.ts:MAX_SCREEN_NAME': "How long a screen's name from the Designer may be, as the Studio keeps names. It says so in plain words.",
   'studio-designer.ts:MAX_DESIGNER_PICTURES': 'How many pictures one Studio message may bring. It says so in plain words when there are more.',
   'studio-start.ts:MAX_MESSAGE': "How long the Studio start page's first message may be. It says so in plain words when it is longer, and nothing is made.",
+  'studio-start.ts:MAX_VARIANTS': 'How many variants of the first screen the Studio start page may ask for (US-08). The chip stops there, and a higher number is refused in plain words before anything is made.',
+  'studio-chat-prompts.ts:MAX_SKETCH_NAME': "How long a sketch's name suggested by the AI Designer may be, as the Studio keeps names short. A longer one is asked for again.",
   'studio-start.ts:MAX_START_PICTURES': 'How many pictures the first Studio message may bring. It says so in plain words when there are more, and nothing is made.',
   'studio-start.ts:MAX_PICTURE_BYTES': 'How big one picture in the first Studio message may be. It says so in plain words when it is bigger, and nothing is made.',
   'studio-chat-demo.ts:DEMO_SCREEN_MS': "How long the sample board's AI Designer takes on one screen, so its progress and Stop can be seen. No AI runs, and it stops nothing.",

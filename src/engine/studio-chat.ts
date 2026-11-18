@@ -5,10 +5,12 @@ import {
   CHANGED_ELSEWHERE,
   StudioChangedElsewhere,
   duplicateSketch,
+  nameSketchAndFirstScreen,
   readDesignSystem,
   readSketch,
   saveDesignSystem,
   saveDrawnScreens,
+  saveScreenVariants,
   saveSketch,
   studioIdFor,
   studioStamp,
@@ -29,7 +31,7 @@ import {
   saveConversationSession,
 } from '../board/studio-chats.js';
 import { checkedStudioId, designSystemVersionDir, frameFile } from '../board/studio-paths.js';
-import type { StartPicture } from '../board/studio-start.js';
+import { markSketchNamed, startMarkOf, type StartPicture } from '../board/studio-start.js';
 import type { AgentResult } from '../modules/ai-tool/types.js';
 import { screensProblem } from './answers.js';
 import { answerAgainPrompt } from './prompts.js';
@@ -49,6 +51,11 @@ import { openDesigner, refusedWords, type DesignerOptions } from './studio-desig
  *
  * Rename and Duplicate (US-13) are on the same list: the Designer does them through the same store calls as the card
  * menu. Delete never is: the reply points to the card menu, so the person always sees the confirmation.
+ *
+ * A sketch started from the start page (US-08): its first turn also suggests the sketch's name and its first screen's
+ * name, saved at once through the one free-name helper (AB-138.1) under the turn's stamp, marked as the AI Designer's
+ * work. Questions come back without drawing. Otherwise, and on a later turn while nothing is drawn yet, the first screen
+ * is drawn once per variant asked for, in the sketch's frames; Stop keeps the variants already finished.
  */
 
 /** The longest conversation so far a fresh session reads, in messages. */
@@ -95,9 +102,13 @@ const WORDS: Record<
     renamed: (from: string, to: string) => string;
     duplicated: (copy: string, screens: number, from: string) => string;
     deleteHere: string;
+    named: (sketch: string, screen: string) => string;
+    drew: (screen: string, variants: number, list: string) => string;
   }
 > = {
   English: {
+    named: (sketch, screen) => `I named the sketch "${sketch}" and its first screen "${screen}". You can rename both later.`,
+    drew: (screen, n, list) => (n === 1 ? `Done. ${screen} is drawn: ${list}.` : `Done. ${n} variants of ${screen} are drawn: ${list}. The first one is picked; the others stay.`),
     renamed: (from, to) => `Done. "${from}" is now called "${to}".`,
     duplicated: (copy, n, from) => `Done. I made "${copy}" with ${n === 1 ? '1 screen' : `${n} screens`}, all Draft, and no conversation. "${from}" is unchanged.`,
     deleteHere: "To delete a sketch, use Delete in its ⋯ menu on the Sketches page: it asks first and says how many screens go with it.",
@@ -108,6 +119,8 @@ const WORDS: Record<
     partly: (why) => `The rest did not get done: ${why}`,
   },
   Arabic: {
+    named: (sketch, screen) => `سمّيت المخطط "${sketch}" وشاشته الأولى "${screen}". يمكنك تغيير الاسمين لاحقًا.`,
+    drew: (screen, n, list) => (n === 1 ? `تم. رسمت "${screen}": ${list}.` : `تم. رسمت ${n} من نسخ "${screen}": ${list}. اخترت الأولى، والباقي محفوظ.`),
     renamed: (from, to) => `تم. صار اسم المخطط "${to}" بدل "${from}".`,
     duplicated: (copy, n, from) => `تم. أنشأت "${copy}" وفيه ${n} من الشاشات، كلها مسودة، وبلا محادثة. لم يتغير "${from}".`,
     deleteHere: 'لحذف مخطط، استخدم «حذف» من قائمة ⋯ في بطاقته في صفحة المخططات: يسألك أولًا ويذكر عدد الشاشات التي ستُحذف معه.',
@@ -143,7 +156,7 @@ export function startChatTurn(bp: BoardPaths, a: ChatAsk): ChatTurn {
 /** What does the work of one message: the one Designer runner, or the sample board's fixed replies. */
 export interface ChatWorker {
   sort(brief: ChatBrief): Promise<ChatSort | { error: string }>;
-  screen(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage }): Promise<{ frames: Record<string, string>; note: string } | { error: string }>;
+  screen(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage; variant?: { n: number; of: number } }): Promise<{ frames: Record<string, string>; note: string } | { error: string }>;
   system(o: { dir: string; language: ChatLanguage; current: { tokens: Record<string, unknown>; components: Record<string, string> } }): Promise<{ components: Record<string, string>; tokens?: Record<string, unknown>; note: string } | { error: string }>;
   release(): void;
 }
@@ -206,7 +219,7 @@ async function liveWorker(bp: BoardPaths, turn: ChatTurn, o: ChatOptions): Promi
   return {
     release: d.release,
     async sort(brief) {
-      const r = await run(chatSortPrompt(brief), SORT_SCHEMA, (x) => sortProblem(x, turn.owner.kind));
+      const r = await run(chatSortPrompt(brief), SORT_SCHEMA, (x) => sortProblem(x, turn.owner.kind, brief.naming));
       return 'error' in r ? r : (r.value as ChatSort);
     },
     async screen(w) {
@@ -273,6 +286,43 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
 }
 
 /**
+ * The first screen of a sketch started from the start page (US-08): drawn once per variant asked for, in the sketch's
+ * frames, one variant at a time ("Drawing variant 2 of 2: Form"). The finished variants are saved together in one
+ * change with the stamp of the turn, the first one picked; Stop keeps the ones already finished.
+ */
+async function drawFirstScreen(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, variants: number, worker: ChatWorker, o: ChatOptions): Promise<Reply> {
+  const W = WORDS[turn.language];
+  const first = sketch.screens[0];
+  const asked = sort.screens?.[0];
+  const name = first?.name ?? asked?.name.trim() ?? sort.screenName?.trim() ?? 'Screen 1';
+  const work: ChatWork = { ...(first ? { id: first.id } : {}), name, change: asked?.change.trim() || turn.text };
+  const done: Record<string, string>[] = [];
+  const notes: string[] = [];
+  let why: string | null = null;
+  for (let i = 1; i <= variants; i++) {
+    if (o.signal?.aborted) break;
+    o.onProgress?.(variants > 1 ? `Drawing variant ${i} of ${variants}: ${name}` : `Drawing screen 1 of 1: ${name}`);
+    const r = await worker.screen({ n: 1, of: 1, work, frames: sketch.frames, files: {}, language: turn.language, variant: { n: i, of: variants } });
+    if ('error' in r) {
+      why = r.error;
+      break;
+    }
+    done.push(r.frames);
+    if (r.note) notes.push(r.note);
+  }
+  const stopped = Boolean(o.signal?.aborted);
+  if (!done.length) return stopped ? { kind: 'stopped', text: W.stoppedNothing } : { kind: 'failed', text: why ?? W.stoppedNothing };
+  o.onProgress?.('Saving the new version');
+  const asker = readMeta(bp).user?.name?.trim();
+  const saved = saveScreenVariants(bp, sketch.id, { ...(first ? { id: first.id } : {}), name }, done, turn.stamp ?? '', { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) });
+  const screenName = saved.sketch.screens.find((x) => x.id === saved.screen)?.name ?? name;
+  const rows = saved.versions.map((version) => ({ screen: saved.screen, name: screenName, version }));
+  const list = rows.map((s) => `${s.name} v${s.version}`).join(', ');
+  if (stopped) return { kind: 'stopped', text: W.stopped(list), saved: rows };
+  return { kind: 'changed', text: [sort.reply.trim(), ...notes, W.drew(screenName, rows.length, list), ...(why ? [W.partly(why)] : [])].filter(Boolean).join('\n\n'), saved: rows };
+}
+
+/**
  * Rename or Duplicate from the chat (US-13, AB-177.1): the same store calls as the card menu, with the same name rule
  * (AB-138.1) and the stamp read when the message was sent, marked as the AI Designer's work for the person who asked
  * (AB-131.1). A used name or a stale stamp is the reply, in plain words.
@@ -311,19 +361,36 @@ async function changeSystem(bp: BoardPaths, turn: ChatTurn, sort: ChatSort, work
 export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOptions = {}): Promise<StudioChatMessage> {
   let worker: ChatWorker | null = null;
   let reply: Reply;
+  // The sketch's name, as the Designer gave it on the first turn of a started sketch (US-08), said before the reply.
+  let named: string | null = null;
   try {
     o.onProgress?.('Reading your message');
-    const sketch = turn.owner.kind === 'sketch' ? readSketch(bp, turn.owner.id) : null;
-    const brief = briefOf(bp, turn, sketch);
+    let sketch = turn.owner.kind === 'sketch' ? readSketch(bp, turn.owner.id) : null;
+    // A sketch started from the start page (US-08): its first turn names it, and its first screen is drawn as the
+    // variants asked for, as long as no screen of it is drawn yet.
+    const start = sketch ? startMarkOf(bp, sketch.id) : null;
+    const firstScreen = start && sketch && !sketch.screens.some((s) => s.variants.length) ? { variants: start.variants } : undefined;
+    const brief: ChatBrief = { ...briefOf(bp, turn, sketch), ...(start?.unnamed ? { naming: true } : {}), ...(firstScreen ? { firstScreen } : {}) };
     const w = readMeta(bp).engine === 'live' ? await liveWorker(bp, turn, o) : demoWorker(bp, turn, sketch, o);
     if ('error' in w) reply = { kind: 'failed', text: w.error };
     else {
       worker = w;
       const sort = await w.sort(brief);
+      if (!('error' in sort) && sketch && brief.naming && sort.sketchName?.trim() && sort.screenName?.trim()) {
+        // One change under the turn's stamp, through the one free-name helper (AB-138.1): "Booking" becomes "Booking 2"
+        // when another sketch has it. Marked as the AI Designer's work for the person who asked (AB-131.1).
+        const asker = readMeta(bp).user?.name?.trim();
+        const r = nameSketchAndFirstScreen(bp, sketch.id, { sketch: sort.sketchName, screen: sort.screenName }, turn.stamp ?? '', { by: AI_DESIGNER, ...(asker ? { for: asker } : {}) });
+        markSketchNamed(bp, sketch.id);
+        sketch = r.sketch;
+        turn = { ...turn, stamp: r.sketch.stamp };
+        named = WORDS[turn.language].named(r.sketch.name, r.sketch.screens.find((s) => s.id === r.screen)?.name ?? sort.screenName.trim());
+      }
       if ('error' in sort) reply = o.signal?.aborted ? { kind: 'stopped', text: WORDS[turn.language].stoppedNothing } : { kind: 'failed', text: sort.error };
       else if (sort.kind === 'unavailable' && sort.action === 'delete' && sketch) reply = { kind: 'unavailable', text: [sort.reply.trim(), WORDS[turn.language].deleteHere].filter(Boolean).join('\n\n') };
       else if (sort.kind !== 'change') reply = { kind: sort.kind as ChatReplyKind, text: sort.reply.trim() };
       else if (sketch && isSketchAction(sort.action)) reply = sketchAction(bp, turn, sketch, sort);
+      else if (sketch && firstScreen) reply = await drawFirstScreen(bp, turn, sketch, sort, firstScreen.variants, w, o);
       else if (sketch) reply = await changeSketch(bp, turn, sketch, sort, w, o);
       else reply = await changeSystem(bp, turn, sort, w, o);
     }
@@ -334,6 +401,7 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
   } finally {
     worker?.release();
   }
+  if (named) reply = { ...reply, text: [named, reply.text].filter(Boolean).join('\n\n') };
   const message: StudioChatMessage = { role: 'designer', text: reply.text, at: new Date().toISOString(), ...(reply.kind ? { kind: reply.kind } : {}), ...(reply.saved?.length ? { saved: reply.saved } : {}) };
   addChatMessage(bp, turn.owner, turn.chat, message);
   return message;

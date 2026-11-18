@@ -170,7 +170,7 @@
     { "route": "POST /api/v1/studio/sketches/:id/screens", "reason": "Adds a screen to a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "PATCH /api/v1/studio/sketches/:id/screens/:screen", "reason": "Changes a screen of a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "DELETE /api/v1/studio/sketches/:id/screens/:screen", "reason": "Deletes a screen of a Studio sketch. The squad studio commands come in a later Studio story and call the same action." },
-    { "route": "POST /api/v1/studio/sketches/start", "reason": "Makes a Studio sketch from the start page's first message. The squad studio commands come in a later Studio story and call the same action." },
+    { "route": "POST /api/v1/studio/sketches/start", "reason": "Makes a Studio sketch from the start page's first message and starts the AI Designer's first turn on it. The squad studio commands come in a later Studio story and call the same action." },
     { "route": "PUT /api/v1/app/settings", "reason": "How many stories run at once across projects, and the first-start welcome. No command sets them." },
     { "route": "PUT /api/v1/app/update", "reason": "Check for updates every day, and Later for one version. squad upgrade has no option for them." },
     { "route": "DELETE /api/v1/app/update", "reason": "Not now on an update that waits for a safe moment. No command cancels it." },

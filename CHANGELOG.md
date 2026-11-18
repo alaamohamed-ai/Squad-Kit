@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **New sketch from the chat.** New sketch on the Sketches page opens the chat box with the AI Designer, not a form.
+  Chips under it show the design system (the default), its frames and the variants (2, from 1 to 3), with a line like
+  "1 screen × 2 frames × 2 variants"; nothing is saved until Send. Send makes the sketch, opens its workspace and
+  starts the AI Designer at once: it names the sketch and its first screen ("Booking" becomes "Booking 2" when taken),
+  then asks its questions or draws the first screen as the variants asked for. Each design system now keeps its own
+  list of frames, Desktop and Mobile when it is made; older ones are read as Desktop and Mobile.
 - **Rename, duplicate and delete sketches.** Each sketch card has a ⋯ menu with Rename, Duplicate and Delete, and a
   click on the name in a sketch's header renames it (Enter saves, Escape cancels). Sketch names are unique in a
   project: a used name is refused in plain words. Duplicate makes "Booking copy", then "Booking copy 2", with every
