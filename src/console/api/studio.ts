@@ -17,6 +17,7 @@ import {
   duplicateSketch,
   getDesignSystem,
   getSketch,
+  pickScreenVariant,
   sketchCover,
   sketchList,
   type DesignSystemView,
@@ -78,7 +79,19 @@ function sketchRow(s: Sketch | SketchView) {
       order: sc.order,
       status: sc.status,
       chosen: sc.chosen,
-      variants: sc.variants.map((v) => ({ version: v.version, frames: Object.keys(v.frames), madeAt: v.madeAt, ...(v.madeBy ? { madeBy: v.madeBy } : {}), ...(v.note ? { note: v.note } : {}) })),
+      variants: sc.variants.map((v) => ({
+        version: v.version,
+        frames: Object.keys(v.frames),
+        madeAt: v.madeAt,
+        ...(v.madeBy ? { madeBy: v.madeBy } : {}),
+        ...(v.note ? { note: v.note } : {}),
+        // A variant drawn for an ask (US-17, AB-142.1): its ask, letter, short name and idea, and the token check as it
+        // was saved. Reading checks nothing again.
+        ...(v.ask && v.letter ? { ask: v.ask, letter: v.letter, ...(v.name ? { name: v.name } : {}), ...(v.idea ? { idea: v.idea } : {}) } : {}),
+        ...(v.checkedWith ? { checkedWith: v.checkedWith } : {}),
+        ...(v.warnings?.length ? { warnings: v.warnings } : {}),
+        ...(v.noDesignSystem ? { noDesignSystem: true } : {}),
+      })),
     })),
   };
 }
@@ -254,6 +267,11 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
   app.patch('/api/v1/studio/sketches/:id/screens/:screen', async (c) => {
     const { stamp, ...change } = await body(c);
     return run(c, () => sketchRead(changeScreen(bp, c.req.param('id'), c.req.param('screen'), change, stamp)));
+  });
+  // "Use this one" on a variant's card (US-17): the version to use and the sketch's stamp; the others stay.
+  app.post('/api/v1/studio/sketches/:id/screens/:screen/pick', async (c) => {
+    const { stamp, version } = await body(c);
+    return run(c, () => sketchRead(pickScreenVariant(bp, c.req.param('id'), c.req.param('screen'), version, stamp)));
   });
   app.delete('/api/v1/studio/sketches/:id/screens/:screen', async (c) => {
     const stamp = await deleteStamp(c);

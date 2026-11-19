@@ -3,15 +3,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
-import { lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type SketchFull, type WorkspaceView } from '../../lib/studio';
+import { askCards, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
 import { SketchNameHeader } from './SketchActions';
+import { VariantCards } from './VariantCards';
 
 /* ── A sketch's workspace (US-05, US-52) ──
    The chat with the AI Designer is always open on the left: it is how the screens are made and changed. On the right,
-   the chosen variant of the picked screen in the picked frame. Which screen and frame are picked stays in this
-   browser tab (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch
-   (US-13). */
+   the chosen variant of the picked screen in the picked frame; when it came from an ask for variants, that ask's
+   variants side by side, each with "Use this one" (US-17). Which screen and frame are picked stays in this browser tab
+   (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch (US-13). */
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -53,6 +54,8 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
   const frame = view.frame && frames.includes(view.frame) ? view.frame : frames[0];
   const variant = screen?.variants.find((v) => v.version === screen.chosen);
   const html = variant && frame ? variant.html[frame] : undefined;
+  // The chosen variant came from an ask (US-17): that ask's variants show side by side.
+  const cards = screen ? askCards(screen) : null;
 
   return (
     <>
@@ -79,6 +82,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               stamp={s.stamp}
               onAnswered={answered}
               onWorking={working}
+              designSystem={s.designSystem ? (s.designSystem.name ?? s.designSystem.id) : null}
             />
           ) : (
             <aside className="dc" aria-label="Chat with the AI Designer" />
@@ -108,6 +112,8 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
             <div className="ws-view">
               {!s ? (
                 <p className="note">Reading the sketch…</p>
+              ) : cards && screen && frame ? (
+                <VariantCards key={`${screen.id}:${s.stamp}`} sketch={s.id} screen={{ id: screen.id, name: screen.name }} frame={frame} cards={cards} stamp={s.stamp} onPicked={answered} />
               ) : html !== undefined ? (
                 <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
               ) : doing ? (

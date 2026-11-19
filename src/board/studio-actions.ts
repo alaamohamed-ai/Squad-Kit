@@ -7,6 +7,7 @@ import {
   deleteScreen as removeScreen,
   deleteSketch as removeSketch,
   duplicateSketch as copySketch,
+  pickVariant as choose,
   readDefaultDesignSystem,
   readDesignSystem,
   readSketch,
@@ -427,6 +428,20 @@ export function changeScreen(bp: BoardPaths, sketch: string, screen: string, cha
   const was = screenOf(current, screen);
   const next = { id: was.id, name: maybeText(change.name, 'name') ?? was.name, order: maybeOrder(change.order) ?? was.order, status: maybeStatus(change.status) ?? was.status };
   saveSketch(bp, { ...sketchAsSaved(current), screens: [next] }, from, personEditing(bp));
+  return getSketch(bp, sketch);
+}
+
+/**
+ * "Use this one" on a variant's card (US-17): the screen uses that saved variant from now on, through the store's one
+ * pick, with the sketch's stamp the page read (AB-129.1); a stale one is refused with "Changed elsewhere, reload". The
+ * other variants stay, and the screen file is marked with who picked it (AB-131.1).
+ */
+export function pickScreenVariant(bp: BoardPaths, sketch: string, screen: string, version: unknown, stamp: unknown): SketchView {
+  const from = checkedStamp(stamp);
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) throw new Error('Say which variant to use, by its version.');
+  const sc = screenOf(getSketch(bp, sketch), screen);
+  if (!sc.variants.some((v) => v.version === version)) throw new StudioNotFound(`The screen "${sc.name}" has no variant ${version}.`);
+  choose(bp, sketch, screen, version, from, personEditing(bp));
   return getSketch(bp, sketch);
 }
 

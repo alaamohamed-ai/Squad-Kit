@@ -89,8 +89,40 @@ export interface ScreenFile {
   edited?: EditMark;
 }
 
+/** A value in a variant's pages that its design system's tokens lack (US-17, studio-tokens.ts). */
+export interface TokenWarning {
+  kind: 'color' | 'font' | 'size';
+  /** As the page writes it: "#dc2626", "Comic Sans MS", "13px". */
+  value: string;
+}
+
+export const TOKEN_KINDS: readonly TokenWarning['kind'][] = ['color', 'font', 'size'];
+
+/**
+ * Where a variant drawn for an ask comes from (US-17, AB-142.1): the ask it answers, its letter in that ask (A, B, C),
+ * its short name and its one-line idea. Kept on its own meta.yaml, written once; a plain change to the chosen variant
+ * of an ask keeps them on its new version.
+ */
+export interface VariantAskMarks {
+  /** The ask's id: every variant drawn for one message shares it. */
+  ask?: string;
+  /** The person's words that asked for the variants. */
+  asked?: string;
+  letter?: string;
+  /** Its short name: "One page", "Step by step". */
+  name?: string;
+  /** Its idea, in one line. */
+  idea?: string;
+  /** The design system its pages were checked against when it was saved, as it was named then. */
+  checkedWith?: { id: string; version: number; name: string };
+  /** What its pages use that the design system's tokens lack; left out when nothing. */
+  warnings?: TokenWarning[];
+  /** It was drawn with no design system selected, in plain styles. */
+  noDesignSystem?: boolean;
+}
+
 /** `v1/meta.yaml` beside a variant's frames. */
-export interface VariantMetaFile {
+export interface VariantMetaFile extends VariantAskMarks {
   madeAt: string;
   /** Who drew it: a person or the AI Designer. */
   madeBy?: string;
@@ -251,13 +283,49 @@ export function readScreenFile(file: string): ScreenFile {
   };
 }
 
+/** A variant's letter in its ask: one capital letter. */
+export const VARIANT_LETTER = /^[A-Z]$/;
+
+/** One line of text in a mark, or undefined: a hand edit never breaks the read. */
+function lineIn(x: unknown, max: number): string | undefined {
+  return typeof x === 'string' && x.trim() ? x.trim().replace(/\s+/g, ' ').slice(0, max) : undefined;
+}
+
+/**
+ * The ask marks on a variant's meta.yaml (US-17, AB-142.1), as written: what cannot be read is left out, so a hand
+ * edit never breaks the read. Reading only shows what the save checked; it checks nothing again (AB-127.1).
+ */
+export function readAskMarks(raw: Record<string, unknown>): VariantAskMarks {
+  const out: VariantAskMarks = {};
+  const ask = lineIn(raw.ask, 80);
+  const letter = typeof raw.letter === 'string' && VARIANT_LETTER.test(raw.letter) ? raw.letter : undefined;
+  if (ask && letter) {
+    out.ask = ask;
+    out.letter = letter;
+    const asked = lineIn(raw.asked, 500);
+    const name = lineIn(raw.name, 120);
+    const idea = lineIn(raw.idea, 300);
+    if (asked) out.asked = asked;
+    if (name) out.name = name;
+    if (idea) out.idea = idea;
+  }
+  const w = raw.checkedWith;
+  if (isPlain(w) && typeof w.id === 'string' && positive(w.version) && typeof w.name === 'string') out.checkedWith = { id: w.id, version: w.version, name: w.name };
+  if (Array.isArray(raw.warnings)) {
+    const warnings = raw.warnings.flatMap((x) => (isPlain(x) && TOKEN_KINDS.includes(x.kind as TokenWarning['kind']) && typeof x.value === 'string' && x.value.trim() ? [{ kind: x.kind as TokenWarning['kind'], value: x.value.trim().slice(0, 120) }] : []));
+    if (warnings.length) out.warnings = warnings;
+  }
+  if (raw.noDesignSystem === true) out.noDesignSystem = true;
+  return out;
+}
+
 function readVariantMeta(file: string): VariantMetaFile {
   const raw = plainFile(file) ? readYamlFile(file) : {};
   const meta: VariantMetaFile = { madeAt: isPlain(raw) ? timeText(raw.madeAt) : '' };
   if (isPlain(raw) && typeof raw.madeBy === 'string') meta.madeBy = raw.madeBy;
   if (isPlain(raw) && typeof raw.madeFor === 'string') meta.madeFor = raw.madeFor;
   if (isPlain(raw) && typeof raw.note === 'string') meta.note = raw.note;
-  return meta;
+  return isPlain(raw) ? { ...meta, ...readAskMarks(raw) } : meta;
 }
 
 /**

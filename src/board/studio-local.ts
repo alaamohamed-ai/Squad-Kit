@@ -33,8 +33,11 @@ export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, ve
   return fs.existsSync(file) ? fs.readFileSync(file) : null;
 }
 
-/** What the AI Designer did with a message (AB-177.1). */
-export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed';
+/**
+ * What the AI Designer did with a message (AB-177.1). "needs-design-system": variants were asked for on a sketch with
+ * no design system, so nothing was drawn (US-17); the board shows it as an alert to select one, or to skip.
+ */
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
 
 export interface StudioChatMessage {
   role: 'person' | 'designer';

@@ -3,20 +3,24 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, ImagePlus, MessageSquarePlus, Sparkles, Square, X } from 'lucide-react';
 import { api, assetUrl, send } from '../../api/client';
 import {
+  DESIGN_SYSTEMS_PATH,
   MAX_PICTURES,
   PICTURE_TYPES,
   chatsKey,
   chatsPath,
   conversationLabel,
+  designSystemsKey,
   pictureProblem,
   readPickedChat,
   savePickedChat,
+  sketchApiPath,
   textDir,
   timeOf,
   type ChatMessageView,
   type ChatOwnerKind,
   type ConversationData,
   type ConversationList,
+  type DesignSystemList,
   type MessagePicture,
 } from '../../lib/studio';
 import { readPicture } from './StartSketch';
@@ -41,11 +45,13 @@ export interface ChatPanelProps {
   onAnswered?: () => void;
   /** What the Designer is doing now, or null: called each time it changes, so the page can read its work so far. */
   onWorking?: (doing: string | null) => void;
+  /** A sketch's design system, by name, or null when it follows none (US-17): the "no design system" alert reads it. */
+  designSystem?: string | null;
 }
 
-const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work' };
+const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work', 'needs-design-system': 'No design system' };
 
-export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking }: ChatPanelProps) {
+export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking, designSystem }: ChatPanelProps) {
   const base = chatsPath(kind, id);
   const qc = useQueryClient();
   const list = useQuery({ queryKey: chatsKey(project, kind, id), queryFn: () => api<ConversationList>(base) });
@@ -141,12 +147,19 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
     }
   };
 
-  const post = async (text: string, withPictures: MessagePicture[]) => {
+  const post = async (text: string, withPictures: MessagePicture[], plainStyles = false) => {
     if (!chat) return;
     setBusy(true);
     setProblem(null);
     try {
-      const data = await send<ConversationData>(`${base}/${encodeURIComponent(chat)}/messages`, 'POST', { text, pictures: withPictures, ...(look ? { lookingAt: look } : {}), ...(stamp ? { stamp } : {}) });
+      const data = await send<ConversationData>(`${base}/${encodeURIComponent(chat)}/messages`, 'POST', {
+        text,
+        pictures: withPictures,
+        ...(look ? { lookingAt: look } : {}),
+        ...(stamp ? { stamp } : {}),
+        // "Skip" on the "no design system" alert (US-17): this one message draws in plain styles.
+        ...(plainStyles ? { plainStyles: true } : {}),
+      });
       qc.setQueryData([...chatsKey(project, kind, id), chat], data);
       setMessage('');
       setPictures([]);
@@ -176,6 +189,9 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
   const last = messages[messages.length - 1];
   const unanswered = !working && last?.role === 'person';
   const rows = list.data?.conversations ?? [];
+  // Variants were asked for with no design system (US-17): the person's words, to ask again or to skip with.
+  const needsSystem = kind === 'sketch' && !working && last?.role === 'designer' && last.kind === 'needs-design-system';
+  const askedFor = needsSystem ? [...messages].reverse().find((m) => m.role === 'person')?.text : undefined;
 
   return (
     <aside className="dc" aria-label="Chat with the AI Designer">
@@ -236,6 +252,18 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
           </button>
         </p>
       )}
+      {needsSystem && askedFor && (
+        <NoDesignSystemAlert
+          project={project}
+          sketch={id}
+          stamp={stamp}
+          designSystem={designSystem ?? null}
+          busy={busy}
+          onSelected={() => onAnswered?.()}
+          onAskAgain={() => void post(askedFor, [])}
+          onSkip={() => void post(askedFor, [], true)}
+        />
+      )}
       {problem && (
         <p className="note bad dc-problem" role="alert">
           {problem}
@@ -281,6 +309,103 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
         </div>
       </form>
     </aside>
+  );
+}
+
+/**
+ * Variants were asked for on a sketch with no design system (US-17): nothing was drawn. "Select a design system" saves
+ * the choice to the sketch, with the stamp the page read; then "Ask again" sends the same words. "Skip" sends them
+ * once more in plain styles, this once: the next ask for variants shows this alert again.
+ */
+function NoDesignSystemAlert(p: {
+  project: string;
+  sketch: string;
+  stamp?: string;
+  designSystem: string | null;
+  busy: boolean;
+  onSelected: () => void;
+  onAskAgain: () => void;
+  onSkip: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [choice, setChoice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const systems = useQuery({ queryKey: designSystemsKey(p.project), queryFn: () => api<DesignSystemList>(DESIGN_SYSTEMS_PATH), enabled: picking });
+  const options = systems.data?.designSystems ?? [];
+  const picked = choice || systems.data?.default?.id || options[0]?.id || '';
+
+  const save = async () => {
+    if (!picked) return;
+    setSaving(true);
+    setProblem(null);
+    try {
+      await send(sketchApiPath(p.sketch), 'PATCH', { designSystem: { id: picked }, ...(p.stamp ? { stamp: p.stamp } : {}) });
+      setPicking(false);
+      p.onSelected();
+    } catch (err) {
+      setProblem((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (p.designSystem) {
+    return (
+      <div className="dc-alert" role="status">
+        <span>
+          This sketch now follows <strong>{p.designSystem}</strong>. Ask again to draw the variants in its colors, fonts and sizes.
+        </span>
+        <div className="dc-alert-row">
+          <button type="button" className="primary" disabled={p.busy} onClick={p.onAskAgain}>
+            Ask again
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="dc-alert" role="alert">
+      <span>
+        <strong>No design system is selected</strong> for this sketch, so nothing was drawn. Variants use the design system's colors, fonts and sizes.
+      </span>
+      {picking ? (
+        <div className="dc-alert-row">
+          {systems.isLoading ? (
+            <span>…</span>
+          ) : options.length ? (
+            <>
+              <select aria-label="Design system" value={picked} onChange={(e) => setChoice(e.target.value)}>
+                {options.map((ds) => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.name}
+                    {ds.isDefault ? ' · default' : ''}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="primary" disabled={saving || !picked} onClick={() => void save()}>
+                {saving ? 'Saving…' : 'Use it'}
+              </button>
+            </>
+          ) : (
+            <span>This project has no design system yet. Make one on the Design systems tab.</span>
+          )}
+          <button type="button" onClick={() => setPicking(false)} disabled={saving}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="dc-alert-row">
+          <button type="button" className="primary" onClick={() => setPicking(true)} disabled={p.busy}>
+            Select a design system
+          </button>
+          <button type="button" onClick={p.onSkip} disabled={p.busy} title="Draw the variants in plain styles, this once">
+            Skip
+          </button>
+        </div>
+      )}
+      {problem && <span className="note bad">{problem}</span>}
+    </div>
   );
 }
 

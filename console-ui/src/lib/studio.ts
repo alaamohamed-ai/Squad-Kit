@@ -274,8 +274,11 @@ export function deleteQuestion(name: string, screens: number): { title: string; 
 /** The sketch workspace's address, under the project's base. */
 export const sketchPath = (id: string) => `/studio/sketches/${encodeURIComponent(id)}`;
 
-/** What the AI Designer did with a message: only "changed" and "stopped" saved a version. */
-export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed';
+/**
+ * What the AI Designer did with a message: only "changed" and "stopped" saved a version. "needs-design-system":
+ * variants were asked for on a sketch with no design system, and nothing was drawn (US-17).
+ */
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
 
 /** One message of a chat, as the board server sends it. */
 export interface ChatMessageView {
@@ -378,6 +381,38 @@ export const workspaceViewKey = (project: string, sketch: string) => `squad-stud
 export const readWorkspaceView = (project: string, sketch: string): WorkspaceView => readTab<WorkspaceView>(workspaceViewKey(project, sketch)) ?? {};
 export const saveWorkspaceView = (project: string, sketch: string, view: WorkspaceView) => saveTab(workspaceViewKey(project, sketch), view);
 
+/** A value in a variant's pages that its design system's tokens lack, as the token check saved it (US-17). */
+export interface TokenWarning {
+  kind: 'color' | 'font' | 'size';
+  value: string;
+}
+
+/** One saved variant of a screen, with its HTML by frame and, when it was drawn for an ask (US-17), its marks. */
+export interface VariantView {
+  version: number;
+  frames: string[];
+  madeAt?: string;
+  madeBy?: string;
+  html: Record<string, string>;
+  /** The ask it answers: every variant drawn for one message shares it. */
+  ask?: string;
+  letter?: string;
+  name?: string;
+  idea?: string;
+  checkedWith?: { id: string; version: number; name: string };
+  warnings?: TokenWarning[];
+  noDesignSystem?: boolean;
+}
+
+export interface ScreenView {
+  id: string;
+  name: string;
+  order: number;
+  status: string;
+  chosen: number | null;
+  variants: VariantView[];
+}
+
 /** One sketch read on its own, with each variant's HTML by frame. */
 export interface SketchFull {
   id: string;
@@ -385,8 +420,73 @@ export interface SketchFull {
   designSystem: { id: string; version: number; name: string | null } | null;
   frames: string[];
   stamp: string;
-  screens: { id: string; name: string; order: number; status: string; chosen: number | null; variants: { version: number; frames: string[]; madeAt?: string; madeBy?: string; html: Record<string, string> }[] }[];
+  screens: ScreenView[];
 }
+
+/* ── Variants side by side (US-17, AB-142) ── */
+
+/** One variant's card: its letter, short name and idea, the drawing it shows, and what its token check found. */
+export interface VariantCard {
+  letter: string;
+  name: string;
+  idea: string;
+  /** The version the card shows, and that "Use this one" picks. */
+  version: number;
+  html: Record<string, string>;
+  /** The screen uses this variant now: "Using this one". */
+  using: boolean;
+  warnings: TokenWarning[];
+  /** The design system its pages were checked against, as it was named then. */
+  checkedWith?: { id: string; version: number; name: string };
+  noDesignSystem: boolean;
+}
+
+/**
+ * The cards of the ask the screen's chosen variant came from, A first: each letter's newest drawing, and the chosen one
+ * for the letter in use. Null when the chosen variant came from no ask: the workspace shows the one drawing as before.
+ */
+export function askCards(screen: Pick<ScreenView, 'chosen' | 'variants'>): VariantCard[] | null {
+  const chosen = screen.variants.find((v) => v.version === screen.chosen);
+  if (!chosen?.ask || !chosen.letter) return null;
+  const byLetter = new Map<string, VariantView>();
+  for (const v of screen.variants) {
+    if (v.ask !== chosen.ask || !v.letter) continue;
+    const was = byLetter.get(v.letter);
+    if (!was || v.version > was.version) byLetter.set(v.letter, v);
+  }
+  byLetter.set(chosen.letter, chosen);
+  return [...byLetter.values()]
+    .sort((a, b) => a.letter!.localeCompare(b.letter!))
+    .map((v) => ({
+      letter: v.letter!,
+      name: v.name ?? `Variant ${v.letter}`,
+      idea: v.idea ?? '',
+      version: v.version,
+      html: v.html,
+      using: v.version === chosen.version,
+      warnings: v.warnings ?? [],
+      ...(v.checkedWith ? { checkedWith: v.checkedWith } : {}),
+      noDesignSystem: Boolean(v.noDesignSystem),
+    }));
+}
+
+const WARNING_WORDS: Record<TokenWarning['kind'], [string, string]> = { color: ['color', 'colors'], font: ['font', 'fonts'], size: ['size', 'sizes'] };
+
+/** 'The color #dc2626 is not part of "Patient app".', 'The colors red, #dc2626 and the font Comic Sans are not part of …'. */
+export function warningText(warnings: TokenWarning[], system: string): string {
+  const parts = (['color', 'font', 'size'] as const).flatMap((kind) => {
+    const values = warnings.filter((w) => w.kind === kind).map((w) => w.value);
+    if (!values.length) return [];
+    const list = values.length > 1 ? `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}` : values[0];
+    return [`the ${WARNING_WORDS[kind][values.length > 1 ? 1 : 0]} ${list}`];
+  });
+  const said = parts.join(', ');
+  const many = warnings.length > 1;
+  return `${said[0]!.toUpperCase()}${said.slice(1)} ${many ? 'are' : 'is'} not part of "${system}".`;
+}
+
+/** "Use this one": the version to use and the sketch's stamp, under the screen. */
+export const pickPath = (sketch: string, screen: string) => `${sketchApiPath(sketch)}/screens/${encodeURIComponent(screen)}/pick`;
 
 /** One design system read on its own, with each version's components' HTML. */
 export interface DesignSystemFull {

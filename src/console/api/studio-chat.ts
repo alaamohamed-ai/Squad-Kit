@@ -54,6 +54,8 @@ export function mountStudioChatApi(app: Hono, bp: BoardPaths, h: { run: Run; bod
           ...(Array.isArray(b.pictures) ? { pictures: b.pictures as never } : {}),
           ...(b.lookingAt && typeof b.lookingAt === 'object' ? { lookingAt: b.lookingAt as never } : {}),
           ...(typeof b.stamp === 'string' ? { stamp: b.stamp } : {}),
+          // "Skip" on the "no design system" alert (US-17): this one message draws its variants in plain styles.
+          ...(b.plainStyles === true ? { plainStyles: true } : {}),
         });
         return view(c, started.chat);
       });

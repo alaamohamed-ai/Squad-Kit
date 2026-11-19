@@ -279,7 +279,7 @@ describe('done when 4: the AI Designer on the sample board asks first, or draws 
     expect(said).toEqual(['Reading your message', 'Drawing variant 1 of 2: Form', 'Drawing variant 2 of 2: Form', 'Saving the new version']);
     expect(r.reply.kind).toBe('changed');
     expect(r.reply.text).toContain('I named the sketch "Booking" and its first screen "Form".');
-    expect(r.reply.text).toContain('2 variants of Form are drawn: Form v1, Form v2. The first one is picked; the others stay.');
+    expect(r.reply.text).toContain('2 variants of Form are drawn: A · One page, B · Step by step. Variant A is in use; pick another with "Use this one".');
     const s = actions.getSketch(bp, made.id);
     expect(s.screens.map((x) => [x.name, x.chosen, x.variants.map((v) => Object.keys(v.frames).sort())])).toEqual([['Form', 1, [BOTH, BOTH]]]);
     expect(s.screens[0]!.variants.every((v) => v.madeBy === 'AI Designer')).toBe(true);
@@ -323,7 +323,7 @@ describe('done when 5 with the live AI Designer', () => {
   it('asks for the names and the variants, names it "Booking 2" when "Booking" is taken, and says which variant each run draws', async () => {
     studio.saveSketch(bp, { name: 'Booking', frames: ['desktop'] });
     const made = startSketch(bp, { message: 'A page where patients book a follow-up visit with their last doctor' });
-    const drawn = (words: string) => ({ screens: [{ name: 'Form', frames: [{ frame: 'desktop', html: page(words) }, { frame: 'mobile', html: page(`${words}, small`) }] }], note: `${words}.` });
+    const drawn = (words: string) => ({ screens: [{ name: 'Form', frames: [{ frame: 'desktop', html: page(words) }, { frame: 'mobile', html: page(`${words}, small`) }] }], note: `${words}.`, variantName: words, idea: `${words}, in one line.` });
     answers.push({ kind: 'change', reply: 'I will draw the booking form.', sketchName: 'Booking', screenName: 'Form', screens: [{ name: 'Form', change: 'Book a follow-up with the last doctor' }] }, drawn('One page'), drawn('Steps'));
     const r = await sendChatMessage(bp, { owner: { kind: 'sketch', id: made.id }, chat: 'main' }, { place });
     expect(r.reply.kind).toBe('changed');
@@ -334,6 +334,11 @@ describe('done when 5 with the live AI Designer', () => {
     const s = actions.getSketch(bp, made.id);
     expect(s.name).toBe('Booking 2');
     expect(s.screens.map((x) => [x.name, x.chosen, x.variants.length])).toEqual([['Form', 1, 2]]);
+    // The first screen's variants are one ask (US-17): each has its letter, its short name and its idea.
+    expect(s.screens[0]!.variants.map((v) => [v.letter, v.name, v.idea])).toEqual([
+      ['A', 'One page', 'One page, in one line.'],
+      ['B', 'Steps', 'Steps, in one line.'],
+    ]);
     expect(r.reply.text).toMatch(/^I named the sketch "Booking 2" and its first screen "Form"\./);
   });
 
@@ -342,7 +347,7 @@ describe('done when 5 with the live AI Designer', () => {
     answers.push({ kind: 'change', reply: 'Drawing.', sketchName: 'Booking', screenName: 'Form', screens: [{ name: 'Form', change: 'Draw it' }] }, async () => {
       const now = actions.getSketch(bp, made.id);
       actions.changeSketch(bp, made.id, { name: 'Theirs' }, now.stamp);
-      return { ok: true, text: '', structured: { screens: [{ name: 'Form', frames: [{ frame: 'desktop', html: page('x') }, { frame: 'mobile', html: page('y') }] }], note: 'x.' }, sessionId: 'session-1' } as RunResult;
+      return { ok: true, text: '', structured: { screens: [{ name: 'Form', frames: [{ frame: 'desktop', html: page('x') }, { frame: 'mobile', html: page('y') }] }], note: 'x.', variantName: 'One page', idea: 'All on one page.' }, sessionId: 'session-1' } as RunResult;
     });
     const r = await sendChatMessage(bp, { owner: { kind: 'sketch', id: made.id }, chat: 'main' }, { place });
     expect(r.reply.kind).toBe('failed');

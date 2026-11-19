@@ -745,3 +745,148 @@ describe('the Sketches home: the grid (US-06)', () => {
     expect(S.editedText({ at: 'soon', by: 'Sara' }, now)).toBe('');
   });
 });
+
+describe('US-17 Draw variants: the variants of an ask side by side (AB-142)', () => {
+  const html = (words: string) => `<!doctype html><html><body><h1>${words}</h1></body></html>`;
+  const PATIENT_APP = { id: 'patient-app', version: 1, name: 'Patient app' };
+  /** "Booking" follows Patient app; its Form screen has variants A and B of one ask, B with a red Patient app lacks. */
+  function booking(chosen: number, more: Record<string, unknown> = {}) {
+    sketches = [
+      {
+        id: 'booking',
+        name: 'Booking',
+        designSystem: PATIENT_APP,
+        stamp: 's1',
+        screens: [
+          {
+            id: 'form',
+            name: 'Form',
+            order: 1,
+            status: 'draft',
+            chosen,
+            variants: [
+              { version: 1, frames: ['desktop'], html: { desktop: html('A') }, ask: 'ask-1', letter: 'A', name: 'One page', idea: 'Everything on one page.', checkedWith: PATIENT_APP, ...more },
+              { version: 2, frames: ['desktop'], html: { desktop: html('B') }, ask: 'ask-1', letter: 'B', name: 'Step by step', idea: 'Day, then time, then confirm.', checkedWith: PATIENT_APP, warnings: [{ kind: 'color', value: '#dc2626' }], ...more },
+            ],
+          },
+        ],
+      },
+    ] as never;
+  }
+  /** The board server also answers the changes this story adds, and a conversation the test sets. */
+  function serve(messages: unknown[] = []) {
+    const base = fetchSpy.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    fetchSpy.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      const method = init.method ?? 'GET';
+      const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
+      if (method !== 'GET') {
+        const body = init.body ? JSON.parse(String(init.body)) : null;
+        changes.push({ method, url, body });
+        if (url.endsWith('/pick')) return body.stamp === 's1' ? json({}) : json({ error: 'Changed elsewhere, reload', changedElsewhere: true }, 409);
+        if (url.endsWith('/chats/main/messages')) return json({ id: 'main', owner: { kind: 'sketch', id: 'booking', name: 'Booking' }, startedAt: null, messages, working: null });
+        if (method === 'PATCH') return json({});
+      }
+      if (messages.length && url.endsWith('/booking/chats')) return json({ conversations: [{ id: 'main', startedAt: null, messages: messages.length, first: null, lastAt: null }], current: 'main' });
+      if (messages.length && url.endsWith('/booking/chats/main')) return json({ id: 'main', owner: { kind: 'sketch', id: 'booking', name: 'Booking' }, startedAt: null, messages, working: null });
+      return base(url, init);
+    });
+  }
+  const cards = () => [...page.querySelectorAll('.vc-card')] as any[];
+  async function press(el: any) {
+    await act(async () => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    for (let i = 0; i < 5; i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  }
+  const button = (name: string) => ([...page.querySelectorAll('button')] as any[]).find((b) => b.textContent.trim() === name);
+
+  it('done when 1 and 3: each card has its name, its idea, "Using this one" or "Use this one", and B a warning naming the red', async () => {
+    booking(1);
+    serve();
+    await open('mawid', '/studio/sketches/booking');
+    expect(cards().map((c) => c.querySelector('strong').textContent)).toEqual(['Variant A · One page', 'Variant B · Step by step']);
+    expect(cards().map((c) => c.querySelector('.vc-idea').textContent)).toEqual(['Everything on one page.', 'Day, then time, then confirm.']);
+    expect(cards()[0].querySelector('.vc-using').textContent.trim()).toBe('Using this one');
+    expect(cards()[0].querySelector('button.vc-use')).toBeNull();
+    expect(cards()[1].querySelector('button.vc-use').textContent).toBe('Use this one');
+    // Only B uses what Patient app lacks, and its card names it.
+    expect(cards()[0].querySelector('.vc-warn')).toBeNull();
+    expect(cards()[1].querySelector('.vc-warn').textContent).toBe('The color #dc2626 is not part of "Patient app".');
+    // Each drawing is sealed: no scripts, no network.
+    expect(cards().map((c) => c.querySelector('iframe').getAttribute('sandbox'))).toEqual(['', '']);
+    expect(cards()[1].querySelector('iframe').getAttribute('srcdoc')).toContain("default-src 'none'");
+  });
+
+  it('done when 2: "Use this one" on B sends its version with the stamp the page read; B in use reads "Using this one"', async () => {
+    booking(1);
+    serve();
+    await open('mawid', '/studio/sketches/booking');
+    await press(cards()[1].querySelector('button.vc-use'));
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/booking/screens/form/pick', body: { version: 2, stamp: 's1' } }]);
+    // As the reload reads it: B in use.
+    booking(2);
+    await open('mawid', '/studio/sketches/booking');
+    expect(cards().map((c) => [c.querySelector('strong').textContent, (c.querySelector('.vc-using')?.textContent ?? c.querySelector('button.vc-use').textContent).trim()])).toEqual([
+      ['Variant A · One page', 'Use this one'],
+      ['Variant B · Step by step', 'Using this one'],
+    ]);
+  });
+
+  it('a stale stamp: the card says "Changed elsewhere, reload" and nothing changes', async () => {
+    booking(1);
+    sketches[0]!.stamp = 'old';
+    serve();
+    await open('mawid', '/studio/sketches/booking');
+    await press(cards()[1].querySelector('button.vc-use'));
+    expect(page.querySelector('.vc-problem').textContent).toBe('Changed elsewhere, reload');
+  });
+
+  it('done when 4: variants drawn with no design system say "No design system"', async () => {
+    booking(1, { checkedWith: undefined, warnings: undefined, noDesignSystem: true });
+    serve();
+    await open('mawid', '/studio/sketches/booking');
+    expect(cards().map((c) => c.querySelector('.vc-plain')?.textContent)).toEqual(['No design system', 'No design system']);
+    expect(page.querySelectorAll('.vc-warn')).toHaveLength(0);
+  });
+
+  it('done when 4: the "no design system" alert selects one for the sketch with its stamp, and Skip sends the same words once in plain styles', async () => {
+    booking(1);
+    (sketches[0] as any).designSystem = null;
+    systems = [{ id: 'patient-app', name: 'Patient app', isDefault: true, version: 1, colors: [], sketches: 0 }];
+    const asked = 'Draw 2 variants of the Form screen';
+    serve([
+      { role: 'person', text: asked, pictures: [] },
+      { role: 'designer', kind: 'needs-design-system', text: '"Booking" has no design system selected, so I drew nothing.', pictures: [] },
+    ]);
+    await open('mawid', '/studio/sketches/booking');
+    // The chat is read after the sketch.
+    for (let i = 0; i < 100 && !page.querySelector('.dc-alert'); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+    expect(page.querySelector('.dc-alert').textContent).toContain('No design system is selected');
+    await press(button('Skip'));
+    expect(changes.at(-1)).toMatchObject({ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/booking/chats/main/messages', body: { text: asked, plainStyles: true, stamp: 's1' } });
+
+    await press(button('Select a design system'));
+    await press(button('Use it'));
+    expect(changes.at(-1)).toEqual({ method: 'PATCH', url: '/p/mawid/api/v1/studio/sketches/booking', body: { designSystem: { id: 'patient-app' }, stamp: 's1' } });
+  });
+
+  it('a screen whose drawing came from no ask shows the one drawing, as before', async () => {
+    booking(1, { ask: undefined, letter: undefined });
+    serve();
+    await open('mawid', '/studio/sketches/booking');
+    expect(cards()).toHaveLength(0);
+    expect(page.querySelector('iframe.ws-frame')).not.toBeNull();
+  });
+
+  it('words and groups the cards the same way every time', () => {
+    expect(S.warningText([{ kind: 'color', value: '#dc2626' }], 'Patient app')).toBe('The color #dc2626 is not part of "Patient app".');
+    expect(S.warningText([{ kind: 'color', value: 'red' }, { kind: 'color', value: '#dc2626' }, { kind: 'font', value: 'Comic Sans MS' }], 'Brand')).toBe('The colors red and #dc2626, the font Comic Sans MS are not part of "Brand".');
+    const v = (version: number, letter: string, ask = 'ask-1') => ({ version, frames: [], html: {}, ask, letter, name: `N${version}` });
+    // B was changed (v4): its card shows the newest B; the chosen letter shows the chosen drawing; another ask is left out.
+    const cardsOf = S.askCards({ chosen: 1, variants: [v(1, 'A'), v(2, 'B'), v(3, 'C'), v(4, 'B'), v(5, 'A', 'ask-2')] });
+    expect(cardsOf.map((c: any) => [c.letter, c.version, c.using])).toEqual([
+      ['A', 1, true],
+      ['B', 4, false],
+      ['C', 3, false],
+    ]);
+    expect(S.askCards({ chosen: 1, variants: [{ version: 1, frames: [], html: {} }] })).toBeNull();
+  });
+});

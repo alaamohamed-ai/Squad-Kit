@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Draw variants.** Ask the AI Designer in a sketch's chat to "Draw 3 variants of the Form screen" (1 to 3; 2 with no
+  number) and it draws them one at a time, each in every frame of the sketch, with a short name and a one-line idea,
+  saying "Drawing variant 2 of 4: Form" as it goes. The variants show side by side as cards A, B and C: variant A is
+  in use, and "Use this one" picks another, which stays after a reload. Each variant is checked against the sketch's
+  design system when it is saved: a card whose drawing uses a color, font or font size the design system lacks says
+  which. With no design system selected nothing is drawn: select one, or Skip to draw in plain styles once. Stop
+  keeps the finished variants only. "Use B" works in the chat too.
 - **New sketch from the chat.** New sketch on the Sketches page opens the chat box with the AI Designer, not a form.
   Chips under it show the design system (the default), its frames and the variants (2, from 1 to 3), with a line like
   "1 screen × 2 frames × 2 variants"; nothing is saved until Send. Send makes the sketch, opens its workspace and

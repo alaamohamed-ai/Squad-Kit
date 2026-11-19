@@ -4,12 +4,13 @@ import { designSystemFile, frameFile, screenFile, sketchFile, tokensFile, varian
 import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantMetaFile } from './studio-read.js';
 
 /**
- * The sample board's Studio (US-06, AB-131): one design system, "Brand", and six sketches with edits by different
+ * The sample board's Studio (US-06, AB-131): one design system, "Brand", and seven sketches with edits by different
  * people, so the Sketches home shows its cards: "Checkout" drawn for desktop and mobile and redrawn by the AI Designer
  * for Sara, "Profile" just made by Omar with nothing drawn yet, and "Onboarding" drawn for desktop only, renamed by
  * Sara yesterday, with two of its five screens approved. For US-13 (rename, duplicate, delete), "Booking" has two drawn
- * screens with one Approved, "Patient profile" three, and "Login" is a name already used. The files are the ones the Studio store writes, with times
- * in the past, so the sample board looks lived in.
+ * screens with one Approved, "Patient profile" three, and "Login" is a name already used. For US-17 (variants),
+ * "Feedback" follows no design system. The files are the ones the Studio store writes, with times in the past, so the
+ * sample board looks lived in.
  */
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -157,6 +158,11 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
   })));
   writeSketch(bp, 'login', { name: 'Login', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 2, 'Sara') }, [
     { id: 'sign-in', name: 'Sign in', status: 'draft', edited: mark(60 * 24 * 2, 'Sara'), drawings: [{ minutes: 60 * 24 * 2, by: 'Sara', frames: both((w) => clinic('Sign in', 'Welcome back to Al Noor Clinic.', [['Phone', '+20 100 555 0101'], ['Password', '••••••••']], 'Sign in', w)) }] },
+  ]);
+
+  // US-17's example of a sketch with no design system selected: asking it for variants shows the alert first.
+  writeSketch(bp, 'feedback', { name: 'Feedback', designSystem: null, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 5, 'Omar') }, [
+    { id: 'rate', name: 'Rate your visit', status: 'draft', edited: mark(60 * 24 * 5, 'Omar'), drawings: [{ minutes: 60 * 24 * 5, by: 'Omar', frames: both((w) => clinic('How was your visit?', 'Tell us in a minute: it helps the clinic.', [['Doctor', 'Dr. Hana Saleh'], ['Your rating', '★★★★☆']], 'Send', w)) }] },
   ]);
 
   // Drawn for desktop only, renamed by Sara yesterday; two of its five screens approved.
