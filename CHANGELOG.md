@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Pick a variant.** "Use this one" on a variant's card makes it the screen's current version: its card shows "Using
+  this one", and every other card stays, marked "Not chosen", with its own "Use this one" to pick it again later.
+  The pick is saved with who made it and when, and the sketch's "last edited" shows it. A short line, "You picked
+  Variant B · Step by step", appears in the chat with the AI Designer, which is told about it and starts its next
+  change from the picked variant. A teammate's change in between refuses the pick with "Changed elsewhere, reload",
+  and the buttons wait while the AI Designer works. From the terminal: `squad studio sketch pick <sketch> <screen> B`.
 - **Draw variants.** Ask the AI Designer in a sketch's chat to "Draw 3 variants of the Form screen" (1 to 3; 2 with no
   number) and it draws them one at a time, each in every frame of the sketch, with a short name and a one-line idea,
   saying "Drawing variant 2 of 4: Form" as it goes. The variants show side by side as cards A, B and C: variant A is

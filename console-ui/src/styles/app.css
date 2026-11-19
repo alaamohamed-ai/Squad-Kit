@@ -1440,6 +1440,10 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .dc-msg.dc-k-failed .dc-text { color: var(--bad, #b42318); }
 .dc-saved { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dc-you { font-size: 11.5px; color: var(--dim); }
+/* A Studio button's line between the messages (AB-143.1): "You picked Variant B · Step by step". */
+.dc-line { align-self: center; max-width: 100%; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; }
+.dc-line svg { flex: none; color: var(--accent); }
+.dc-line time { color: var(--dim); }
 .dc-msg .sk-pics li { width: 120px; height: 90px; }
 .dc-working { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .dc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; animation: dc-pulse 1.2s ease-in-out infinite; }
@@ -1478,6 +1482,7 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .vc-use { font-size: 12.5px; font-weight: 650; color: var(--text); border: 1px solid var(--line-strong, var(--line)); border-radius: 8px; padding: 5px 10px; background: var(--surface); white-space: nowrap; }
 .vc-use:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .vc-use:disabled { opacity: 0.55; cursor: default; }
+.vc-not { font-size: 11.5px; font-weight: 650; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
 .vc-idea { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
 .vc-plain { align-self: flex-start; font-size: 11.5px; font-weight: 650; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 2px 8px; }
 .vc-warn { margin: 0; display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; color: #b45309; background: rgba(217, 119, 6, 0.1); border-radius: 8px; padding: 6px 8px; }

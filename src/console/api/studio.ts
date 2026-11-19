@@ -3,6 +3,7 @@ import type { SquadPaths } from '../../core/paths.js';
 import { boardPaths } from '../../board/store.js';
 import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
 import {
+  StudioDesignerWorking,
   StudioNotFound,
   addScreen,
   changeDesignSystem,
@@ -27,9 +28,9 @@ import {
 import { FIRST_CHAT, sketchChat, sketchChatPicture, startSketch } from '../../board/studio-start.js';
 import { writeLog } from '../../core/app-log.js';
 import { appPictureOption, takeAppPicture } from '../../engine/studio-app-picture.js';
-import { ChatBusy, startChatJob } from '../../engine/studio-chat-runs.js';
+import { ChatBusy, chatWorking, startChatJob } from '../../engine/studio-chat-runs.js';
 import { act } from './act.js';
-import { mountStudioChatApi } from './studio-chat.js';
+import { conversationRead, mountStudioChatApi } from './studio-chat.js';
 
 /**
  * The Studio API (US-04, AB-129), under /api/v1/studio; the server serves it for each project at
@@ -139,7 +140,7 @@ async function run(c: Context, fn: () => unknown) {
     if (err instanceof StudioInUse) return c.json({ error: err.message, followedBy: err.sketches }, 409);
     if (err instanceof StudioNameTaken) return c.json({ error: err.message, nameTaken: { id: err.sketch, name: err.taken } }, 409);
     if (err instanceof StudioNotFound) return c.json({ error: err.message }, 404);
-    if (err instanceof ChatBusy) return c.json({ error: err.message, busy: true }, 409);
+    if (err instanceof ChatBusy || err instanceof StudioDesignerWorking) return c.json({ error: err.message, busy: true }, 409);
     return act(c, () => {
       throw err;
     });
@@ -268,10 +269,18 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
     const { stamp, ...change } = await body(c);
     return run(c, () => sketchRead(changeScreen(bp, c.req.param('id'), c.req.param('screen'), change, stamp)));
   });
-  // "Use this one" on a variant's card (US-17): the version to use and the sketch's stamp; the others stay.
+  // "Use this one" on a variant's card (US-17, US-18): the version to use, the sketch's stamp and the conversation open
+  // beside it. The others stay. Once the pick is saved, its line goes to that conversation (AB-143.1); the answer is the
+  // sketch and the conversation. An old stamp is 409 "Changed elsewhere, reload", and a pick while the AI Designer works
+  // on that conversation is 409 too: neither writes anything.
   app.post('/api/v1/studio/sketches/:id/screens/:screen/pick', async (c) => {
-    const { stamp, version } = await body(c);
-    return run(c, () => sketchRead(pickScreenVariant(bp, c.req.param('id'), c.req.param('screen'), version, stamp)));
+    const { stamp, version, chat } = await body(c);
+    return run(c, () => {
+      const id = c.req.param('id');
+      const owner = { kind: 'sketch', id } as const;
+      const r = pickScreenVariant(bp, id, c.req.param('screen'), version, stamp, { chat, busy: (talk) => chatWorking(bp, owner, talk) !== null });
+      return { sketch: sketchRead(r.sketch), picked: r.picked, conversation: r.chat ? conversationRead(bp, owner, r.chat) : null };
+    });
   });
   app.delete('/api/v1/studio/sketches/:id/screens/:screen', async (c) => {
     const stamp = await deleteStamp(c);

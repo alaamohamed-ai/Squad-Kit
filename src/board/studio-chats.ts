@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
-import { readChat, saveChat, type ChatOwner, type StudioChat, type StudioChatMessage } from './studio.js';
+import { readChat, saveChat, type ChatOwner, type PickMark, type StudioChat, type StudioChatMessage } from './studio.js';
 import { StudioNotFound, getDesignSystem, getSketch } from './studio-actions.js';
 import { writeShared } from './studio-files.js';
+import { holdStudio } from './studio-lock.js';
 import { CHAT_PICTURE, checkedStudioId, ownerChatPictureFile, ownerChatsDir } from './studio-paths.js';
 import { FIRST_CHAT, MAX_MESSAGE, MAX_START_PICTURES, PICTURE_KINDS, checkedPictures, pictureKindOf, type StartPicture } from './studio-start.js';
 
@@ -69,17 +70,26 @@ function conversationIds(bp: BoardPaths, owner: ChatOwner): string[] {
 
 function rowOf(id: string, chat: StudioChat | null): ConversationRow {
   const messages = Array.isArray(chat?.messages) ? chat.messages.filter(isMessage) : [];
+  // A pick line (AB-143.1) is not what tells conversations apart: the first message is.
+  const first = messages.find((m) => m.role !== 'action');
   return {
     id,
     startedAt: typeof chat?.startedAt === 'string' ? chat.startedAt : (messages[0]?.at ?? null),
     messages: messages.length,
-    first: messages[0]?.text.slice(0, 120) ?? null,
+    first: first?.text.slice(0, 120) ?? null,
     lastAt: messages[messages.length - 1]?.at ?? null,
   };
 }
 
+/** A message, or a pick line a Studio button added (AB-143.1); anything else in the file is left out. */
 function isMessage(m: unknown): m is StudioChatMessage {
-  return isPlain(m) && typeof m.text === 'string' && (m.role === 'person' || m.role === 'designer');
+  if (!isPlain(m) || typeof m.text !== 'string') return false;
+  if (m.role === 'person' || m.role === 'designer') return true;
+  return m.role === 'action' && isPickMark(m.picked);
+}
+
+function isPickMark(p: unknown): p is PickMark {
+  return isPlain(p) && typeof p.screen === 'string' && typeof p.screenName === 'string' && typeof p.version === 'number' && typeof p.at === 'string';
 }
 
 /** Every conversation about a sketch or a design system, newest first. Reading writes nothing (AB-127.1). */
@@ -133,11 +143,17 @@ export function conversationSession(bp: BoardPaths, owner: ChatOwner, chat: stri
   return typeof s === 'string' && s ? s : undefined;
 }
 
+/**
+ * Reads, changes and saves a conversation under the project's Studio lock, so a pick's line (AB-143.1) and a reply
+ * written by another process at the same moment never write over each other.
+ */
 function update(bp: BoardPaths, owner: ChatOwner, chat: string, change: (c: StudioChat) => void): void {
-  const saved = readChat(bp, owner, chat);
-  const c: StudioChat = saved && Array.isArray(saved.messages) ? saved : { startedAt: new Date().toISOString(), messages: [] };
-  change(c);
-  saveChat(bp, owner, chat, c);
+  holdStudio(bp, () => {
+    const saved = readChat(bp, owner, chat);
+    const c: StudioChat = saved && Array.isArray(saved.messages) ? saved : { startedAt: new Date().toISOString(), messages: [] };
+    change(c);
+    saveChat(bp, owner, chat, c);
+  });
 }
 
 /** Adds one message at the end of a conversation, made when it has none yet. */
@@ -145,6 +161,36 @@ export function addChatMessage(bp: BoardPaths, owner: ChatOwner, chat: string, m
   update(bp, owner, chat, (c) => {
     c.messages.push({ ...message, at: message.at ?? new Date().toISOString() });
   });
+}
+
+/** The words of a pick line: "You picked Variant B · Step by step", or "You picked Form v3" for a variant with no letter. */
+export function pickWords(p: PickMark): string {
+  if (!p.letter) return `You picked ${p.screenName} v${p.version}`;
+  return `You picked Variant ${p.letter}${p.name ? ` · ${p.name}` : ''}`;
+}
+
+/**
+ * Adds the short line a pick made with "Use this one" leaves in a conversation (US-18, AB-143.1), on this computer only.
+ * The pick's caller adds it only after the pick was saved, so a refused pick adds nothing.
+ */
+export function addPickLine(bp: BoardPaths, owner: ChatOwner, chat: string, picked: PickMark): StudioChatMessage {
+  checkedStudioId(chat);
+  const line: StudioChatMessage = { role: 'action', text: pickWords(picked), at: picked.at, picked };
+  addChatMessage(bp, owner, chat, line);
+  return line;
+}
+
+/**
+ * The picks made since the AI Designer's last reply in a conversation, as it is told about them on its next turn:
+ * "Variant B · Step by step of Form".
+ */
+export function picksSinceReply(messages: StudioChatMessage[]): string[] {
+  const out: string[] = [];
+  for (const m of messages) {
+    if (m.role === 'designer') out.length = 0;
+    else if (m.role === 'action' && m.picked) out.push(`${pickWords(m.picked).replace(/^You picked /, '')}${m.picked.letter ? ` of ${m.picked.screenName}` : ''}`);
+  }
+  return out;
 }
 
 /** Keeps the AI tool's session, so the next message in this conversation resumes it. */

@@ -820,7 +820,8 @@ describe('US-17 Draw variants: the variants of an ask side by side (AB-142)', ()
     serve();
     await open('mawid', '/studio/sketches/booking');
     await press(cards()[1].querySelector('button.vc-use'));
-    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/booking/screens/form/pick', body: { version: 2, stamp: 's1' } }]);
+    // With the conversation open beside the cards, where the pick's line goes (US-18, AB-143.1).
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/booking/screens/form/pick', body: { version: 2, stamp: 's1', chat: 'main' } }]);
     // As the reload reads it: B in use.
     booking(2);
     await open('mawid', '/studio/sketches/booking');

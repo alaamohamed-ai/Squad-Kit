@@ -31,6 +31,7 @@ import {
   conversationSession,
   currentConversation,
   messagePictureFiles,
+  picksSinceReply,
   readConversation,
   saveConversationSession,
 } from '../board/studio-chats.js';
@@ -112,6 +113,8 @@ export interface ChatTurn {
   earlier: { role: 'person' | 'designer'; text: string }[];
   /** Variants are drawn in plain styles with no design system, this once (US-17). */
   plainStyles?: boolean;
+  /** The picks made with "Use this one" since the Designer's last reply (US-18), as it is told about them. */
+  picked?: string[];
 }
 
 export interface ChatOptions extends DesignerOptions {
@@ -197,13 +200,22 @@ export function startChatTurn(bp: BoardPaths, a: ChatAsk): ChatTurn {
   const chat = checkedStudioId(a.chat ?? currentConversation(bp, a.owner));
   const before = readConversation(bp, a.owner, chat).messages;
   const stamp = typeof a.stamp === 'string' && a.stamp ? a.stamp : studioStamp(bp, a.owner);
-  const earlier = (msgs: StudioChatMessage[]) => msgs.slice(-EARLIER_MESSAGES).map((m) => ({ role: m.role, text: m.text.slice(0, 2000) }));
+  // Pick lines (AB-143.1) are not messages: the Designer is told about the ones since its last reply on their own.
+  const earlier = (msgs: StudioChatMessage[]) =>
+    msgs
+      .filter((m): m is StudioChatMessage & { role: 'person' | 'designer' } => m.role !== 'action')
+      .slice(-EARLIER_MESSAGES)
+      .map((m) => ({ role: m.role, text: m.text.slice(0, 2000) }));
   const text = typeof a.text === 'string' ? a.text.trim() : '';
-  const plain = a.plainStyles === true ? { plainStyles: true } : {};
+  const picked = picksSinceReply(before);
+  const plain = { ...(a.plainStyles === true ? { plainStyles: true } : {}), ...(picked.length ? { picked } : {}) };
   if (!text && !a.pictures?.length) {
-    const last = before[before.length - 1];
+    // The last message, past any pick line after it (AB-143.1).
+    let at = before.length - 1;
+    while (at >= 0 && before[at]!.role === 'action') at--;
+    const last = before[at];
     if (!last || last.role !== 'person') throw new Error('Write a message first.');
-    return { owner: a.owner, chat, text: last.text, pictures: messagePictureFiles(bp, a.owner, last), ...(last.lookingAt ? { lookingAt: last.lookingAt } : {}), stamp, language: languageOf(last.text), earlier: earlier(before.slice(0, -1)), ...plain };
+    return { owner: a.owner, chat, text: last.text, pictures: messagePictureFiles(bp, a.owner, last), ...(last.lookingAt ? { lookingAt: last.lookingAt } : {}), stamp, language: languageOf(last.text), earlier: earlier(before.slice(0, at)), ...plain };
   }
   const kept = addPersonMessage(bp, a.owner, chat, { text, ...(a.pictures ? { pictures: a.pictures } : {}), ...(a.lookingAt ? { lookingAt: a.lookingAt } : {}) });
   return { owner: a.owner, chat, text: kept.message.text, pictures: kept.pictureFiles, ...(kept.message.lookingAt ? { lookingAt: kept.message.lookingAt } : {}), stamp, language: languageOf(kept.message.text), earlier: earlier(before), ...plain };
@@ -231,7 +243,7 @@ function chosenFiles(bp: BoardPaths, sketch: Sketch, screen: string): Record<str
 
 function briefOf(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null): ChatBrief {
   const project = readMeta(bp).project;
-  const common = { project, pictures: turn.pictures, message: turn.text, language: turn.language, earlier: conversationSession(bp, turn.owner, turn.chat) ? [] : turn.earlier };
+  const common = { project, pictures: turn.pictures, message: turn.text, language: turn.language, earlier: conversationSession(bp, turn.owner, turn.chat) ? [] : turn.earlier, ...(turn.picked?.length ? { picked: turn.picked } : {}) };
   if (!sketch) {
     const ds = readDesignSystem(bp, turn.owner.id)!;
     return { ...common, target: { kind: 'design-system', name: ds.name, version: ds.version, dir: relative(bp, designSystemVersionDir(bp, ds.id, ds.version)) } };

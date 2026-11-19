@@ -19,11 +19,16 @@ import {
   type DesignSystemInput,
   type EditBy,
   type EditMark,
+  type PickMark,
   type ScreenInput,
   type ScreenStatus,
   type Sketch,
   type SketchScreen,
+  type StudioChatMessage,
 } from './studio.js';
+import { checkedStudioId } from './studio-paths.js';
+import { holdStudio } from './studio-lock.js';
+import { addPickLine, readConversation } from './studio-chats.js';
 
 /**
  * The Studio's actions (US-04, AB-129): list, read, create, change and delete for sketches and design systems, and
@@ -431,18 +436,76 @@ export function changeScreen(bp: BoardPaths, sketch: string, screen: string, cha
   return getSketch(bp, sketch);
 }
 
+/** What a pick did: the sketch as saved, and the variant now in use with who picked it and when (AB-131.1). */
+export interface VariantPicked {
+  sketch: SketchView;
+  /** The pick as saved; null when that variant was already the one in use, so nothing was written. */
+  picked: PickMark | null;
+  /** The conversation the pick line went to, when one was given. */
+  chat: string | null;
+  /** The line added to it, or null when there was nothing to add. */
+  line: StudioChatMessage | null;
+}
+
+export interface PickOptions {
+  /** The conversation open beside the variants: the pick line goes there. Left out, no line is added. */
+  chat?: unknown;
+  /** Whether the AI Designer is working on that conversation now: the board's answers in the background. */
+  busy?: (chat: string) => boolean;
+}
+
+/** The AI Designer is still working on the conversation: a pick now would cross its save. Nothing was written. */
+export class StudioDesignerWorking extends Error {
+  constructor() {
+    super('The AI Designer is still working on this sketch. Wait for its answer, or press Stop, then pick again.');
+    this.name = 'StudioDesignerWorking';
+  }
+}
+
 /**
- * "Use this one" on a variant's card (US-17): the screen uses that saved variant from now on, through the store's one
- * pick, with the sketch's stamp the page read (AB-129.1); a stale one is refused with "Changed elsewhere, reload". The
- * other variants stay, and the screen file is marked with who picked it (AB-131.1).
+ * "Use this one" on a variant's card (US-17, US-18): the screen uses that saved variant from now on, through the
+ * store's one pick, under the sketch's lock and with the sketch's stamp the page read (AB-129.1); a stale one is refused
+ * with "Changed elsewhere, reload" and writes nothing. The other variants stay, each pickable again later. The screen
+ * file is marked with who picked it and when, so the sketch's "last edited" shows them too (AB-131.1). The board and
+ * `squad studio sketch pick` both call this.
+ *
+ * With `chat`, the pick also adds its short line to that conversation on this computer (AB-143.1), only after the
+ * save: "You picked Variant B · Step by step". While the AI Designer is still working on that conversation (`busy`, the
+ * board's answers), the pick is refused with StudioDesignerWorking before anything is written. The check, the save and
+ * the line hold the Studio lock together. A run the board does not know of (`squad studio chat` with no board open)
+ * cannot cross it either: its save brings the stamp it read, so after a pick it is refused with "Changed elsewhere,
+ * reload", and its reply is written under the same lock as the line (studio-chats.ts).
  */
-export function pickScreenVariant(bp: BoardPaths, sketch: string, screen: string, version: unknown, stamp: unknown): SketchView {
+export function pickScreenVariant(bp: BoardPaths, sketch: string, screen: string, version: unknown, stamp: unknown, opts: PickOptions = {}): VariantPicked {
   const from = checkedStamp(stamp);
   if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) throw new Error('Say which variant to use, by its version.');
   const sc = screenOf(getSketch(bp, sketch), screen);
-  if (!sc.variants.some((v) => v.version === version)) throw new StudioNotFound(`The screen "${sc.name}" has no variant ${version}.`);
-  choose(bp, sketch, screen, version, from, personEditing(bp));
-  return getSketch(bp, sketch);
+  const variant = sc.variants.find((v) => v.version === version);
+  if (!variant) throw new StudioNotFound(`The screen "${sc.name}" has no variant ${version}.`);
+  const chat = opts.chat === undefined || opts.chat === null || opts.chat === '' ? null : checkedStudioId(maybeText(opts.chat, 'conversation') ?? '');
+  const owner = { kind: 'sketch', id: sketch } as const;
+  if (chat) readConversation(bp, owner, chat);
+  // The busy check, the save and the line all hold the project's Studio lock, which the board and the terminal share.
+  return holdStudio(bp, () => {
+    if (chat && opts.busy?.(chat)) throw new StudioDesignerWorking();
+    // The stamp check: an old stamp stops here, before the files or the chat change.
+    const saved = choose(bp, sketch, screen, version, from, personEditing(bp));
+    const after = getSketch(bp, saved.id);
+    if (sc.chosen === version) return { sketch: after, picked: null, chat, line: null };
+    const mark = after.screens.find((s) => s.id === screen)?.edited;
+    const picked: PickMark = {
+      screen,
+      screenName: sc.name,
+      version,
+      ...(variant.letter ? { letter: variant.letter } : {}),
+      ...(variant.name ? { name: variant.name } : {}),
+      at: mark?.at ?? new Date().toISOString(),
+      ...(mark?.by ? { by: mark.by } : {}),
+    };
+    // Only now that the pick is saved does its line go to the chat (AB-143.1).
+    const line = chat ? addPickLine(bp, owner, chat, picked) : null;
+    return { sketch: after, picked, chat, line };
+  });
 }
 
 /** Deletes a screen and every variant of it, for good. */

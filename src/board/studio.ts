@@ -44,6 +44,7 @@ import {
   type SketchFile,
   type SketchScreen,
   type SystemFile,
+  type VariantAskMarks,
   type VariantMetaFile,
   VARIANT_LETTER,
 } from './studio-read.js';
@@ -561,4 +562,4 @@ export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, sta
 
 /* ── This computer's part: thumbnails and AI Designer chats (studio-local.ts) ── */
 
-export { readChat, readThumbnail, saveChat, saveThumbnail, type ChatOwner, type ChatReplyKind, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';
+export { readChat, readThumbnail, saveChat, saveThumbnail, type ChatOwner, type ChatReplyKind, type PickMark, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';

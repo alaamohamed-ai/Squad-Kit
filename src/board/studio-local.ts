@@ -39,8 +39,26 @@ export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, ve
  */
 export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
 
+/**
+ * A pick made with a Studio button (US-18, AB-143.1): the screen, the version now in use, the variant's letter and short
+ * name when it has them, who picked it and when, as the screen file's mark says.
+ */
+export interface PickMark {
+  screen: string;
+  screenName: string;
+  version: number;
+  letter?: string;
+  name?: string;
+  at: string;
+  by?: string;
+}
+
+/**
+ * One line of a chat. "person" and "designer" are the messages; "action" is a short line a Studio button added after
+ * its save (AB-143.1), such as "You picked Variant B · Step by step". The Designer is told about those on its next turn.
+ */
 export interface StudioChatMessage {
-  role: 'person' | 'designer';
+  role: 'person' | 'designer' | 'action';
   text: string;
   at?: string;
   /** The message's picture files in its chats' pictures folder (ownerChatPictureFile, AB-130.1). */
@@ -53,6 +71,8 @@ export interface StudioChatMessage {
   lookingAt?: { screen?: string; frame?: string };
   /** The start page's first message (US-08): the variants asked for, and whether the sketch is still to be named. */
   start?: StartMark;
+  /** An "action" line for "Use this one" (US-18): what was picked, by whom and when. */
+  picked?: PickMark;
 }
 
 /** What the start page keeps on a sketch's first message (US-08), on this computer only. */

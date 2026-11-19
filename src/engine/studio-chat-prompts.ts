@@ -174,6 +174,11 @@ export interface ChatBrief {
   naming?: boolean;
   /** The sketch's first screen is still to be drawn, as this many variants (US-08). */
   firstScreen?: { variants: number };
+  /**
+   * The picks the person made with "Use this one" since your last reply (US-18, AB-143.1), each as "Variant B · Step by
+   * step of Form". The screens' current pages are already the picked ones.
+   */
+  picked?: string[];
 }
 
 function actionsText(on: 'sketch' | 'design-system'): string {
@@ -203,6 +208,7 @@ export function chatSortPrompt(b: ChatBrief): string {
   if (b.designSystem) parts.push(`The sketch follows the design system "${b.designSystem.name}", version ${b.designSystem.version}: its tokens.json and components/ are in ${b.designSystem.dir}.`);
   if (b.lookingAt?.screen || b.lookingAt?.frame) parts.push(`The person is looking at${b.lookingAt.screen ? ` the screen "${b.lookingAt.screen}"` : ''}${b.lookingAt.frame ? ` in its ${b.lookingAt.frame} frame` : ''}. "This" and "it" mean that, unless they say otherwise.`);
   if (b.earlier.length) parts.push(asData('The conversation so far', b.earlier.map((m) => `${m.role === 'person' ? 'Person' : 'You'}: ${m.text}`).join('\n')));
+  if (b.picked?.length) parts.push(`Since your last reply, the person picked ${b.picked.map((p) => `"${p}"`).join(', then ')} with the variant's "Use this one" button. That is the screen's current version now: its pages listed above are the picked one, and any change starts from it.`);
   if (b.pictures.length) parts.push(`The person added ${b.pictures.length === 1 ? 'a picture' : `${b.pictures.length} pictures`} to this message as a reference. Read ${b.pictures.length === 1 ? 'it' : 'them'} first:\n${b.pictures.map((p) => `- ${p}`).join('\n')}`);
   parts.push(
     `What the Studio can do:\n${actionsText(b.target.kind)}`,

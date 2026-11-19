@@ -20,22 +20,28 @@ const KINDS: [string, ChatOwner['kind']][] = [
   ['design-systems', 'design-system'],
 ];
 
+/**
+ * One conversation as the chat panel reads it: its messages and pick lines (AB-143.1), each picture as an address the
+ * page can show, and what the Designer is doing now. The pick route answers with it too.
+ */
+export function conversationRead(bp: BoardPaths, o: ChatOwner, chat: string) {
+  const segment = o.kind === 'sketch' ? 'sketches' : 'design-systems';
+  const pictureUrl = (file: string) => `/api/v1/studio/${segment}/${encodeURIComponent(o.id)}/chats/${encodeURIComponent(chat)}/pictures/${encodeURIComponent(file)}`;
+  const v = readConversation(bp, o, chat);
+  return {
+    id: v.id,
+    owner: { ...o, name: chatOwnerName(bp, o) },
+    startedAt: v.startedAt,
+    messages: v.messages.map((m) => ({ ...m, pictures: m.pictures.map(pictureUrl) })),
+    working: chatWorking(bp, o, chat),
+  };
+}
+
 export function mountStudioChatApi(app: Hono, bp: BoardPaths, h: { run: Run; body: Body }): void {
   for (const [segment, kind] of KINDS) {
     const base = `/api/v1/studio/${segment}/:id/chats`;
     const owner = (c: Context): ChatOwner => ({ kind, id: c.req.param('id') ?? '' });
-    const pictureUrl = (c: Context, chat: string, file: string) => `/api/v1/studio/${segment}/${encodeURIComponent(owner(c).id)}/chats/${encodeURIComponent(chat)}/pictures/${encodeURIComponent(file)}`;
-    const view = (c: Context, chat: string) => {
-      const o = owner(c);
-      const v = readConversation(bp, o, chat);
-      return {
-        id: v.id,
-        owner: { ...o, name: chatOwnerName(bp, o) },
-        startedAt: v.startedAt,
-        messages: v.messages.map((m) => ({ ...m, pictures: m.pictures.map((f) => pictureUrl(c, chat, f)) })),
-        working: chatWorking(bp, o, chat),
-      };
-    };
+    const view = (c: Context, chat: string) => conversationRead(bp, owner(c), chat);
 
     // Every conversation, newest first, and the one the chat opens on. Reading writes nothing.
     app.get(base, (c) => h.run(c, () => ({ conversations: listConversations(bp, owner(c)), current: currentConversation(bp, owner(c)) })));

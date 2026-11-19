@@ -280,9 +280,25 @@ export const sketchPath = (id: string) => `/studio/sketches/${encodeURIComponent
  */
 export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
 
-/** One message of a chat, as the board server sends it. */
+/** A pick made with "Use this one" (US-18): the screen, the version now in use, its letter and name, who and when. */
+export interface PickMarkView {
+  screen: string;
+  screenName: string;
+  version: number;
+  letter?: string;
+  name?: string;
+  at: string;
+  by?: string;
+}
+
+/**
+ * One line of a chat, as the board server sends it: a message, or (role "action") a short line a Studio button added
+ * after its save, like "You picked Variant B · Step by step" (AB-143.1).
+ */
 export interface ChatMessageView {
-  role: 'person' | 'designer';
+  role: 'person' | 'designer' | 'action';
+  /** An "action" line for a pick. */
+  picked?: PickMarkView;
   text: string;
   at?: string;
   /** Addresses of the message's pictures, served from this computer's chat folder. */
@@ -485,8 +501,15 @@ export function warningText(warnings: TokenWarning[], system: string): string {
   return `${said[0]!.toUpperCase()}${said.slice(1)} ${many ? 'are' : 'is'} not part of "${system}".`;
 }
 
-/** "Use this one": the version to use and the sketch's stamp, under the screen. */
+/** "Use this one": the version to use, the sketch's stamp and the conversation open beside it, under the screen. */
 export const pickPath = (sketch: string, screen: string) => `${sketchApiPath(sketch)}/screens/${encodeURIComponent(screen)}/pick`;
+
+/** What "Use this one" answers (US-18): the sketch as saved, the pick, and the conversation with its new line. */
+export interface PickAnswer {
+  sketch: SketchFull;
+  picked: PickMarkView | null;
+  conversation: ConversationData | null;
+}
 
 /** One design system read on its own, with each version's components' HTML. */
 export interface DesignSystemFull {

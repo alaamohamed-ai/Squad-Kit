@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
-import { askCards, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type SketchFull, type WorkspaceView } from '../../lib/studio';
+import { askCards, chatsKey, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type PickAnswer, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
 import { SketchNameHeader } from './SketchActions';
 import { VariantCards } from './VariantCards';
@@ -11,8 +11,8 @@ import { VariantCards } from './VariantCards';
 /* ── A sketch's workspace (US-05, US-52) ──
    The chat with the AI Designer is always open on the left: it is how the screens are made and changed. On the right,
    the chosen variant of the picked screen in the picked frame; when it came from an ask for variants, that ask's
-   variants side by side, each with "Use this one" (US-17). Which screen and frame are picked stays in this browser tab
-   (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch (US-13). */
+   variants side by side, each with "Use this one" (US-17); a pick adds its line to the open conversation (US-18).
+   Which screen and frame are picked stays in this browser tab (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch (US-13). */
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -45,6 +45,18 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [qc, project, id],
+  );
+
+  // The conversation open in the chat: "Use this one" adds its line there (US-18, AB-143.1).
+  const [chat, setChat] = useState<string | null>(null);
+  const picked = useCallback(
+    (answer: PickAnswer) => {
+      const chats = chatsKey(project, 'sketch', id);
+      if (answer.conversation) qc.setQueryData([...chats, answer.conversation.id], answer.conversation);
+      void qc.invalidateQueries({ queryKey: chats, exact: true });
+      answered();
+    },
+    [qc, project, id, answered],
   );
 
   const s = sketch.data;
@@ -83,6 +95,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               onAnswered={answered}
               onWorking={working}
               designSystem={s.designSystem ? (s.designSystem.name ?? s.designSystem.id) : null}
+              onConversation={setChat}
             />
           ) : (
             <aside className="dc" aria-label="Chat with the AI Designer" />
@@ -113,7 +126,17 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               {!s ? (
                 <p className="note">Reading the sketch…</p>
               ) : cards && screen && frame ? (
-                <VariantCards key={`${screen.id}:${s.stamp}`} sketch={s.id} screen={{ id: screen.id, name: screen.name }} frame={frame} cards={cards} stamp={s.stamp} onPicked={answered} />
+                <VariantCards
+                  key={`${screen.id}:${s.stamp}`}
+                  sketch={s.id}
+                  screen={{ id: screen.id, name: screen.name }}
+                  frame={frame}
+                  cards={cards}
+                  stamp={s.stamp}
+                  chat={chat}
+                  working={doing !== null}
+                  onPicked={picked}
+                />
               ) : html !== undefined ? (
                 <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
               ) : doing ? (

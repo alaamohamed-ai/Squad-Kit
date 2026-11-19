@@ -1,14 +1,16 @@
 import { useCallback, useRef, useState } from 'react';
 import { AlertTriangle, Check } from 'lucide-react';
 import { send } from '../../api/client';
-import { VIEW_SIZES, frameLabel, isColorValue, pickPath, sealedHtml, warningText, type VariantCard } from '../../lib/studio';
+import { VIEW_SIZES, frameLabel, isColorValue, pickPath, sealedHtml, warningText, type PickAnswer, type VariantCard } from '../../lib/studio';
 
-/* ── Variants side by side (US-17, AB-142) ──
+/* ── Variants side by side (US-17, US-18) ──
    When the screen's chosen variant came from an ask, that ask's variants show as cards side by side: A, B, C, each with
-   its short name, its idea, its drawing in the picked frame, and "Using this one" or "Use this one". A card whose pages
-   use what the design system lacks says so, naming each value; one drawn with no design system says "No design system".
-   "Use this one" saves the pick with the sketch's stamp (AB-129.1): a stale one is refused with "Changed elsewhere,
-   reload". What the cards show is what was saved: nothing is checked again on the page. */
+   its short name, its idea, its drawing in the picked frame, and "Using this one", or "Not chosen" with "Use this one".
+   A card whose pages use what the design system lacks says so, naming each value; one drawn with no design system says
+   "No design system". "Use this one" saves the pick with the sketch's stamp the page read (AB-129.1), and its line goes
+   to the conversation open beside it (AB-143.1); a stale stamp is refused with "Changed elsewhere, reload" and the pick
+   in use stays. The buttons wait while the AI Designer works. What the cards show is what was saved: nothing is
+   checked again on the page. */
 
 export interface VariantCardsProps {
   sketch: string;
@@ -17,11 +19,15 @@ export interface VariantCardsProps {
   cards: VariantCard[];
   /** The sketch's stamp, as the page read it. */
   stamp: string;
-  /** A pick was saved: the page reads the sketch again. */
-  onPicked: () => void;
+  /** The conversation open in the chat beside the cards: the pick line goes there. */
+  chat?: string | null;
+  /** The AI Designer is working: the buttons wait. */
+  working?: boolean;
+  /** A pick was saved: the page reads the sketch again, and the chat shows the conversation it answered with. */
+  onPicked: (answer: PickAnswer) => void;
 }
 
-export function VariantCards({ sketch, screen, frame, cards, stamp, onPicked }: VariantCardsProps) {
+export function VariantCards({ sketch, screen, frame, cards, stamp, chat, working = false, onPicked }: VariantCardsProps) {
   const [busy, setBusy] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -29,8 +35,8 @@ export function VariantCards({ sketch, screen, frame, cards, stamp, onPicked }: 
     setBusy(version);
     setProblem(null);
     try {
-      await send(pickPath(sketch, screen.id), 'POST', { version, stamp });
-      onPicked();
+      const answer = await send<PickAnswer>(pickPath(sketch, screen.id), 'POST', { version, stamp, ...(chat ? { chat } : {}) });
+      onPicked(answer);
     } catch (err) {
       setProblem((err as Error).message);
     } finally {
@@ -58,9 +64,19 @@ export function VariantCards({ sketch, screen, frame, cards, stamp, onPicked }: 
                   <Check size={14} aria-hidden /> Using this one
                 </span>
               ) : (
-                <button type="button" className="vc-use" disabled={busy !== null} onClick={() => void use(c.version)}>
-                  {busy === c.version ? 'Saving…' : 'Use this one'}
-                </button>
+                <>
+                  <span className="vc-not">Not chosen</span>
+                  <button
+                    type="button"
+                    className="vc-use"
+                    disabled={busy !== null || working}
+                    title={working ? 'Wait for the AI Designer to finish, then pick' : undefined}
+                    aria-label={`Use this one: Variant ${c.letter} · ${c.name}`}
+                    onClick={() => void use(c.version)}
+                  >
+                    {busy === c.version ? 'Saving…' : 'Use this one'}
+                  </button>
+                </>
               )}
             </header>
             {c.idea && (

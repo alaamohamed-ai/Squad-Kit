@@ -10,6 +10,7 @@ import type { BoardMeta } from '../board/types.js';
 import { AI_TOOLS } from '../modules/registry.js';
 import { currentBranch, ensureRepo, gitEnv, isRepo, remotes } from './git.js';
 import { workspaceRepos } from './repos.js';
+import { gitFirstName } from './git-name.js';
 import { projectRoot } from './live.js';
 import { ensureAgents } from './agents.js';
 import { hideSquadFromGit } from './project-git.js';
@@ -22,15 +23,6 @@ export function keyFor(name: string): string {
   const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
   const key = (words.length > 1 ? words.map((w) => w[0]) : [words[0]?.slice(0, 2) ?? 'SK']).join('').toUpperCase().slice(0, 3);
   return key || 'SK';
-}
-
-/** The person's first name from git, as the project's own repo sees it. */
-function gitUser(dir?: string): string {
-  try {
-    return execSync('git config user.name', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv(), ...(dir && fs.existsSync(dir) ? { cwd: dir } : {}) }).trim().split(/\s+/)[0] || 'You';
-  } catch {
-    return 'You';
-  }
 }
 
 /** Which AI tools are on this computer, one line per AI tool module. */
@@ -112,7 +104,7 @@ function thisComputer(bp: BoardPaths): boolean {
   const meta = readMeta(bp);
   writeMeta(bp, {
     ...meta,
-    user: meta.user ?? { name: gitUser(projectRoot(bp)), role: 'Project manager' },
+    user: meta.user ?? { name: gitFirstName(projectRoot(bp)), role: 'Project manager' },
     roles: meta.roles ?? { analyst: 'Claude', architect: 'Claude', builder: 'Claude', tester: 'Claude', reviewer: 'Claude' },
     tools: detectTools(),
     speed: meta.speed ?? 1,
@@ -207,7 +199,7 @@ export function ensureLiveBoard(bp: BoardPaths, projectName: string): BoardSetup
     key: keyFor(projectName),
     nextNumber: 1,
     engine: 'live',
-    user: { name: gitUser(root), role: 'Project manager' },
+    user: { name: gitFirstName(root), role: 'Project manager' },
     roles: { analyst: 'Claude', architect: 'Claude', builder: 'Claude', tester: 'Claude', reviewer: 'Claude' },
     tools,
     speed: 1,

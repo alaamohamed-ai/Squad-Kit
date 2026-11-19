@@ -3,9 +3,9 @@ import { Command } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import * as ui from '../ui/index.js';
 import type { BoardPaths } from '../board/store.js';
-import { sketchNameKey, studioIdFor, type ChatOwner, type StudioChatMessage } from '../board/studio.js';
-import { changeSketch, deleteSketch, duplicateSketch, listDesignSystems, listSketches, sketchList, type SketchView } from '../board/studio-actions.js';
-import { currentConversation, newConversation, readConversation } from '../board/studio-chats.js';
+import { sketchNameKey, studioIdFor, variantOfLetter, type ChatOwner, type PickMark, type SketchScreen, type StudioChatMessage } from '../board/studio.js';
+import { changeSketch, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, sketchList, type SketchView } from '../board/studio-actions.js';
+import { currentConversation, newConversation, pickWords, readConversation } from '../board/studio-chats.js';
 import { sendChatMessage } from '../engine/studio-chat.js';
 import { boardApi, type BoardApi } from './app.js';
 import { board } from './board.js';
@@ -49,6 +49,8 @@ function ownerOf(bp: BoardPaths, name: string, designSystem: boolean): ChatOwner
 
 /** One message as the terminal prints it. */
 export function messageLines(m: StudioChatMessage): string {
+  // A Studio button's line (AB-143.1): "You picked Variant B · Step by step".
+  if (m.role === 'action') return kleur.gray(`· ${m.text}`);
   const who = m.role === 'person' ? kleur.bold('You') : kleur.magenta().bold('AI Designer');
   const saved = m.saved?.length ? `\n${kleur.gray(`New version: ${m.saved.map((s) => `${s.name ?? s.screen}${s.version ? ` v${s.version}` : ''}`).join(', ')}`)}` : '';
   return `${who}: ${m.text}${saved}`;
@@ -216,6 +218,41 @@ export async function studioSketchDelete(bp: BoardPaths, word: string, opts: Ske
   ui.success(`Deleted "${r.name}" and its ${screensWord(r.screens)}. It cannot be brought back.`);
 }
 
+/** The saved variant a word means on a screen: a letter (A, B, C) as "Use B" means it, or a version ("3" or "v3"). */
+function variantNamed(screen: SketchScreen, word: string): number {
+  const w = word.trim();
+  if (/^[a-z]$/i.test(w)) {
+    const v = variantOfLetter(screen, w.toUpperCase());
+    if (!v) throw new Error(`${screen.name} has no variant ${w.toUpperCase()}.`);
+    return v.version;
+  }
+  const n = /^v?(\d{1,6})$/i.exec(w);
+  if (!n) throw new Error('Name the variant by its letter (A, B, C) or its version (v3).');
+  return Number(n[1]);
+}
+
+/**
+ * `squad studio sketch pick <sketch> <screen> <variant>` (US-18): the card's "Use this one". With the board open it is
+ * the board's own call, so the pick line shows in its open conversation and a pick while the AI Designer works is
+ * refused; without it, the same action runs here and the line goes to the sketch's current conversation.
+ */
+export async function studioSketchPick(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, variantWord: string, opts: SketchOpts): Promise<void> {
+  const sketch = sketchNamed(bp, word);
+  const wanted = screenWord.trim().toLowerCase();
+  const screen = sketch.screens.find((s) => s.id === wanted) ?? sketch.screens.find((s) => s.name.trim().toLowerCase() === wanted);
+  if (!screen) throw new Error(`"${sketch.name}" has no screen "${screenWord}".${sketch.screens.length ? ` Its screens: ${sketch.screens.map((s) => s.id).join(', ')}.` : ''}`);
+  const version = variantNamed(screen, variantWord);
+  const stamp = stampFor(sketch, opts);
+  const owner: ChatOwner = { kind: 'sketch', id: sketch.id };
+  let picked: PickMark | null;
+  if (api) {
+    const { current } = await api.call<{ current: string }>('GET', pathOf(owner));
+    picked = (await api.call<{ picked: PickMark | null }>('POST', `/studio/sketches/${encodeURIComponent(sketch.id)}/screens/${encodeURIComponent(screen.id)}/pick`, { version, stamp, chat: current })).picked;
+  } else picked = pickScreenVariant(bp, sketch.id, screen.id, version, stamp, { chat: currentConversation(bp, owner) }).picked;
+  if (!picked) ui.info(`${screen.name} already uses that variant. Nothing changed.`);
+  else ui.success(`${pickWords(picked)} for ${screen.name}. The other variants stay.`);
+}
+
 /** Asks the question with (y/N) after it; Enter alone is No. */
 function askYesNo(q: string): Promise<boolean> {
   return confirm({ message: q, default: false });
@@ -240,6 +277,15 @@ function sketchCommand(): Command {
     .option(...stamp)
     .option('--yes', 'Delete without asking')
     .action(wrapArgs(async (word: string, opts: SketchOpts) => studioSketchDelete(board(), word, opts)));
+  k.command('pick <sketch> <screen> <variant>')
+    .description("Use one variant of a screen, by its letter (A, B, C) or its version (v3), as its card's \"Use this one\" does. The other variants stay")
+    .option(...stamp)
+    .action(
+      wrapArgs(async (word: string, screen: string, variant: string, opts: SketchOpts) => {
+        const bp = board();
+        await studioSketchPick(bp, boardApi(bp), word, screen, variant, opts);
+      }),
+    );
   return k;
 }
 

@@ -331,9 +331,10 @@ describe('squad studio sketch …', () => {
 
   it('are real commands with --stamp, and delete has --yes', () => {
     const sketch = cli.studioCommand().commands.find((c) => c.name() === 'sketch')!;
-    expect(sketch.commands.map((c) => c.name())).toEqual(['list', 'rename', 'duplicate', 'delete']);
+    // "pick" is a variant card's "Use this one" (US-18).
+    expect(sketch.commands.map((c) => c.name())).toEqual(['list', 'rename', 'duplicate', 'delete', 'pick']);
     const opts = Object.fromEntries(sketch.commands.map((c) => [c.name(), c.options.map((o) => o.long)]));
-    expect(opts).toEqual({ list: [], rename: ['--stamp'], duplicate: ['--stamp'], delete: ['--stamp', '--yes'] });
+    expect(opts).toEqual({ list: [], rename: ['--stamp'], duplicate: ['--stamp'], delete: ['--stamp', '--yes'], pick: ['--stamp'] });
   });
 });
 

@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { squadHome } from '../core/home.js';
-import { gitEnv } from '../engine/git.js';
+import { gitFirstName } from '../engine/git-name.js';
 import { scriptFor } from './scripts.js';
 import { scheduleSquad } from './schedule.js';
 import { writeDecision, writeMeta, writeRelease, writeTicket, type BoardPaths } from './store.js';
@@ -21,15 +20,6 @@ function ago(minutes: number): string {
 
 function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
-}
-
-function gitUserName(): string {
-  try {
-    const name = execSync('git config user.name', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv() }).trim();
-    return name.split(/\s+/)[0] || 'You';
-  } catch {
-    return 'You';
-  }
 }
 
 function base(id: string, title: string, over: Partial<Ticket>): Ticket {
@@ -754,7 +744,8 @@ export function demoFolder(): string {
 export function seedDemoBoard(bp: BoardPaths, opts: SeedOptions = {}): void {
   clearBoard(bp);
   clearDemoRequirements(bp);
-  const user = gitUserName();
+  // As git sees it in the sample project's own folder.
+  const user = gitFirstName(bp.root);
   const speed = opts.speed ?? 1;
   const meta = demoMeta(user, speed, opts.project ?? 'Case portal');
   if (opts.firstRun) {
