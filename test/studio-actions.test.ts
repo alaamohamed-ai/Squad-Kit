@@ -116,7 +116,8 @@ describe('done when 2: each step answers with what is saved, and a deleted scree
 
     const added = addScreen(bp, 'login', { name: 'Sign in' }, login.stamp);
     expect(added.screens.map((s) => [s.id, s.name, s.order, s.status, s.chosen])).toEqual([['sign-in', 'Sign in', 1, 'draft', null]]);
-    expect(getSketch(bp, 'login')).toEqual(added);
+    // The answer is the sketch as saved, with the new screen's id (US-11).
+    expect({ ...getSketch(bp, 'login'), added: 'sign-in' }).toEqual(added);
     expect(added.stamp).not.toBe(login.stamp);
 
     const renamed = changeScreen(bp, 'login', 'sign-in', { name: 'Log in' }, added.stamp);
@@ -137,7 +138,7 @@ describe('done when 2: each step answers with what is saved, and a deleted scree
     expect(more.screens.map((s) => [s.id, s.order])).toEqual([['sign-in', 1], ['forgot-password', 2], ['welcome', 3]]);
     const moved = changeScreen(bp, 'login', 'welcome', { order: 0, status: 'ready' }, more.stamp);
     expect(moved.screens.map((s) => [s.id, s.status])).toEqual([['welcome', 'ready'], ['sign-in', 'draft'], ['forgot-password', 'draft']]);
-    expect(() => addScreen(bp, 'login', { name: 'Welcome' }, moved.stamp)).toThrow('The sketch "Login" already has a screen "Welcome".');
+    expect(() => addScreen(bp, 'login', { name: 'Welcome' }, moved.stamp)).toThrow('A screen called "Welcome" already exists in Login. Pick another name.');
     expect(() => changeScreen(bp, 'login', 'nope', { name: 'X' }, moved.stamp)).toThrow(StudioNotFound);
   });
 
@@ -171,7 +172,8 @@ describe('done when 2: each step answers with what is saved, and a deleted scree
     const before = snapshot(bp.squadDir);
     expect(() => changeSketch(bp, 'login', { name: 'X' }, undefined)).toThrow('Send the stamp of what you started from. Reload and try again.');
     expect(() => deleteSketch(bp, 'login', '')).toThrow('Send the stamp');
-    expect(() => addScreen(bp, 'login', { name: '' }, login.stamp)).toThrow('Give the screen a name.');
+    // A name another screen of the sketch has (US-11, AB-136.1); with no name at all, it would be "New screen".
+    expect(() => addScreen(bp, 'login', { name: 'sign in ' }, login.stamp)).toThrow('A screen called "Sign in" already exists in Login. Pick another name.');
     expect(() => createSketch(bp, { name: 'Pay', designSystem: { id: 'ocean' } })).toThrow('This project has no design system "ocean".');
     expect(snapshot(bp.squadDir)).toEqual(before);
   });

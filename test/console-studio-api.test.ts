@@ -130,7 +130,8 @@ describe('Studio API', () => {
     const added = await call<SketchBody>('POST', '/sketches/login/screens', { name: 'Sign in', stamp: made.data.stamp });
     expect(added.status).toBe(200);
     expect(added.data.screens.map((s) => s.name)).toEqual(['Sign in']);
-    expect((await call<SketchBody>('GET', '/sketches/login')).data).toEqual(added.data);
+    // The answer is the sketch as saved, with the new screen's id (US-11).
+    expect({ ...(await call<SketchBody>('GET', '/sketches/login')).data, added: 'sign-in' }).toEqual(added.data);
 
     const renamed = await call<SketchBody>('PATCH', '/sketches/login/screens/sign-in', { name: 'Log in', stamp: added.data.stamp });
     expect(renamed.data.screens.map((s) => [s.id, s.name])).toEqual([['sign-in', 'Log in']]);
@@ -143,8 +144,8 @@ describe('Studio API', () => {
     expect(Object.keys(snapshot()).filter((f) => f.includes('sign-in'))).toEqual([]);
 
     // A plain refusal is a 400 with its words; a change without the stamp is refused too.
-    const nameless = await call<{ error: string }>('POST', '/sketches/login/screens', { name: '', stamp: gone.data.stamp });
-    expect(nameless).toEqual({ status: 400, data: { error: 'Give the screen a name.' } });
+    const nameless = await call<{ error: string }>('POST', '/sketches/login/screens', { name: 42, stamp: gone.data.stamp });
+    expect(nameless).toEqual({ status: 400, data: { error: 'The name must be text.' } });
     expect((await call('PATCH', '/sketches/login', { name: 'X' })).status).toBe(400);
   });
 

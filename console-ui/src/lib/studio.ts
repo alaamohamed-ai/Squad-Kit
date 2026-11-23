@@ -254,6 +254,42 @@ export const duplicatePath = (id: string) => `${sketchApiPath(id)}/duplicate`;
 /** Where one sketch is read for its workspace. */
 export const sketchKey = (project: string, id: string) => ['studio', project, 'sketch', id];
 
+/* ── The screens of a sketch (US-11, AB-136) ── */
+
+/** Where a sketch's screens are added, and where one screen is deleted. */
+export const screensPath = (sketch: string) => `${sketchApiPath(sketch)}/screens`;
+export const screenApiPath = (sketch: string, screen: string) => `${screensPath(sketch)}/${encodeURIComponent(screen)}`;
+
+/**
+ * The stamp Add screen sends (AB-129.1): the one the last add answered with, while the page still shows the sketch it
+ * read before that add; else the one the page read. A second click before the sketch is read again then adds "New
+ * screen 2" instead of being refused with "Changed elsewhere, reload".
+ */
+export function addScreenStamp(read: string, answered: { read: string; now: string } | null): string {
+  return answered && answered.read === read ? answered.now : read;
+}
+
+/** A frame's name as a tab shows it: "desktop" → "Desktop". */
+export const frameName = (frame: string) => (frame ? frame[0]!.toUpperCase() + frame.slice(1) : frame);
+
+/** What an empty screen shows in a frame: "New screen has no Desktop page yet. Ask the AI Designer in the chat to draw it." */
+export function emptyScreenText(screen: string, frame: string | undefined): string {
+  return `${screen} has no ${frame ? `${frameName(frame)} ` : ''}page yet. Ask the AI Designer in the chat to draw it.`;
+}
+
+/** Delete's question on a screen's tab, naming it. */
+export function deleteScreenQuestion(screen: string): { title: string; holds: string } {
+  return { title: `Delete "${screen}" and its drawings?`, holds: 'This cannot be undone. The other screens stay as they are.' };
+}
+
+/** The tab selected once a screen is deleted: the one after it, or else the one before it, or none. */
+export function tabAfterDelete(screens: { id: string }[], gone: string): string | undefined {
+  const at = screens.findIndex((s) => s.id === gone);
+  const rest = screens.filter((s) => s.id !== gone);
+  if (!rest.length) return undefined;
+  return (rest[at] ?? rest[rest.length - 1])!.id;
+}
+
 /** What a delete answers: the sketch's name and how many screens went with it. */
 export interface DeletedSketch {
   deleted: string;
@@ -426,6 +462,8 @@ export interface ScreenView {
   order: number;
   status: string;
   chosen: number | null;
+  /** Not named yet (US-11, AB-136.1): added with Add screen, its first drawing by the AI Designer names it. */
+  unnamed?: boolean;
   variants: VariantView[];
 }
 

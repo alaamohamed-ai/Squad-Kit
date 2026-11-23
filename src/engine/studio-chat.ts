@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { readMeta, type BoardPaths } from '../board/store.js';
 import {
   AI_DESIGNER,
@@ -14,6 +13,7 @@ import {
   saveDesignSystem,
   saveDrawnScreens,
   saveSketch,
+  screenNameKey,
   studioIdFor,
   studioStamp,
   variantOfLetter,
@@ -35,7 +35,7 @@ import {
   readConversation,
   saveConversationSession,
 } from '../board/studio-chats.js';
-import { checkedStudioId, designSystemVersionDir, frameFile } from '../board/studio-paths.js';
+import { checkedStudioId, designSystemVersionDir } from '../board/studio-paths.js';
 import { markSketchNamed, startMarkOf, type StartPicture } from '../board/studio-start.js';
 import type { AgentResult } from '../modules/ai-tool/types.js';
 import { screensProblem } from './answers.js';
@@ -43,6 +43,7 @@ import { answerAgainPrompt } from './prompts.js';
 import { demoWorker } from './studio-chat-demo.js';
 import { SCREENS_SCHEMA, type DesignerAnswer } from './studio-prompts.js';
 import {
+  DEFAULT_ASK_VARIANTS,
   SORT_SCHEMA,
   VARIANT_LETTERS,
   VARIANT_SCHEMA,
@@ -57,10 +58,12 @@ import {
   type ChatBrief,
   type ChatLanguage,
   type ChatSort,
-  type ChatWork,
-  type VariantWork,
+  type ScreenAsk,
 } from './studio-chat-prompts.js';
 import { openDesigner, refusedWords, type DesignerOptions } from './studio-designer.js';
+import { chosenFiles, flowOf, relative, startOf, workOf, type Work } from './studio-chat-work.js';
+
+export { flowOf } from './studio-chat-work.js';
 
 /**
  * One chat message with the AI Designer (US-52, AB-177.1). The person's message is kept first, then the Designer
@@ -134,6 +137,7 @@ const WORDS: Record<
     duplicated: (copy: string, screens: number, from: string) => string;
     deleteHere: string;
     named: (sketch: string, screen: string) => string;
+    screenNamed: (screen: string) => string;
     drewVariants: (n: number, screen: string | null, list: string) => string;
     stoppedVariants: (list: string) => string;
     offTokens: (variant: string, system: string, values: string) => string;
@@ -157,6 +161,7 @@ const WORDS: Record<
     noVariant: (screen, variant) => `${screen} has no variant ${variant}. Nothing changed.`,
     noScreen: (screen) => `The sketch has no screen "${screen}". Nothing changed.`,
     named: (sketch, screen) => `I named the sketch "${sketch}" and its first screen "${screen}". You can rename both later.`,
+    screenNamed: (screen) => `I named the new screen "${screen}". You can rename it later.`,
     renamed: (from, to) => `Done. "${from}" is now called "${to}".`,
     duplicated: (copy, n, from) => `Done. I made "${copy}" with ${n === 1 ? '1 screen' : `${n} screens`}, all Draft, and no conversation. "${from}" is unchanged.`,
     deleteHere: "To delete a sketch, use Delete in its ⋯ menu on the Sketches page: it asks first and says how many screens go with it.",
@@ -179,6 +184,7 @@ const WORDS: Record<
     noVariant: (screen, variant) => `لا توجد في "${screen}" نسخة ${variant}. لم يتغير شيء.`,
     noScreen: (screen) => `لا توجد في المخطط شاشة "${screen}". لم يتغير شيء.`,
     named: (sketch, screen) => `سمّيت المخطط "${sketch}" وشاشته الأولى "${screen}". يمكنك تغيير الاسمين لاحقًا.`,
+    screenNamed: (screen) => `سمّيت الشاشة الجديدة "${screen}". يمكنك تغيير اسمها لاحقًا.`,
     renamed: (from, to) => `تم. صار اسم المخطط "${to}" بدل "${from}".`,
     duplicated: (copy, n, from) => `تم. أنشأت "${copy}" وفيه ${n} من الشاشات، كلها مسودة، وبلا محادثة. لم يتغير "${from}".`,
     deleteHere: 'لحذف مخطط، استخدم «حذف» من قائمة ⋯ في بطاقته في صفحة المخططات: يسألك أولًا ويذكر عدد الشاشات التي ستُحذف معه.',
@@ -225,20 +231,9 @@ export function startChatTurn(bp: BoardPaths, a: ChatAsk): ChatTurn {
 export interface ChatWorker {
   sort(brief: ChatBrief): Promise<ChatSort | { error: string }>;
   /** One screen. A variant of an ask (US-17) also comes back with its short name and its one-line idea. */
-  screen(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage; variant?: VariantWork }): Promise<{ frames: Record<string, string>; note: string; variantName?: string; idea?: string } | { error: string }>;
+  screen(o: ScreenAsk): Promise<{ frames: Record<string, string>; note: string; variantName?: string; idea?: string } | { error: string }>;
   system(o: { dir: string; language: ChatLanguage; current: { tokens: Record<string, unknown>; components: Record<string, string> } }): Promise<{ components: Record<string, string>; tokens?: Record<string, unknown>; note: string } | { error: string }>;
   release(): void;
-}
-
-function relative(bp: BoardPaths, file: string): string {
-  return path.relative(bp.root, file).split(path.sep).join('/');
-}
-
-/** The chosen variant's pages of a screen, relative to the project folder, by frame. */
-function chosenFiles(bp: BoardPaths, sketch: Sketch, screen: string): Record<string, string> {
-  const s = sketch.screens.find((x) => x.id === screen);
-  const v = s?.variants.find((x) => x.version === s.chosen);
-  return v ? Object.fromEntries(Object.keys(v.frames).map((f) => [f, relative(bp, frameFile(bp, sketch.id, s!.id, v.version, f))])) : {};
 }
 
 function briefOf(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null): ChatBrief {
@@ -288,7 +283,7 @@ async function liveWorker(bp: BoardPaths, turn: ChatTurn, o: ChatOptions): Promi
   return {
     release: d.release,
     async sort(brief) {
-      const r = await run(chatSortPrompt(brief), SORT_SCHEMA, (x) => sortProblem(x, turn.owner.kind, brief.naming));
+      const r = await run(chatSortPrompt(brief), SORT_SCHEMA, (x) => sortProblem(x, turn.owner.kind, brief.naming, Boolean(brief.newScreen)));
       return 'error' in r ? r : (r.value as ChatSort);
     },
     async screen(w) {
@@ -315,19 +310,6 @@ async function liveWorker(bp: BoardPaths, turn: ChatTurn, o: ChatOptions): Promi
 
 type Reply = Pick<StudioChatMessage, 'text' | 'kind' | 'saved'>;
 
-/** The screens of a change, in order, each with the screen it changes when the sketch has it. */
-function workOf(sketch: Sketch, sort: ChatSort): (ChatWork & { screen?: string })[] {
-  const seen = new Set<string>();
-  return (sort.screens ?? []).flatMap((w) => {
-    const name = w.name.trim();
-    const found = sketch.screens.find((s) => (w.id && s.id === w.id) || s.name.trim().toLowerCase() === name.toLowerCase());
-    const key = found?.id ?? studioIdFor(name);
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ name: found?.name ?? name, change: w.change, ...(found ? { id: found.id, screen: found.id } : {}) }];
-  });
-}
-
 async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, worker: ChatWorker, o: ChatOptions): Promise<Reply> {
   const W = WORDS[turn.language];
   const work = workOf(sketch, sort);
@@ -337,7 +319,7 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   for (const [i, w] of work.entries()) {
     if (o.signal?.aborted) break;
     o.onProgress?.(`${w.screen ? 'Changing' : 'Drawing'} screen ${i + 1} of ${work.length}: ${w.name}`);
-    const r = await worker.screen({ n: i + 1, of: work.length, work: w, frames: sketch.frames, files: w.screen ? chosenFiles(bp, sketch, w.screen) : {}, language: turn.language });
+    const r = await worker.screen({ n: i + 1, of: work.length, work: w, frames: sketch.frames, files: w.screen ? chosenFiles(bp, sketch, w.screen) : {}, language: turn.language, ...startOf(bp, sketch, w), flow: flowOf(bp, sketch, w.screen) });
     if ('error' in r) {
       why = r.error;
       break;
@@ -366,7 +348,7 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
  * in one change with the stamp of the turn, each screen's variant A in use, and their pages checked against the
  * design system's tokens as they are saved. Stop keeps the finished variants only: the one being drawn is dropped.
  */
-async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, work: (ChatWork & { screen?: string })[], each: number, worker: ChatWorker, o: ChatOptions, first = false): Promise<Reply> {
+async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, work: Work[], each: number, worker: ChatWorker, o: ChatOptions, first = false): Promise<Reply> {
   const W = WORDS[turn.language];
   const total = work.length * each;
   const ds = sketch.designSystem;
@@ -389,6 +371,9 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
         files: w.screen ? chosenFiles(bp, sketch, w.screen) : {},
         language: turn.language,
         variant: { n: j + 1, of: each, letter, ...(tokensDir ? { tokensDir } : {}) },
+        // A copy of another screen to start from, and the flow to match (US-11).
+        ...startOf(bp, sketch, w),
+        flow: flowOf(bp, sketch, w.screen),
       });
       // A variant cut short by Stop is not finished: nothing half drawn is saved.
       if ('error' in r || o.signal?.aborted) {
@@ -433,6 +418,25 @@ async function drawFirstScreen(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, s
   const name = first?.name ?? asked?.name.trim() ?? sort.screenName?.trim() ?? 'Screen 1';
   const work = { ...(first ? { id: first.id, screen: first.id } : {}), name, change: asked?.change.trim() || turn.text };
   return drawVariants(bp, turn, sketch, sort, [work], Math.max(1, Math.min(VARIANT_LETTERS.length, variants)), worker, o, true);
+}
+
+/**
+ * A screen added with Add screen and not named yet (US-11, AB-136.1), selected when the message was sent: its variants
+ * are drawn in the sketch's design system and frames (the number asked for, or 2), and the name the AI Designer gives
+ * it from the description is saved with them, in the one save under the turn's stamp, through the one free-name helper
+ * ("Form 2" when "Form" is used), as the AI Designer's work for the person who asked (AB-131.1). A drawing that fails
+ * or is stopped before its first variant saves nothing, so the tab keeps "New screen" and its mark. With no design
+ * system selected, nothing is drawn: the "select one or skip" alert shows. Null when no screen of the work goes to it.
+ */
+async function drawNewScreen(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, newScreen: { id: string; name: string }, worker: ChatWorker, o: ChatOptions): Promise<{ reply: Reply; named: string | null } | null> {
+  const W = WORDS[turn.language];
+  const work = workOf(sketch, sort, newScreen);
+  if (!work.some((w) => w.naming)) return null;
+  if (!sketch.designSystem && !turn.plainStyles) return { reply: { kind: 'needs-design-system', text: W.needsDesignSystem(sketch.name) }, named: null };
+  const reply = await drawVariants(bp, turn, sketch, sort, work, variantsAsked(sort) ?? DEFAULT_ASK_VARIANTS, worker, o);
+  // Said only when the screen was drawn, and so named, with the name as saved.
+  const saved = reply.saved?.find((s) => s.screen === newScreen.id);
+  return { reply, named: saved?.name && screenNameKey(saved.name) !== screenNameKey(newScreen.name) ? W.screenNamed(saved.name) : null };
 }
 
 /**
@@ -495,6 +499,7 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
   let reply: Reply;
   // The sketch's name, as the Designer gave it on the first turn of a started sketch (US-08), said before the reply.
   let named: string | null = null;
+  let drawn: Awaited<ReturnType<typeof drawNewScreen>> = null;
   try {
     o.onProgress?.('Reading your message');
     let sketch = turn.owner.kind === 'sketch' ? readSketch(bp, turn.owner.id) : null;
@@ -502,7 +507,11 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
     // variants asked for, as long as no screen of it is drawn yet.
     const start = sketch ? startMarkOf(bp, sketch.id) : null;
     const firstScreen = start && sketch && !sketch.screens.some((s) => s.variants.length) ? { variants: start.variants } : undefined;
-    const brief: ChatBrief = { ...briefOf(bp, turn, sketch), ...(start?.unnamed ? { naming: true } : {}), ...(firstScreen ? { firstScreen } : {}) };
+    // A screen added with Add screen and not named yet, selected as the message was sent (US-11, AB-136.1). It may have
+    // been drawn already from another tab without a name of its own: its mark stays until a drawing names it.
+    const looked = sketch && !firstScreen && turn.lookingAt?.screen ? sketch.screens.find((s) => s.id === turn.lookingAt!.screen) : undefined;
+    const newScreen = looked?.unnamed ? { id: looked.id, name: looked.name, ...(looked.variants.length ? { drawn: true } : {}) } : undefined;
+    const brief: ChatBrief = { ...briefOf(bp, turn, sketch), ...(start?.unnamed ? { naming: true } : {}), ...(firstScreen ? { firstScreen } : {}), ...(newScreen ? { newScreen } : {}) };
     const w = readMeta(bp).engine === 'live' ? await liveWorker(bp, turn, o) : demoWorker(bp, turn, sketch, o);
     if ('error' in w) reply = { kind: 'failed', text: w.error };
     else {
@@ -523,7 +532,10 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
       else if (sort.kind !== 'change') reply = { kind: sort.kind as ChatReplyKind, text: sort.reply.trim() };
       else if (sketch && isSketchAction(sort.action)) reply = sketchAction(bp, turn, sketch, sort);
       else if (sketch && firstScreen) reply = await drawFirstScreen(bp, turn, sketch, sort, firstScreen.variants, w, o);
-      else if (sketch && variantsAsked(sort) !== null) {
+      else if (sketch && newScreen && (drawn = await drawNewScreen(bp, turn, sketch, sort, newScreen, w, o))) {
+        reply = drawn.reply;
+        named = drawn.named;
+      } else if (sketch && variantsAsked(sort) !== null) {
         // Variants keep to the sketch's design system (US-17). With none selected, nothing is drawn: the board shows an
         // alert to select one, or to skip, which sends the message again with plain styles, this once.
         if (!sketch.designSystem && !turn.plainStyles) reply = { kind: 'needs-design-system', text: WORDS[turn.language].needsDesignSystem(sketch.name) };

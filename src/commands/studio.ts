@@ -3,8 +3,8 @@ import { Command } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import * as ui from '../ui/index.js';
 import type { BoardPaths } from '../board/store.js';
-import { sketchNameKey, studioIdFor, variantOfLetter, type ChatOwner, type PickMark, type SketchScreen, type StudioChatMessage } from '../board/studio.js';
-import { changeSketch, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, sketchList, type SketchView } from '../board/studio-actions.js';
+import { screenNameKey, sketchNameKey, studioIdFor, variantOfLetter, type ChatOwner, type PickMark, type SketchScreen, type StudioChatMessage } from '../board/studio.js';
+import { addScreen, changeSketch, deleteScreen, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, sketchList, type SketchView } from '../board/studio-actions.js';
 import { currentConversation, newConversation, pickWords, readConversation } from '../board/studio-chats.js';
 import { sendChatMessage } from '../engine/studio-chat.js';
 import { boardApi, type BoardApi } from './app.js';
@@ -19,6 +19,9 @@ import { wrapArgs } from './wrap.js';
  *
  * `squad studio sketch list|rename|duplicate|delete` (US-13, AB-138): the card menu's actions, calling the same Studio
  * actions the board calls, so a used name, a copy's name and a stale stamp follow the same rules (AB-138.1, AB-129.1).
+ *
+ * `squad studio sketch screen add|delete` (US-11, AB-136): Add screen and a tab's Delete, with the same screen-name rule
+ * (AB-136.1): through the board when it is open, and through the Studio store when it is not.
  */
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
@@ -238,9 +241,7 @@ function variantNamed(screen: SketchScreen, word: string): number {
  */
 export async function studioSketchPick(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, variantWord: string, opts: SketchOpts): Promise<void> {
   const sketch = sketchNamed(bp, word);
-  const wanted = screenWord.trim().toLowerCase();
-  const screen = sketch.screens.find((s) => s.id === wanted) ?? sketch.screens.find((s) => s.name.trim().toLowerCase() === wanted);
-  if (!screen) throw new Error(`"${sketch.name}" has no screen "${screenWord}".${sketch.screens.length ? ` Its screens: ${sketch.screens.map((s) => s.id).join(', ')}.` : ''}`);
+  const screen = screenOf(sketch, screenWord);
   const version = variantNamed(screen, variantWord);
   const stamp = stampFor(sketch, opts);
   const owner: ChatOwner = { kind: 'sketch', id: sketch.id };
@@ -251,6 +252,52 @@ export async function studioSketchPick(bp: BoardPaths, api: BoardApi | null, wor
   } else picked = pickScreenVariant(bp, sketch.id, screen.id, version, stamp, { chat: currentConversation(bp, owner) }).picked;
   if (!picked) ui.info(`${screen.name} already uses that variant. Nothing changed.`);
   else ui.success(`${pickWords(picked)} for ${screen.name}. The other variants stay.`);
+}
+
+/** A screen of a sketch a word means: its id, or its name as the screen-name rule compares them (AB-136.1). */
+function screenOf(sketch: SketchView, word: string): SketchScreen {
+  const screen = sketch.screens.find((s) => s.id === word.trim()) ?? sketch.screens.find((s) => screenNameKey(s.name) === screenNameKey(word));
+  if (!screen) throw new Error(`"${sketch.name}" has no screen "${word}".${sketch.screens.length ? ` Its screens: ${sketch.screens.map((s) => s.name).join(', ')}.` : ''}`);
+  return screen;
+}
+
+function screensApi(sketch: string, screen?: string): string {
+  return `/studio/sketches/${encodeURIComponent(sketch)}/screens${screen ? `/${encodeURIComponent(screen)}` : ''}`;
+}
+
+/**
+ * `squad studio sketch screen add <sketch> [name...]` (US-11): Add screen from the terminal. With a name, a name another
+ * screen of the sketch has is refused with 'A screen called "Form" already exists in Booking' and nothing is saved; with none, it is "New
+ * screen" (then "New screen 2" …), named by the AI Designer's first drawing of it.
+ */
+export async function studioScreenAdd(bp: BoardPaths, api: BoardApi | null, word: string, name: string[], opts: SketchOpts): Promise<void> {
+  const sketch = sketchNamed(bp, word);
+  const wanted = name.join(' ').trim();
+  const stamp = stampFor(sketch, opts);
+  const input = wanted ? { name: wanted } : {};
+  const r = api ? await api.call<SketchView & { added: string }>('POST', screensApi(sketch.id), { ...input, stamp }) : addScreen(bp, sketch.id, input, stamp);
+  const added = r.screens.find((s) => s.id === r.added);
+  ui.success(`Added "${sketch.name} / ${added?.name ?? r.added}".${wanted ? '' : ' Ask the AI Designer to draw it: it names it from what it shows.'}`);
+}
+
+/**
+ * `squad studio sketch screen delete <sketch> <screen>` (US-11): a tab's Delete from the terminal. It asks first, naming
+ * the screen, unless --yes; the stamp is the one read before asking.
+ */
+export async function studioScreenDelete(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, opts: SketchOpts, ask: (q: string) => Promise<boolean> = askYesNo): Promise<void> {
+  const sketch = sketchNamed(bp, word);
+  const screen = screenOf(sketch, screenWord);
+  const stamp = stampFor(sketch, opts);
+  if (!opts.yes) {
+    if (!ui.isInteractive() && ask === askYesNo) throw new Error(`Add --yes to delete "${screen.name}" and its drawings without asking.`);
+    if (!(await ask(`Delete "${screen.name}" and its drawings? This cannot be undone.`))) {
+      ui.info('Not deleted.');
+      return;
+    }
+  }
+  if (api) await api.call('DELETE', screensApi(sketch.id, screen.id), { stamp });
+  else deleteScreen(bp, sketch.id, screen.id, stamp);
+  ui.success(`Deleted "${sketch.name} / ${screen.name}" and its drawings. The other screens stay.`);
 }
 
 /** Asks the question with (y/N) after it; Enter alone is No. */
@@ -286,6 +333,29 @@ function sketchCommand(): Command {
         await studioSketchPick(bp, boardApi(bp), word, screen, variant, opts);
       }),
     );
+  const screen = new Command('screen').description('Add a screen to a sketch, or delete one, with the same rules as the board');
+  screen
+    .command('add <sketch> [name...]')
+    .description('Add a screen. With no name it is "New screen", named by the AI Designer\'s first drawing of it. A name the sketch has is refused')
+    .option(...stamp)
+    .action(
+      wrapArgs(async (word: string, name: string[], opts: SketchOpts) => {
+        const bp = board();
+        await studioScreenAdd(bp, boardApi(bp), word, name ?? [], opts);
+      }),
+    );
+  screen
+    .command('delete <sketch> <screen>')
+    .description('Delete a screen and its drawings for good. It asks first, unless --yes')
+    .option(...stamp)
+    .option('--yes', 'Delete without asking')
+    .action(
+      wrapArgs(async (word: string, screenWord: string, opts: SketchOpts) => {
+        const bp = board();
+        await studioScreenDelete(bp, boardApi(bp), word, screenWord, opts);
+      }),
+    );
+  k.addCommand(screen);
   return k;
 }
 

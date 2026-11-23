@@ -27,7 +27,8 @@ import {
 } from './studio-paths.js';
 import { dumpYaml, folders, idsIn, plainFile, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
-import { MAX_NAME, checkSketchNameFree, checkedName, freeSketchId, freeSketchName, studioIdFor } from './studio-names.js';
+import { checkScreenNames, nameOnDrawing } from './studio-screens.js';
+import { MAX_NAME, checkSketchNameFree, checkedName, freeScreenName, freeSketchId, freeSketchName, screenNameKey, studioIdFor } from './studio-names.js';
 import {
   DEFAULT_FRAMES,
   SCREEN_STATES,
@@ -114,7 +115,21 @@ export {
 export { tokenWarnings } from './studio-tokens.js';
 export { CHANGED_ELSEWHERE, StudioChangedElsewhere, changeStudioItem, checkStudioStamp, type EditBy, type VariantInput } from './studio-write.js';
 export { stampOfFolder } from './studio-files.js';
-export { StudioNameTaken, freeSketchId, freeSketchName, sketchNameKey, sketchUsingName, studioIdFor } from './studio-names.js';
+export { addNewScreen, nameNewScreen } from './studio-screens.js';
+export {
+  NEW_SCREEN_NAME,
+  StudioNameTaken,
+  StudioScreenNameTaken,
+  freeScreenId,
+  freeScreenName,
+  freeSketchId,
+  freeSketchName,
+  screenNameKey,
+  screenUsingName,
+  sketchNameKey,
+  sketchUsingName,
+  studioIdFor,
+} from './studio-names.js';
 
 function checkedTokens(tokens: unknown): Record<string, unknown> {
   if (tokens === undefined) return {};
@@ -233,19 +248,24 @@ export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | n
     if (!(SCREEN_STATES as readonly string[]).includes(status)) throw new Error(`A screen is ${SCREEN_STATES.join(', ').replace(/, (?=[^,]*$)/, ' or ')}.`);
     return { id: checkedStudioId(s.id ?? studioIdFor(screenName)), name: screenName, order: typeof s.order === 'number' && Number.isFinite(s.order) ? s.order : i + 1, status };
   });
-  if (new Set(screens.map((s) => s.id)).size !== screens.length) throw new Error('Two screens in the sketch have the same name.');
+  if (new Set(screens.map((s) => s.id)).size !== screens.length || new Set(screens.map((s) => screenNameKey(s.name))).size !== screens.length) {
+    throw new Error('Two screens in the sketch have the same name.');
+  }
   return changeStudioItem(bp, { kind: 'sketch', id }, stamp, () => {
     const sketch: SketchFile = { name, designSystem: ds ? { id: ds.id, version: ds.version } : null, frames };
     const sketchBefore = stamp === null ? null : readSketchFile(sketchFile(bp, id));
     // Only a new name is checked: two "Login" sketches a merge brought both stay, until one of them is renamed.
     if (sketchBefore?.name !== name) checkSketchNameFree(bp, name, id);
+    // The screen-name rule (AB-136.1), for every screen before anything is written.
+    const befores = checkScreenNames(bp, id, name, screens, stamp === null);
     writeMarked(sketchFile(bp, id), sketchBefore, sketch, who);
-    for (const s of screens) {
-      const file = screenFile(bp, id, s.id);
-      const before = plainFile(file) ? readScreenFile(file) : null;
-      const screen: ScreenFile = { name: s.name, order: s.order, status: s.status, chosen: before?.chosen ?? null };
-      writeMarked(file, before, screen, who);
-    }
+    screens.forEach((s, i) => {
+      const before = befores[i]!;
+      // A screen not named yet keeps its mark until it gets a name of its own: a rename clears it.
+      const unnamed = before?.unnamed && before.name === s.name;
+      const screen: ScreenFile = { name: s.name, order: s.order, status: s.status, chosen: before?.chosen ?? null, ...(unnamed ? { unnamed: true } : {}) };
+      writeMarked(screenFile(bp, id, s.id), before, screen, who);
+    });
     return readSketch(bp, id)!;
   });
 }
@@ -283,18 +303,21 @@ export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScr
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     for (const d of screens) checkFrames(bp, sketch, d.frames);
     const current = readSketch(bp, sketch)!.screens;
-    const taken = new Set<string>();
-    const ids = screens.map((d) => {
-      const named = current.find((c) => (d.id && c.id === d.id) || c.name.trim().toLowerCase() === d.name.toLowerCase());
-      const id = named?.id ?? checkedStudioId(studioIdFor(d.name));
-      if (taken.has(id)) throw new Error('Two screens in the sketch have the same name.');
-      taken.add(id);
+    // Each drawing goes to the screen it names, by id then by name as the screen-name rule compares them (AB-136.1), or
+    // to a new screen; two drawings for one screen are refused before anything is written.
+    const found = screens.map((d) => screenNamed(current, d));
+    const keys = found.map((f, i) => f?.id ?? `new:${screenNameKey(screens[i]!.name)}`);
+    if (new Set(keys).size !== keys.length) throw new Error('Two screens in the sketch have the same name.');
+    const known: { id: string; name: string; order: number }[] = current.map((c) => ({ id: c.id, name: c.name, order: c.order }));
+    const ids = screens.map((d, i) => {
+      // A screen not named yet takes the name its first drawing brings, in this same save (AB-136.1).
+      if (found[i]) return (nameOnDrawing(bp, sketch, found[i]!.id, d.name, { by: by.madeBy, for: by.madeFor }), found[i]!.id);
+      const id = writeNewScreen(bp, sketch, known, d.name, { by: by.madeBy, for: by.madeFor });
+      known.push({ id, name: d.name, order: Math.max(0, ...known.map((k) => k.order)) + 1 });
       return id;
     });
-    let order = Math.max(0, ...current.map((c) => c.order));
     const saved = screens.map((d, i) => {
       const id = ids[i]!;
-      if (!plainFile(screenFile(bp, sketch, id))) writeMarked<ScreenFile>(screenFile(bp, sketch, id), null, { name: d.name, order: (order += 1), status: 'draft', chosen: null } satisfies ScreenFile, { by: by.madeBy, for: by.madeFor });
       // A change to the chosen variant of an ask (US-17, AB-142.1) stays that variant: same ask, letter, name and idea,
       // so its card shows the new drawing while the ask's other variants stay.
       const was = current.find((c) => c.id === id);
@@ -407,7 +430,10 @@ export function saveAskVariants(
     const saved: { screen: string; version: number; letter: string; name: string }[] = [];
     for (const s of drawn) {
       const current = readSketch(bp, sketch)!.screens;
-      const id = screenNamed(current, { ...(s.id ? { id: s.id } : {}), name: s.name })?.id ?? writeNewScreen(bp, sketch, current, s.name, { by: by.madeBy, for: by.madeFor });
+      const found = screenNamed(current, { ...(s.id ? { id: s.id } : {}), name: s.name });
+      // A screen not named yet takes the name its first drawing brings, in this same save (AB-136.1).
+      if (found) nameOnDrawing(bp, sketch, found.id, s.name, { by: by.madeBy, for: by.madeFor });
+      const id = found?.id ?? writeNewScreen(bp, sketch, current, s.name, { by: by.madeBy, for: by.madeFor });
       s.variants.forEach((v, i) => {
         const version = writeVariant(bp, sketch, id, v.frames, { ...by, choose: i === 0, ask: { ask: askId, ...(asked ? { asked } : {}), letter: v.letter, name: v.name, idea: v.idea } });
         saved.push({ screen: id, version, letter: v.letter, name: v.name });
@@ -437,8 +463,10 @@ export function nameSketchAndFirstScreen(bp: BoardPaths, sketch: string, names: 
     if (first) {
       screen = first.id;
       const file = screenFile(bp, sketch, first.id);
-      const was = readScreenFile(file);
-      writeMarked(file, was, { ...was, name: screenName }, who);
+      const before = readScreenFile(file);
+      const { unnamed: _unnamed, ...was } = before;
+      // The screen-name rule (AB-136.1): a name another screen of the sketch has becomes a free one, "Form 2".
+      writeMarked(file, before, { ...was, name: freeScreenName(current, screenName, first.id) }, who);
     } else screen = writeNewScreen(bp, sketch, current, screenName, who);
     return { sketch: readSketch(bp, sketch)!, screen };
   });
@@ -538,7 +566,7 @@ export function duplicateSketch(bp: BoardPaths, source: string, stamp: string, w
         for (const [f, html] of Object.entries(drawn.frames)) files[frameFile(bp, id, s.id, 1, f)] = html;
         writeNewVersion(variantDir(bp, id, s.id, 1), files);
       }
-      writeMarked<ScreenFile>(screenFile(bp, id, s.id), null, { name: s.name, order: s.order, status: 'draft', chosen: drawn ? 1 : null }, who);
+      writeMarked<ScreenFile>(screenFile(bp, id, s.id), null, { name: s.name, order: s.order, status: 'draft', chosen: drawn ? 1 : null, ...(s.unnamed ? { unnamed: true } : {}) }, who);
     }
     writeMarked<SketchFile>(sketchFile(bp, id), null, { name, designSystem: from.designSystem, frames: from.frames }, who);
     return readSketch(bp, id)!;

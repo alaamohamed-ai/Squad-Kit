@@ -3,8 +3,8 @@ import { isPlain } from './shape.js';
 import { checkedStudioId, frameFile, screenDir, screenFile, sketchFile, variantDir, variantMetaFile } from './studio-paths.js';
 import { dumpYaml, plainFile, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
-import { MAX_NAME, studioIdFor } from './studio-names.js';
-import { readDesignSystem, readScreenFile, readSketchFile, studioStamp, type EditMark, type ScreenFile, type SketchScreen, type StudioItem, type StudioKind, type VariantAskMarks, type VariantMetaFile } from './studio-read.js';
+import { MAX_NAME, checkScreenNameFree, freeScreenId, screenNameKey } from './studio-names.js';
+import { readDesignSystem, readScreenFile, readSketchFile, studioStamp, type EditMark, type ScreenFile, type ScreenStatus, type SketchScreen, type StudioItem, type StudioKind, type VariantAskMarks, type VariantMetaFile } from './studio-read.js';
 import { tokenWarnings } from './studio-tokens.js';
 
 /**
@@ -160,17 +160,31 @@ export function writeVariant(bp: BoardPaths, sketch: string, screen: string, fra
   return version;
 }
 
-/** The screen of a sketch a drawing goes to: found by id, then by name (capital letters aside), or null when it is new. */
+/**
+ * The screen of a sketch a drawing goes to: found by id, then by name (as the screen-name rule compares them, AB-136.1),
+ * or null when it is new.
+ */
 export function screenNamed(current: SketchScreen[], screen: { id?: string; name: string }): SketchScreen | null {
-  const key = screen.name.trim().toLowerCase();
-  return current.find((c) => screen.id !== undefined && c.id === screen.id) ?? current.find((c) => c.name.trim().toLowerCase() === key) ?? null;
+  const key = screenNameKey(screen.name);
+  return current.find((c) => screen.id !== undefined && c.id === screen.id) ?? current.find((c) => screenNameKey(c.name) === key) ?? null;
 }
 
-/** Writes a new screen file after the others, under the lock, and gives back its id. */
-export function writeNewScreen(bp: BoardPaths, sketch: string, current: SketchScreen[], name: string, who: EditBy): string {
-  const id = checkedStudioId(studioIdFor(name));
-  if (current.some((c) => c.id === id)) throw new Error('Two screens in the sketch have the same name.');
-  const order = Math.max(0, ...current.map((c) => c.order)) + 1;
-  writeMarked<ScreenFile>(screenFile(bp, sketch, id), null, { name, order, status: 'draft', chosen: null }, who);
+/**
+ * Writes a new screen file after the others, under the lock, and gives back its id. The name must be free in the sketch
+ * (AB-136.1): a used one is refused with 'A screen called "Form" already exists in Booking'. The id is free too: "form-2" when a renamed
+ * screen keeps the folder "form". `unnamed` marks a screen added with no name ("New screen").
+ */
+export function writeNewScreen(
+  bp: BoardPaths,
+  sketch: string,
+  current: { id: string; name: string; order: number }[],
+  name: string,
+  who: EditBy,
+  opts: { unnamed?: boolean; order?: number; status?: ScreenStatus } = {},
+): string {
+  checkScreenNameFree(readSketchFile(sketchFile(bp, sketch)).name, current, name);
+  const id = checkedStudioId(freeScreenId(bp, sketch, name));
+  const order = opts.order ?? Math.max(0, ...current.map((c) => c.order)) + 1;
+  writeMarked<ScreenFile>(screenFile(bp, sketch, id), null, { name, order, status: opts.status ?? 'draft', chosen: null, ...(opts.unnamed ? { unnamed: true } : {}) }, who);
   return id;
 }

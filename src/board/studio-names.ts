@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import type { BoardPaths } from './store.js';
-import { sketchDir, sketchFile, sketchesDir } from './studio-paths.js';
+import { screenDir, screenFile, screensDir, sketchDir, sketchFile, sketchesDir } from './studio-paths.js';
 import { idsIn, plainFile, sha1 } from './studio-files.js';
-import { readSketchFile } from './studio-read.js';
+import { readScreenFile, readSketchFile } from './studio-read.js';
 
 /**
- * Names and ids in the Studio (AB-138.1): the one name rule for sketches, used by every save that names a sketch, and
- * the free-name and free-id helpers. Part of the Studio store: later stories import these through studio.ts. They only
- * read; the store calls checkSketchNameFree under the lock and the stamp check of the save (AB-129.1).
+ * Names and ids in the Studio (AB-138.1, AB-136.1): the one name rule for sketches, used by every save that names a
+ * sketch, the one name rule for the screens in a sketch, and the free-name and free-id helpers. Part of the Studio
+ * store: later stories import these through studio.ts. They only read; the store calls checkSketchNameFree and
+ * checkScreenNameFree under the lock and the stamp check of the save (AB-129.1).
  */
 
 /** The longest name a sketch, a screen or a design system may have. */
@@ -96,6 +97,89 @@ export function freeSketchId(bp: BoardPaths, name: string): string {
 export function checkSketchNameFree(bp: BoardPaths, name: string, id: string): void {
   const other = sketchUsingName(bp, name, id);
   if (other) throw new StudioNameTaken(other.name, other.id);
+}
+
+/* ── Screen names: one per sketch (AB-136.1) ────────────── */
+
+/**
+ * How two screen names in a sketch are compared: as sketch names are, so "form " is "Form". A sketch's name is unique in
+ * the project (AB-138.1), so a screen name free inside its sketch makes "Sketch / Screen" unique in the project too.
+ */
+export const screenNameKey = sketchNameKey;
+
+/** What a screen added with no name is called until its first drawing names it (AB-136.1). */
+export const NEW_SCREEN_NAME = 'New screen';
+
+/**
+ * Another screen of the sketch already has the name, in the words of a used sketch name (US-13), with the existing
+ * screen's name: 'A screen called "Form" already exists in Booking. Pick another name.' Nothing was written.
+ */
+export class StudioScreenNameTaken extends Error {
+  constructor(
+    /** The sketch's name, as its file has it. */
+    readonly sketchName: string,
+    /** The name as the other screen has it. */
+    readonly taken: string,
+    readonly screen: string,
+  ) {
+    super(`A screen called "${taken}" already exists in ${sketchName}. Pick another name.`);
+    this.name = 'StudioScreenNameTaken';
+  }
+}
+
+/** Every saved screen's id and name in a sketch, as their files say. A screen file that cannot be read is left out. */
+export function screenNames(bp: BoardPaths, sketch: string): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const id of idsIn(screensDir(bp, sketch))) {
+    const file = screenFile(bp, sketch, id);
+    if (!plainFile(file)) continue;
+    try {
+      out.push({ id, name: readScreenFile(file).name });
+    } catch {
+      // readSketch fails on it and readStudio lists the sketch as broken.
+    }
+  }
+  return out;
+}
+
+/** The other screen of the sketch that already uses a name, or null when it is free. `except` is the screen being renamed. */
+export function screenUsingName(screens: { id: string; name: string }[], name: string, except?: string): { id: string; name: string } | null {
+  const key = screenNameKey(name);
+  return screens.find((s) => s.id !== except && screenNameKey(s.name) === key) ?? null;
+}
+
+/**
+ * The one free-name helper for screens (AB-136.1): the name itself when no other screen of the sketch uses it, else
+ * "Form 2", "Form 3" … A screen added with no name asks for "New screen": "New screen", then "New screen 2". The AI
+ * Designer's first drawing of a screen names it through here too. A name too long is cut to fit. It only reads; the
+ * store calls it under the lock and the stamp check of the save (AB-129.1).
+ */
+export function freeScreenName(screens: { id: string; name: string }[], wanted: string, except?: string): string {
+  const base = typeof wanted === 'string' ? wanted.trim() : '';
+  if (!base || /[\r\n]/.test(base)) checkedName(base, 'screen');
+  const used = new Set(screens.filter((s) => s.id !== except).map((s) => screenNameKey(s.name)));
+  for (let n = 1; n < 10_000; n++) {
+    const tail = n === 1 ? '' : ` ${n}`;
+    const name = `${base.slice(0, MAX_NAME - tail.length).trimEnd()}${tail}`;
+    if (!used.has(screenNameKey(name))) return name;
+  }
+  throw new Error('This sketch has too many screens with that name. Use other words.');
+}
+
+/** A short id for a new screen from its name, with -2, -3 … when the sketch already has a screen folder by it. */
+export function freeScreenId(bp: BoardPaths, sketch: string, name: string): string {
+  const base = studioIdFor(name).slice(0, ID_MAX).replace(/-+$/, '') || 'screen';
+  for (let n = 1; n < 1000; n++) {
+    const id = n === 1 ? base : `${base}-${n}`;
+    if (!fs.existsSync(screenDir(bp, sketch, id))) return id;
+  }
+  throw new Error('This sketch has too many screens with that name. Use other words.');
+}
+
+/** Refuses a screen name another screen of the sketch already uses, under the lock, before anything is written. */
+export function checkScreenNameFree(sketchName: string, screens: { id: string; name: string }[], name: string, id?: string): void {
+  const other = screenUsingName(screens, name, id);
+  if (other) throw new StudioScreenNameTaken(sketchName, other.name, other.id);
 }
 
 /** A short id from a name: "Checkout" → "checkout", "Order history" → "order-history". */

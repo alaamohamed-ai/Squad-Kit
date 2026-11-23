@@ -26,7 +26,7 @@ function board(): BoardPaths {
 }
 
 export interface BoardApi {
-  call<T>(method: 'GET' | 'POST' | 'PUT', path: string, payload?: unknown): Promise<T>;
+  call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, payload?: unknown): Promise<T>;
 }
 
 /** The open board's API for this project, or null when squad-kit is not open. */
@@ -35,7 +35,7 @@ export function boardApi(bp: BoardPaths): BoardApi | null {
   if (!c?.port || !c.token) return null;
   const base = `http://127.0.0.1:${c.port}/p/${encodeURIComponent(bp.projectId)}/api/v1`;
   return {
-    async call<T>(method: 'GET' | 'POST' | 'PUT', path: string, payload?: unknown): Promise<T> {
+    async call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, payload?: unknown): Promise<T> {
       const res = await fetch(`${base}${path}`, {
         method,
         headers: { authorization: `Bearer ${c.token}`, 'content-type': 'application/json' },

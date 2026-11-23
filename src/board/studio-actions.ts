@@ -2,6 +2,7 @@ import { readMeta, type BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
 import {
   SCREEN_STATUSES,
+  addNewScreen,
   byMadeOrder,
   deleteDesignSystem as removeDesignSystem,
   deleteScreen as removeScreen,
@@ -14,7 +15,6 @@ import {
   readStudio,
   saveDesignSystem,
   saveSketch,
-  studioIdFor,
   type DesignSystem,
   type DesignSystemInput,
   type EditBy,
@@ -412,20 +412,33 @@ export interface ScreenChange {
   status?: ScreenStatus;
 }
 
-/** Adds a screen to a sketch, after the others unless it says its place. It has no variant until one is drawn. */
-export function addScreen(bp: BoardPaths, sketch: string, input: ScreenInput, stamp: unknown): SketchView {
-  const from = checkedStamp(stamp);
-  if (!isPlain(input as unknown)) throw new Error('Give the screen a name.');
-  const current = getSketch(bp, sketch);
-  const name = maybeText(input.name, 'name') ?? '';
-  const id = maybeText(input.id, 'id') ?? studioIdFor(name.trim());
-  if (name.trim() && current.screens.some((sc) => sc.id === id)) throw new Error(`The sketch "${current.name}" already has a screen "${name.trim()}".`);
-  const order = maybeOrder(input.order) ?? Math.max(0, ...current.screens.map((sc) => sc.order)) + 1;
-  saveSketch(bp, { ...sketchAsSaved(current), screens: [{ id, name, order, status: maybeStatus(input.status) }] }, from, personEditing(bp));
-  return getSketch(bp, sketch);
+/** A screen as Add screen answers: the sketch as saved, with the new screen's id. */
+export interface ScreenAdded extends SketchView {
+  added: string;
 }
 
-/** Renames a screen, moves it or marks it draft or ready. What is left out stays, its variants too. */
+/**
+ * Adds a screen to a sketch (US-11, AB-136.1), after the others unless it says its place. With a name, the one
+ * screen-name rule of the Studio store applies: "form " is "Form", and a used one is refused with "Booking / Form
+ * already exists", saving nothing. With no name it is "New screen", then "New screen 2" …, not named yet: the AI
+ * Designer's first drawing of it names it. It has no variant until one is drawn. The board and `squad studio sketch
+ * screen add` both call this.
+ */
+export function addScreen(bp: BoardPaths, sketch: string, input: Partial<ScreenInput>, stamp: unknown): ScreenAdded {
+  const from = checkedStamp(stamp);
+  if (!isPlain(input as unknown)) throw new Error('Say what the new screen is called, or leave the name out.');
+  getSketch(bp, sketch);
+  const name = maybeText(input.name, 'name');
+  const order = maybeOrder(input.order);
+  const status = maybeStatus(input.status);
+  const r = addNewScreen(bp, sketch, { ...(name?.trim() ? { name } : {}), ...(order !== undefined ? { order } : {}), ...(status ? { status } : {}) }, from, personEditing(bp));
+  return { ...getSketch(bp, sketch), added: r.screen };
+}
+
+/**
+ * Renames a screen, moves it or marks it draft or ready. What is left out stays, its variants too. A name another screen
+ * of the sketch uses is refused with 'A screen called "Form" already exists in Booking' (AB-136.1); a rename clears the "not named yet" mark.
+ */
 export function changeScreen(bp: BoardPaths, sketch: string, screen: string, change: ScreenChange, stamp: unknown): SketchView {
   const from = checkedStamp(stamp);
   if (!isPlain(change as unknown)) throw new Error('Say what to change in the screen.');

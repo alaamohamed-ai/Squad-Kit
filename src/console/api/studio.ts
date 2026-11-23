@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { SquadPaths } from '../../core/paths.js';
 import { boardPaths } from '../../board/store.js';
-import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
+import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, StudioScreenNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
 import {
   StudioDesignerWorking,
   StudioNotFound,
@@ -80,6 +80,8 @@ function sketchRow(s: Sketch | SketchView) {
       order: sc.order,
       status: sc.status,
       chosen: sc.chosen,
+      // Not named yet (AB-136.1): the AI Designer's first drawing of it names it.
+      ...(sc.unnamed ? { unnamed: true } : {}),
       variants: sc.variants.map((v) => ({
         version: v.version,
         frames: Object.keys(v.frames),
@@ -139,6 +141,8 @@ async function run(c: Context, fn: () => unknown) {
     if (err instanceof StudioChangedElsewhere) return c.json({ error: err.message, changedElsewhere: true }, 409);
     if (err instanceof StudioInUse) return c.json({ error: err.message, followedBy: err.sketches }, 409);
     if (err instanceof StudioNameTaken) return c.json({ error: err.message, nameTaken: { id: err.sketch, name: err.taken } }, 409);
+    // A screen name the sketch already has (AB-136.1): 'A screen called "Form" already exists in Booking'.
+    if (err instanceof StudioScreenNameTaken) return c.json({ error: err.message, screenNameTaken: { id: err.screen, name: err.taken } }, 409);
     if (err instanceof StudioNotFound) return c.json({ error: err.message }, 404);
     if (err instanceof ChatBusy || err instanceof StudioDesignerWorking) return c.json({ error: err.message, busy: true }, 409);
     return act(c, () => {
@@ -261,9 +265,14 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
   );
 
   /* ── Screens in a sketch: each brings the sketch's stamp ── */
+  // Add screen (US-11, AB-136.1): with no name, "New screen" (then "New screen 2" …), not named yet. A name another
+  // screen of the sketch has is 409 'A screen called "Form" already exists in Booking'. The answer is the sketch with the new screen's id.
   app.post('/api/v1/studio/sketches/:id/screens', async (c) => {
     const { stamp, ...input } = await body(c);
-    return run(c, () => sketchRead(addScreen(bp, c.req.param('id'), input as never, stamp)));
+    return run(c, () => {
+      const r = addScreen(bp, c.req.param('id'), input as never, stamp);
+      return { ...sketchRead(r), added: r.added };
+    });
   });
   app.patch('/api/v1/studio/sketches/:id/screens/:screen', async (c) => {
     const { stamp, ...change } = await body(c);

@@ -69,7 +69,8 @@ export const SORT_SCHEMA = {
     screens: {
       type: 'array',
       maxItems: MAX_SCREENS,
-      items: { type: 'object', properties: { id: STR, name: STR, change: STR }, required: ['name', 'change'] },
+      // `from` (US-11): another screen of the sketch this one starts from, as a copy of it, by its id or name.
+      items: { type: 'object', properties: { id: STR, name: STR, change: STR, from: STR }, required: ['name', 'change'] },
     },
   },
   required: ['kind', 'reply'],
@@ -80,6 +81,8 @@ export interface ChatWork {
   id?: string;
   name: string;
   change: string;
+  /** Another screen of the sketch it starts from, as a copy of it ("start from a copy of Form"), by id or name (US-11). */
+  from?: string;
 }
 
 export interface ChatSort {
@@ -88,7 +91,10 @@ export interface ChatSort {
   action?: string;
   /** A rename's new name. */
   name?: string;
-  /** The first message of a started sketch (US-08): the sketch's name and its first screen's name, as suggested. */
+  /**
+   * The first message of a started sketch (US-08): the sketch's name and its first screen's name, as suggested. With a
+   * screen not named yet selected (US-11): that screen's name, from the description.
+   */
   sketchName?: string;
   screenName?: string;
   /** Variants asked for (US-17): how many of each screen listed. Left out, the message asks for one drawing. */
@@ -128,15 +134,21 @@ export const VARIANT_LETTERS = ['A', 'B', 'C'] as const;
  * Why a sorting answer cannot be used, or null when it can. A change on a sketch must name the screens. The first
  * message of a started sketch (`naming`) must also suggest the sketch's name and its first screen's name.
  */
-export function sortProblem(x: unknown, on: 'sketch' | 'design-system', naming = false): string | null {
+export function sortProblem(x: unknown, on: 'sketch' | 'design-system', naming = false, newScreen = false): string | null {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return 'the answer is not in the shape asked for';
   const a = x as Record<string, unknown>;
   if (!CHAT_KINDS.includes(a.kind as ChatKind)) return `"kind" must be one of ${CHAT_KINDS.join(', ')}`;
   if (typeof a.reply !== 'string' || !a.reply.trim()) return '"reply" must say something to the person';
+  const oneLine = (v: unknown, max: number) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= max && !/[\r\n]/.test(v);
   if (naming && on === 'sketch') {
-    const oneLine = (v: unknown, max: number) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= max && !/[\r\n]/.test(v);
     if (!oneLine(a.sketchName, MAX_SKETCH_NAME)) return `"sketchName" must name the sketch in a few words, up to ${MAX_SKETCH_NAME} letters`;
     if (!oneLine(a.screenName, MAX_SCREEN_NAME)) return `"screenName" must name its first screen in a few words, up to ${MAX_SCREEN_NAME} letters`;
+  }
+  // A screen not named yet (US-11): the name is optional, but when given it must be usable.
+  if (newScreen && on === 'sketch' && a.screenName !== undefined && !oneLine(a.screenName, MAX_SCREEN_NAME)) return `"screenName" must name the new screen in a few words, up to ${MAX_SCREEN_NAME} letters`;
+  for (const s of Array.isArray(a.screens) ? (a.screens as unknown[]) : []) {
+    const from = s && typeof s === 'object' ? (s as Record<string, unknown>).from : undefined;
+    if (from !== undefined && (typeof from !== 'string' || from.length > MAX_SCREEN_NAME)) return '"from" names another screen of the sketch by its id or name';
   }
   if (a.kind !== 'change' || on === 'design-system') return null;
   if (a.action === 'rename-sketch') return typeof a.name === 'string' && a.name.trim() ? null : 'a rename must put the new name in "name"';
@@ -174,6 +186,8 @@ export interface ChatBrief {
   naming?: boolean;
   /** The sketch's first screen is still to be drawn, as this many variants (US-08). */
   firstScreen?: { variants: number };
+  /** The screen the person has selected is new: added with Add screen and not named yet (US-11, AB-136.1). */
+  newScreen?: { id: string; name: string; drawn?: boolean };
   /**
    * The picks the person made with "Use this one" since your last reply (US-18, AB-143.1), each as "Variant B · Step by
    * step of Form". The screens' current pages are already the picked ones.
@@ -228,6 +242,11 @@ export function chatSortPrompt(b: ChatBrief): string {
       `This is the first message of a new sketch, started from the Studio's start page. Suggest a short name for the sketch in "sketchName" (one to three words, like "Booking") and a short name for its first screen in "screenName" (like "Form"), in ${b.language}. The person can rename both later.`,
     );
   }
+  if (b.newScreen && b.target.kind === 'sketch') {
+    parts.push(
+      `The person has the screen "${b.newScreen.name}" (id ${b.newScreen.id}) selected: it was added to the sketch with Add screen, and it is not named yet${b.newScreen.drawn ? '' : ' and not drawn yet'}. When the message asks to draw it (from their words, a picture, or a copy of another screen), use "change", list it in "screens" with its id "${b.newScreen.id}", and put a short name for it, taken from what it shows, in "screenName" (one to three words, like "Payment"), in ${b.language}. It is drawn as variants: put how many in "variants", the number they asked for or ${DEFAULT_ASK_VARIANTS}. To start it from a copy of another screen of the sketch ("start from a copy of Form"), put that screen's id in its "from". Leave the other screens out unless the message asks to change them too.`,
+    );
+  }
   if (b.firstScreen) {
     const n = b.firstScreen.variants;
     parts.push(
@@ -263,15 +282,70 @@ export function variantProblem(x: unknown): string | null {
   return null;
 }
 
+/** One screen's current pages, relative to the project folder, by frame. */
+export interface ScreenPages {
+  name: string;
+  files: Record<string, string>;
+}
+
+/**
+ * The flow a drawing must match (US-11): the sketch's other approved screens, or, when none is approved, the drawing
+ * each other screen uses now. Empty when the sketch has no other drawn screen.
+ */
+export interface ScreenFlow {
+  approved: boolean;
+  screens: ScreenPages[];
+}
+
+/** One screen to draw or change, as the Designer is told about it. */
+export interface ScreenAsk {
+  n: number;
+  of: number;
+  work: ChatWork;
+  frames: string[];
+  /** Its own current pages, by frame; none for a new screen. */
+  files: Record<string, string>;
+  language: ChatLanguage;
+  variant?: VariantWork;
+  /** The screen of the sketch it starts from, as a copy of it (US-11). */
+  start?: ScreenPages;
+  /** The sketch's other screens to match, so the flow looks the same from screen to screen (US-11). */
+  flow?: ScreenFlow;
+}
+
+function pagesText(files: Record<string, string>): string {
+  return Object.entries(files)
+    .map(([f, file]) => `${f}: ${file}`)
+    .join(', ');
+}
+
+/** What the Designer reads about the flow its screen is part of (US-11). */
+export function flowText(flow: ScreenFlow | undefined): string | null {
+  if (!flow?.screens.length) return null;
+  const list = flow.screens.map((s) => `- ${s.name}: ${pagesText(s.files)}`).join('\n');
+  return flow.approved
+    ? `The sketch's approved screens, to match so the flow looks the same from screen to screen (the same header, colors, type, spacing and buttons). Read them first:\n${list}`
+    : `No screen of the sketch is approved yet. The drawing each other screen uses now, to match so the flow looks the same from screen to screen (the same header, colors, type, spacing and buttons). Read them first:\n${list}`;
+}
+
 /** The prompt for one screen of a change, in the same session as the sorting. A screen drawn as variants says which one. */
-export function chatScreenPrompt(o: { n: number; of: number; work: ChatWork; frames: string[]; files: Record<string, string>; language: ChatLanguage; variant?: VariantWork }): string {
+export function chatScreenPrompt(o: ScreenAsk): string {
   const files = Object.entries(o.files);
   const v = o.variant;
-  const current = files.map(([f, file]) => `${f}: ${file}`).join(', ');
+  const current = pagesText(o.files);
+  const start = o.start && Object.keys(o.start.files).length ? o.start : null;
+  const flow = flowText(o.flow);
   return [
     `Now screen ${o.n} of ${o.of}: "${o.work.name}"${o.work.id ? ` (id ${o.work.id})` : ', a new screen'}.`,
     ...(v && v.of > 1 ? [`Draw it as variant ${v.n} of ${v.of} (variant ${v.letter}): ${v.n === 1 ? 'your best answer.' : 'a real alternative to the variants before it (another layout or flow), not a copy of them.'}`] : []),
-    files.length ? (v ? `Its current pages, as a reference for its content: ${current}. Read them first.` : `Its current pages: ${current}. Read them first and keep what was not asked to change.`) : 'It has no pages yet: draw it.',
+    start
+      ? `Start from a copy of the screen "${start.name}": its pages are ${pagesText(start.files)}. Read them first, keep what fits and change what the message asks.`
+      : files.length
+        ? v
+          ? `Its current pages, as a reference for its content: ${current}. Read them first.`
+          : `Its current pages: ${current}. Read them first and keep what was not asked to change.`
+        : 'It has no pages yet: draw it.',
+    ...(flow ? [flow] : []),
     ...(v ? [v.tokensDir ? `Use only the colors, fonts and sizes in the design system's tokens (${v.tokensDir}/tokens.json): nothing else.` : 'The sketch has no design system: use plain, neutral styles.'] : []),
     `What to do: ${o.work.change.trim()}`,
     `Hand in exactly this one screen${o.work.id ? `, with its id "${o.work.id}"` : ''}, with one page for each frame (${o.frames.join(', ')}), named as the frame, and a note of one sentence in ${o.language}.`,

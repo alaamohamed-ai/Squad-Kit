@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Add screens to a sketch.** The screen tabs of a sketch end with "+ Add screen": a new tab, "New screen", appears
+  and is selected at once. Describe it in the chat, add a picture, or say "start from a copy of Form", and the AI
+  Designer draws its variants in the sketch's design system and frames, matching the sketch's approved screens (or,
+  with none approved, the drawing each other screen uses), and names it from what it shows, such as "Payment". Each
+  tab has a Delete that asks first. A screen name is unique in its sketch, so "Sketch / Screen" is unique in the
+  project: "form " is refused in Booking with 'A screen called "Form" already exists in Booking. Pick another name.', and the AI Designer takes a free name
+  such as "Form 2". From the terminal: `squad studio sketch screen add <sketch> [name]` and
+  `squad studio sketch screen delete <sketch> <screen>`.
 - **Pick a variant.** "Use this one" on a variant's card makes it the screen's current version: its card shows "Using
   this one", and every other card stays, marked "Not chosen", with its own "Use this one" to pick it again later.
   The pick is saved with who made it and when, and the sketch's "last edited" shows it. A short line, "You picked

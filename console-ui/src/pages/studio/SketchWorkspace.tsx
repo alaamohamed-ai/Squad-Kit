@@ -3,8 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
-import { askCards, chatsKey, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type PickAnswer, type SketchFull, type WorkspaceView } from '../../lib/studio';
+import { askCards, chatsKey, emptyScreenText, frameName, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type PickAnswer, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
+import { ScreenTabs } from './ScreenTabs';
 import { SketchNameHeader } from './SketchActions';
 import { VariantCards } from './VariantCards';
 
@@ -12,7 +13,9 @@ import { VariantCards } from './VariantCards';
    The chat with the AI Designer is always open on the left: it is how the screens are made and changed. On the right,
    the chosen variant of the picked screen in the picked frame; when it came from an ask for variants, that ask's
    variants side by side, each with "Use this one" (US-17); a pick adds its line to the open conversation (US-18).
-   Which screen and frame are picked stays in this browser tab (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch (US-13). */
+   Which screen and frame are picked stays in this browser tab (AB-127.1); opening the workspace writes nothing. A click on the name in the header renames the sketch (US-13).
+   The screen tabs always end with "+ Add screen" (US-11): a new tab, "New screen", selected at once, that the AI
+   Designer draws and names from the chat; each tab has a Delete that asks first. */
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -27,6 +30,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
   const [view, setView] = useState<WorkspaceView>(() => readWorkspaceView(project, id));
   const choose = (next: WorkspaceView) => {
     const v = { ...view, ...next };
+    if ('screen' in next && next.screen === undefined) delete v.screen;
     setView(v);
     saveWorkspaceView(project, id, v);
   };
@@ -101,21 +105,15 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
             <aside className="dc" aria-label="Chat with the AI Designer" />
           )}
           <section className="ws-main" aria-label="Screens">
-            {screens.length > 0 && (
+            {s && (
               <div className="ws-bar">
-                <div className="ws-tabs" role="tablist" aria-label="Screens">
-                  {screens.map((x) => (
-                    <button key={x.id} role="tab" aria-selected={x.id === screen?.id} dir="auto" onClick={() => choose({ screen: x.id })}>
-                      {x.name}
-                    </button>
-                  ))}
-                </div>
+                <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />
                 {variant && <span className="ws-version">v{variant.version}</span>}
                 {frames.length > 0 && (
                   <div className="seg ws-frames" role="tablist" aria-label="Frames">
                     {frames.map((f) => (
                       <button key={f} role="tab" aria-selected={f === frame} className={f === frame ? 'on' : ''} onClick={() => choose({ frame: f })}>
-                        {f[0]!.toUpperCase() + f.slice(1)}
+                        {frameName(f)}
                       </button>
                     ))}
                   </div>
@@ -145,9 +143,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
                 </p>
               ) : (
                 <p className="ws-empty">
-                  {screens.length
-                    ? `${screen!.name} has no ${frame ?? ''} page yet. Ask the AI Designer in the chat to draw it.`
-                    : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
+                  {screens.length ? emptyScreenText(screen!.name, frame) : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
                 </p>
               )}
             </div>

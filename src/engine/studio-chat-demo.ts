@@ -5,7 +5,7 @@ import { readDesignSystem, type Sketch } from '../board/studio.js';
 import { readConversation } from '../board/studio-chats.js';
 import { sketchNameFrom } from '../board/studio-start.js';
 import type { ChatOptions, ChatTurn, ChatWorker } from './studio-chat.js';
-import type { ChatLanguage, ChatSort } from './studio-chat-prompts.js';
+import { DEFAULT_ASK_VARIANTS, type ChatLanguage, type ChatSort } from './studio-chat-prompts.js';
 
 /**
  * The sample board's AI Designer (US-52): no AI and no sign-in, only a few fixed replies, so the Studio's chat can be
@@ -18,6 +18,10 @@ import type { ChatLanguage, ChatSort } from './studio-chat-prompts.js';
  * Variants (US-17): "Draw 3 variants of the Form screen" draws A, B and C ("One page", "Step by step", "Big and
  * simple") in the design system's own colors, font and font sizes; with no number, 2 of each screen named. A message
  * that says "red" paints variant B's button a red the design system lacks, to show the token warning. "Use B" picks.
+ *
+ * A screen added with Add screen (US-11): with it selected, a message that describes a page draws it as 2 variants and
+ * names it from a few plain words ("A payment page …" → Payment); "start from a copy of Form" starts it from Form and
+ * names it "Form 2".
  */
 
 /** How long the sample Designer takes on one screen, so its progress and Stop can be seen. */
@@ -130,6 +134,45 @@ export function demoSort(text: string, language: ChatLanguage, lastReply: string
   if (yes && lastReply === undefined) return { kind: 'answer', reply: T(language, 'Tell me what to change first.', 'أخبرني أولًا بما تريد تغييره.') };
   const work = screens.length ? screens.map((s) => ({ id: s.id, name: s.name, change: text })) : [{ name: 'Form', change: text }, { name: 'Confirmation', change: text }];
   return { kind: 'change', reply: T(language, screens.length ? `I will change ${work.length === 1 ? 'the screen' : `the ${work.length} screens`}, one at a time.` : 'I will draw the booking form and its confirmation.', screens.length ? 'سأغيّر الشاشات واحدة بعد الأخرى.' : 'سأرسم نموذج الحجز وصفحة التأكيد.'), screens: work };
+}
+
+/** The sample Designer's names for a new screen (US-11), by a few plain words: the first that fits wins. */
+const DEMO_SCREEN_NAMES: [RegExp, string, string][] = [
+  [/\bpay|payment|\bcard\b|checkout|دفع|بطاقة/i, 'Payment', 'الدفع'],
+  [/confirm|تأكيد/i, 'Confirmation', 'التأكيد'],
+  [/\bsign ?in\b|\blog ?in\b|دخول/i, 'Sign in', 'تسجيل الدخول'],
+  [/profile|ملف/i, 'Profile', 'الملف الشخصي'],
+  [/dashboard|لوحة/i, 'Dashboard', 'لوحة التحكم'],
+  [/\bbook|appointment|حجز|موعد/i, 'Form', 'النموذج'],
+];
+
+/**
+ * The sample Designer's sorting with a screen not named yet selected (US-11): "start from a copy of Form" starts it
+ * from Form; a message that describes a page (or only a picture) draws it, named from a few plain words, as the
+ * variants asked for or 2. A question, a "maybe", what is not available yet, the sketch's own actions and a change that
+ * names other screens of the sketch go on as they would.
+ */
+export function demoNewScreenSort(text: string, language: ChatLanguage, lastReply: string | undefined, screens: { id: string; name: string }[], newScreen: { id: string; name: string }): ChatSort {
+  const others = screens.filter((s) => s.id !== newScreen.id);
+  const copy = /\bcopy\s+of\s+(.+)$/i.exec(text.trim()) ?? /نسخة\s+من\s+(.+)$/.exec(text.trim());
+  const from = copy ? screensNamed(copy[1]!, others)[0] : undefined;
+  if (!from) {
+    const sorted = demoSort(text, language, lastReply, screens, true, newScreen.id);
+    if (sorted.kind !== 'change' || sorted.action || screensNamed(text, others).length) return sorted;
+  }
+  const hit = DEMO_SCREEN_NAMES.find(([re]) => re.test(text));
+  const words = text.trim() ? sketchNameFrom(text).slice(0, 40) : '';
+  const name = from?.name ?? (hit ? (language === 'Arabic' ? hit[2] : hit[1]) : words && words !== 'New sketch' ? words : T(language, 'Screen', 'شاشة'));
+  const variants = Math.min(3, demoVariantsAsked(text) ?? DEFAULT_ASK_VARIANTS);
+  return {
+    kind: 'change',
+    screenName: name,
+    variants,
+    screens: [{ id: newScreen.id, name, change: text.trim() || 'Draw the screen in the picture.', ...(from ? { from: from.id } : {}) }],
+    reply: from
+      ? T(language, `I will start the new screen from a copy of ${from.name} and draw ${variants} variants of it.`, `سأبدأ الشاشة الجديدة من نسخة من "${from.name}" وأرسم ${variants} من نسخها.`)
+      : T(language, `I will draw ${variants === 1 ? '1 variant' : `${variants} variants`} of the new screen, in the sketch's design system.`, `سأرسم ${variants} من نسخ الشاشة الجديدة بنظام تصميم المخطط.`),
+  };
 }
 
 /** The sample Designer's names for a started sketch and its first screen, by a few plain words; else the message's first words. */
@@ -248,6 +291,7 @@ export function demoLook(tokens: Record<string, unknown> | null): DemoLook {
 
 /** What a sample screen shows, by its name: a confirmation, a sign in, or the booking form. */
 function demoContent(name: string): { title: string; line: string; rows: [string, string][]; choices: string[]; button: string } {
+  if (/pay|card|checkout|دفع/i.test(name)) return { title: 'Pay for your visit', line: 'Tue 17 · 10:00 with Dr. Hana Saleh · 250 SAR', rows: [['Card number', '•••• •••• •••• 4242'], ['Name on card', 'Alaa Mohamed'], ['Expires', '08 / 28']], choices: ['Card', 'Apple Pay', 'At the clinic'], button: 'Pay' };
   if (/confirm|تأكيد/i.test(name)) return { title: 'Your visit is booked', line: 'We sent the details to your phone.', rows: [['Doctor', 'Dr. Hana Saleh'], ['When', 'Tue 17 · 10:00'], ['Where', 'Floor 2, Room 14']], choices: ['Add to calendar', 'Get directions', 'Change'], button: 'Done' };
   if (/sign|log|دخول/i.test(name)) return { title: 'Sign in', line: 'Welcome back · أهلًا بعودتك', rows: [['Phone', '+966 5x xxx xxxx'], ['Password', '••••••••']], choices: ['Remember me', 'Forgot password'], button: 'Sign in' };
   return { title: 'Book a follow-up', line: 'Last visit: 2 Nov with Dr. Hana', rows: [['Doctor', 'Dr. Hana Saleh · Cardiology'], ['Reason', 'Follow-up after test results']], choices: ['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19'], button: 'Book visit' };
@@ -300,6 +344,8 @@ export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null
       if (brief.naming) return demoFirstSort(turn.text, L);
       const before = readConversation(bp, turn.owner, turn.chat).messages.slice(0, -1);
       const lastReply = [...before].reverse().find((m) => m.role === 'designer')?.kind;
+      // A screen added with Add screen, selected and not named yet (US-11).
+      if (brief.newScreen && sketch) return demoNewScreenSort(turn.text, L, lastReply, sketch.screens.map((s) => ({ id: s.id, name: s.name })), brief.newScreen);
       // The answer to its questions: the first screen is still to be drawn.
       const first = brief.firstScreen && sketch?.screens[0];
       if (first) {
@@ -319,7 +365,8 @@ export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null
         const tokens = ds?.versions.find((v) => v.version === sketch!.designSystem!.version)?.tokens ?? null;
         const look = demoLook(tokens);
         const red = w.variant.n === 2 && /\bred\b|أحمر|احمر/i.test(turn.text);
-        for (const f of w.frames) frames[f] = demoVariantPage(w.work.name, w.variant.n, look, f, red);
+        // A copy of another screen (US-11) shows what that screen shows.
+        for (const f of w.frames) frames[f] = demoVariantPage(w.start?.name ?? w.work.name, w.variant.n, look, f, red);
         const [variantName, idea] = DEMO_VARIANTS[(w.variant.n - 1) % DEMO_VARIANTS.length]![L === 'Arabic' ? 'ar' : 'en'];
         return { frames, note: '', variantName, idea };
       }

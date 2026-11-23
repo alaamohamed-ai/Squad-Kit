@@ -85,6 +85,12 @@ export interface ScreenFile {
   status: ScreenStatus;
   /** The chosen variant's version, or null before the first one is drawn. */
   chosen: number | null;
+  /**
+   * Not named yet (AB-136.1): a screen added with no name is "New screen" until its first drawing by the AI Designer
+   * names it from the description. Kept on the screen's own file, so a teammate who pulls it gets it named the same way.
+   * A rename clears it. Left out once it is named.
+   */
+  unnamed?: boolean;
   /** The last change this file saved (AB-131.1). */
   edited?: EditMark;
 }
@@ -170,6 +176,8 @@ export interface SketchScreen {
   order: number;
   status: ScreenStatus;
   chosen: number | null;
+  /** Not named yet (AB-136.1): its first drawing by the AI Designer names it. */
+  unnamed?: boolean;
   /** The last change its screen file saved. */
   edited?: EditMark;
   variants: ScreenVariant[];
@@ -279,6 +287,7 @@ export function readScreenFile(file: string): ScreenFile {
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
     status: (SCREEN_STATES as readonly unknown[]).includes(raw.status) ? (raw.status as ScreenStatus) : 'draft',
     chosen: positive(raw.chosen) ? raw.chosen : null,
+    ...(raw.unnamed === true ? { unnamed: true } : {}),
     ...(edited ? { edited } : {}),
   };
 }

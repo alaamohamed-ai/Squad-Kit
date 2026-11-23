@@ -1462,6 +1462,15 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .ws-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .ws-tabs button { font-size: 13px; font-weight: 600; color: var(--muted); padding: 5px 11px; border-radius: 8px; }
 .ws-tabs button[aria-selected='true'] { color: var(--text); background: var(--surface); box-shadow: var(--card-shadow); }
+/* The screen tabs (US-11): each with its Delete, shown on the selected tab and on hover; then "+ Add screen". */
+.ws-tab { display: inline-flex; align-items: center; border-radius: 8px; }
+.ws-tabs .ws-tab-del { display: inline-flex; align-items: center; padding: 4px; margin-left: -4px; color: var(--dim); opacity: 0; box-shadow: none; background: none; }
+.ws-tab:hover .ws-tab-del, .ws-tab:focus-within .ws-tab-del, .ws-tab:has([aria-selected='true']) .ws-tab-del { opacity: 1; }
+.ws-tabs .ws-tab-del:hover { color: var(--bad, #dc2626); }
+.ws-add { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: var(--muted); padding: 5px 10px; border-radius: 8px; }
+.ws-add:hover { color: var(--text); background: var(--surface); }
+.ws-add:disabled { opacity: .6; }
+.ws-problem { font-size: 12.5px; }
 .ws-frames { margin-left: auto; }
 .ws-view { flex: 1; min-height: 0; overflow: auto; padding: 24px; display: flex; justify-content: center; align-items: flex-start; }
 .ws-frame { width: 100%; max-width: 1040px; height: 640px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: var(--card-shadow); }
