@@ -52,6 +52,7 @@ import {
 import {
   askMarksOf,
   changeStudioItem,
+  checkNotApproved,
   checkFrames,
   checkStudioStamp,
   checkedHtml,
@@ -73,8 +74,9 @@ import {
  * studio-read.ts (the saved shapes, the reads and the default design system), studio-files.ts (listing, the change
  * stamp and writing), studio-lock.ts (one change at a time per project), studio-names.ts (one sketch name per
  * project, and the free-name and free-id helpers, AB-138.1), studio-write.ts (the stamp check, the edit marks and the
- * writing of a variant), studio-tokens.ts (the token check of a variant's pages, US-17) and studio-local.ts
- * (thumbnails and chats, on this computer).
+ * writing of a variant, and the lock on an approved screen), studio-approval.ts (approving and reopening a screen,
+ * US-15), studio-tokens.ts (the token check of a variant's pages, US-17) and studio-local.ts (thumbnails and chats, on
+ * this computer).
  *
  * Each item (one design system, one sketch) is its own folder of plain YAML, JSON and HTML. Versions (v1, v2 …) only
  * grow: a saved version is never written again, so every variant stays pickable. Each item is read back with a change
@@ -99,6 +101,7 @@ export {
   studioItemDir,
   studioStamp,
   type BrokenStudioItem,
+  type ApprovalMark,
   type DesignSystem,
   type DesignSystemVersion,
   type EditMark,
@@ -113,7 +116,8 @@ export {
   type VariantAskMarks,
 } from './studio-read.js';
 export { tokenWarnings } from './studio-tokens.js';
-export { CHANGED_ELSEWHERE, StudioChangedElsewhere, changeStudioItem, checkStudioStamp, type EditBy, type VariantInput } from './studio-write.js';
+export { CHANGED_ELSEWHERE, StudioChangedElsewhere, StudioScreenApproved, approvedWords, changeStudioItem, checkStudioStamp, type EditBy, type VariantInput } from './studio-write.js';
+export { approveScreen, reopenScreen } from './studio-approval.js';
 export { stampOfFolder } from './studio-files.js';
 export { addNewScreen, nameNewScreen } from './studio-screens.js';
 export {
@@ -258,12 +262,19 @@ export function saveSketch(bp: BoardPaths, input: SketchInput, stamp: string | n
     if (sketchBefore?.name !== name) checkSketchNameFree(bp, name, id);
     // The screen-name rule (AB-136.1), for every screen before anything is written.
     const befores = checkScreenNames(bp, id, name, screens, stamp === null);
+    // The lock (US-15, AB-140.1): an approved screen stays approved until Reopen. Its name and place may change: they
+    // do not change its design. Checked for every screen before anything is written. (The board and the terminal mark
+    // only draft or ready; approving is its own action, approveScreen.)
+    screens.forEach((s, i) => {
+      const before = befores[i];
+      if (before?.status === 'approved' && s.status !== 'approved') checkNotApproved({ id: s.id, ...before });
+    });
     writeMarked(sketchFile(bp, id), sketchBefore, sketch, who);
     screens.forEach((s, i) => {
       const before = befores[i]!;
       // A screen not named yet keeps its mark until it gets a name of its own: a rename clears it.
       const unnamed = before?.unnamed && before.name === s.name;
-      const screen: ScreenFile = { name: s.name, order: s.order, status: s.status, chosen: before?.chosen ?? null, ...(unnamed ? { unnamed: true } : {}) };
+      const screen: ScreenFile = { name: s.name, order: s.order, status: s.status, chosen: before?.chosen ?? null, ...(unnamed ? { unnamed: true } : {}), ...(before?.approved ? { approved: before.approved } : {}) };
       writeMarked(screenFile(bp, id, s.id), before, screen, who);
     });
     return readSketch(bp, id)!;
@@ -306,6 +317,8 @@ export function saveDrawnScreens(bp: BoardPaths, sketch: string, drawn: DrawnScr
     // Each drawing goes to the screen it names, by id then by name as the screen-name rule compares them (AB-136.1), or
     // to a new screen; two drawings for one screen are refused before anything is written.
     const found = screens.map((d) => screenNamed(current, d));
+    // An approved screen is not drawn again until it is reopened (US-15, AB-140.1): refused before anything is written.
+    for (const f of found) if (f) checkNotApproved(f);
     const keys = found.map((f, i) => f?.id ?? `new:${screenNameKey(screens[i]!.name)}`);
     if (new Set(keys).size !== keys.length) throw new Error('Two screens in the sketch have the same name.');
     const known: { id: string; name: string; order: number }[] = current.map((c) => ({ id: c.id, name: c.name, order: c.order }));
@@ -350,7 +363,9 @@ export function saveScreenVariants(
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     for (const d of drawn) checkFrames(bp, sketch, d);
     const current = readSketch(bp, sketch)!.screens;
-    const id = screenNamed(current, { ...(screen.id ? { id: screen.id } : {}), name })?.id ?? writeNewScreen(bp, sketch, current, name, { by: by.madeBy, for: by.madeFor });
+    const found = screenNamed(current, { ...(screen.id ? { id: screen.id } : {}), name });
+    if (found) checkNotApproved(found);
+    const id = found?.id ?? writeNewScreen(bp, sketch, current, name, { by: by.madeBy, for: by.madeFor });
     const versions = drawn.map((frames, i) => writeVariant(bp, sketch, id, frames, { ...by, choose: i === 0 }));
     return { sketch: readSketch(bp, sketch)!, screen: id, versions };
   });
@@ -427,6 +442,12 @@ export function saveAskVariants(
   if (!drawn.length) throw new Error('There are no variants to save.');
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     for (const s of drawn) for (const v of s.variants) checkFrames(bp, sketch, v.frames);
+    // An approved screen gets no new variant until it is reopened (US-15, AB-140.1): refused before anything is written.
+    const before = readSketch(bp, sketch)!.screens;
+    for (const s of drawn) {
+      const found = screenNamed(before, { ...(s.id ? { id: s.id } : {}), name: s.name });
+      if (found) checkNotApproved(found);
+    }
     const saved: { screen: string; version: number; letter: string; name: string }[] = [];
     for (const s of drawn) {
       const current = readSketch(bp, sketch)!.screens;
@@ -477,6 +498,8 @@ export function pickVariant(bp: BoardPaths, sketch: string, screen: string, vers
   checkedStudioId(sketch);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
     const before = existingScreen(bp, sketch, screen);
+    // An approved screen keeps the variant it was approved at until it is reopened (US-15, AB-140.1).
+    checkNotApproved({ id: screen, ...before });
     if (!versionsIn(screenDir(bp, sketch, screen)).includes(version)) throw new Error(`The screen "${screen}" has no variant ${version}.`);
     writeMarked(screenFile(bp, sketch, screen), before, { ...before, chosen: version }, who);
     return readSketch(bp, sketch)!;
@@ -580,7 +603,8 @@ export function duplicateSketch(bp: BoardPaths, source: string, stamp: string, w
 export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: string, who: EditBy = {}): Sketch {
   checkedStudioId(sketch);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    existingScreen(bp, sketch, screen);
+    // An approved screen is not deleted until it is reopened (US-15, AB-140.1).
+    checkNotApproved({ id: screen, ...existingScreen(bp, sketch, screen) });
     fs.rmSync(screenDir(bp, sketch, screen), { recursive: true, force: true });
     fs.rmSync(screenThumbnailsDir(bp, sketch, screen), { recursive: true, force: true });
     writeShared(sketchFile(bp, sketch), dumpYaml({ ...readSketchFile(sketchFile(bp, sketch)), edited: markNow(who) }));
@@ -590,4 +614,4 @@ export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, sta
 
 /* ── This computer's part: thumbnails and AI Designer chats (studio-local.ts) ── */
 
-export { readChat, readThumbnail, saveChat, saveThumbnail, type ChatOwner, type ChatReplyKind, type PickMark, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';
+export { readChat, readThumbnail, saveChat, saveThumbnail, type ApprovalLine, type ChatOwner, type ChatReplyKind, type PickMark, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';

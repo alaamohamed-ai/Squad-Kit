@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Check, ImagePlus, MessageSquarePlus, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUp, Check, ImagePlus, Lock, LockOpen, MessageSquarePlus, Sparkles, Square, X } from 'lucide-react';
 import { api, assetUrl, send } from '../../api/client';
 import {
   DESIGN_SYSTEMS_PATH,
@@ -49,11 +49,13 @@ export interface ChatPanelProps {
   designSystem?: string | null;
   /** The conversation shown now, told to the page each time it changes: a pick's line goes there (US-18). */
   onConversation?: (chat: string | null) => void;
+  /** The screen looked at is approved (US-15): its name. The chat says the AI Designer leaves it as it is. */
+  locked?: string | null;
 }
 
 const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work', 'needs-design-system': 'No design system' };
 
-export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking, designSystem, onConversation }: ChatPanelProps) {
+export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking, designSystem, onConversation, locked }: ChatPanelProps) {
   const base = chatsPath(kind, id);
   const qc = useQueryClient();
   const list = useQuery({ queryKey: chatsKey(project, kind, id), queryFn: () => api<ConversationList>(base) });
@@ -277,6 +279,12 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
         </p>
       )}
 
+      {locked && (
+        <p className="dc-locked" role="note">
+          <Lock size={12} aria-hidden />
+          <span dir="auto">{locked} is approved: the AI Designer leaves it as it is. Reopen it first to change it.</span>
+        </p>
+      )}
       <form className="dc-box" onSubmit={go} aria-label="Write to the AI Designer">
         {pictures.length > 0 && (
           <ul className="sk-pics" aria-label="Pictures to send">
@@ -421,7 +429,7 @@ function Message({ m }: { m: ChatMessageView }) {
   if (m.role === 'action') {
     return (
       <li className="dc-line" role="note">
-        <Check size={12} aria-hidden />
+        {m.approval && !m.approval.reopened ? <Lock size={12} aria-hidden /> : m.approval ? <LockOpen size={12} aria-hidden /> : <Check size={12} aria-hidden />}
         <span dir="auto">{m.text}</span>
         {m.at && <time>{timeOf(m.at)}</time>}
       </li>

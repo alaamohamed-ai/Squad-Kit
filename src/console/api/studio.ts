@@ -1,11 +1,12 @@
 import type { Context, Hono } from 'hono';
 import type { SquadPaths } from '../../core/paths.js';
 import { boardPaths } from '../../board/store.js';
-import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, StudioScreenNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
+import { StudioChangedElsewhere, StudioInUse, StudioNameTaken, StudioScreenApproved, StudioScreenNameTaken, readStudio, type DesignSystem, type Sketch } from '../../board/studio.js';
 import {
   StudioDesignerWorking,
   StudioNotFound,
   addScreen,
+  approveSketchScreen,
   changeDesignSystem,
   changeScreen,
   changeSketch,
@@ -19,6 +20,7 @@ import {
   getDesignSystem,
   getSketch,
   pickScreenVariant,
+  reopenSketchScreen,
   sketchCover,
   sketchList,
   type DesignSystemView,
@@ -82,6 +84,8 @@ function sketchRow(s: Sketch | SketchView) {
       chosen: sc.chosen,
       // Not named yet (AB-136.1): the AI Designer's first drawing of it names it.
       ...(sc.unnamed ? { unnamed: true } : {}),
+      // Approved (US-15, AB-140.1): the version it froze, who approved it and when, as its screen.yaml says.
+      ...(sc.approved ? { approved: sc.approved } : {}),
       variants: sc.variants.map((v) => ({
         version: v.version,
         frames: Object.keys(v.frames),
@@ -143,6 +147,8 @@ async function run(c: Context, fn: () => unknown) {
     if (err instanceof StudioNameTaken) return c.json({ error: err.message, nameTaken: { id: err.sketch, name: err.taken } }, 409);
     // A screen name the sketch already has (AB-136.1): 'A screen called "Form" already exists in Booking'.
     if (err instanceof StudioScreenNameTaken) return c.json({ error: err.message, screenNameTaken: { id: err.screen, name: err.taken } }, 409);
+    // A change to an approved screen (US-15, AB-140.1): "Form is approved. Reopen it first."
+    if (err instanceof StudioScreenApproved) return c.json({ error: err.message, approved: { id: err.screen, name: err.screenName } }, 409);
     if (err instanceof StudioNotFound) return c.json({ error: err.message }, 404);
     if (err instanceof ChatBusy || err instanceof StudioDesignerWorking) return c.json({ error: err.message, busy: true }, 409);
     return act(c, () => {
@@ -291,6 +297,21 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
       return { sketch: sketchRead(r.sketch), picked: r.picked, conversation: r.chat ? conversationRead(bp, owner, r.chat) : null };
     });
   });
+  // Approve screen and Reopen (US-15, AB-140.1): the sketch's stamp and the conversation open beside the screen. Once
+  // saved, the line "Alaa approved Form at v3" (or "Alaa reopened Form") goes to that conversation (AB-143.1); the
+  // answer is the sketch and the conversation. An old stamp is 409 "Changed elsewhere, reload", and either one while
+  // the AI Designer works on that conversation is 409 too: neither writes anything.
+  for (const [route, act] of [['approve', approveSketchScreen], ['reopen', reopenSketchScreen]] as const) {
+    app.post(`/api/v1/studio/sketches/:id/screens/:screen/${route}`, async (c) => {
+      const { stamp, chat } = await body(c);
+      return run(c, () => {
+        const id = c.req.param('id');
+        const owner = { kind: 'sketch', id } as const;
+        const r = act(bp, id, c.req.param('screen'), stamp, { chat, busy: (talk) => chatWorking(bp, owner, talk) !== null });
+        return { sketch: sketchRead(r.sketch), done: r.done, conversation: r.chat ? conversationRead(bp, owner, r.chat) : null };
+      });
+    });
+  }
   app.delete('/api/v1/studio/sketches/:id/screens/:screen', async (c) => {
     const stamp = await deleteStamp(c);
     return run(c, () => sketchRead(deleteScreen(bp, c.req.param('id'), c.req.param('screen'), stamp)));

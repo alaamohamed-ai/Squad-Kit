@@ -3,9 +3,9 @@ import { Command } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import * as ui from '../ui/index.js';
 import type { BoardPaths } from '../board/store.js';
-import { screenNameKey, sketchNameKey, studioIdFor, variantOfLetter, type ChatOwner, type PickMark, type SketchScreen, type StudioChatMessage } from '../board/studio.js';
-import { addScreen, changeSketch, deleteScreen, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, sketchList, type SketchView } from '../board/studio-actions.js';
-import { currentConversation, newConversation, pickWords, readConversation } from '../board/studio-chats.js';
+import { approvedWords, screenNameKey, sketchNameKey, studioIdFor, variantOfLetter, type ApprovalLine, type ChatOwner, type PickMark, type SketchScreen, type StudioChatMessage } from '../board/studio.js';
+import { addScreen, approveSketchScreen, changeSketch, deleteScreen, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, reopenSketchScreen, sketchList, type SketchView } from '../board/studio-actions.js';
+import { approvalWords, currentConversation, newConversation, pickWords, readConversation } from '../board/studio-chats.js';
 import { sendChatMessage } from '../engine/studio-chat.js';
 import { boardApi, type BoardApi } from './app.js';
 import { board } from './board.js';
@@ -22,6 +22,10 @@ import { wrapArgs } from './wrap.js';
  *
  * `squad studio sketch screen add|delete` (US-11, AB-136): Add screen and a tab's Delete, with the same screen-name rule
  * (AB-136.1): through the board when it is open, and through the Studio store when it is not.
+ *
+ * `squad studio sketch screen approve|reopen` (US-15, AB-140): Approve screen and Reopen, with the same lock: while a
+ * screen is approved, a pick, a delete or a change to it from the terminal is refused with "Form is approved. Reopen it
+ * first."
  */
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
@@ -242,6 +246,8 @@ function variantNamed(screen: SketchScreen, word: string): number {
 export async function studioSketchPick(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, variantWord: string, opts: SketchOpts): Promise<void> {
   const sketch = sketchNamed(bp, word);
   const screen = screenOf(sketch, screenWord);
+  // The lock (US-15): said plainly before anything else. The store refuses it too.
+  if (screen.status === 'approved') throw new Error(approvedWords(screen.name));
   const version = variantNamed(screen, variantWord);
   const stamp = stampFor(sketch, opts);
   const owner: ChatOwner = { kind: 'sketch', id: sketch.id };
@@ -287,6 +293,8 @@ export async function studioScreenAdd(bp: BoardPaths, api: BoardApi | null, word
 export async function studioScreenDelete(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, opts: SketchOpts, ask: (q: string) => Promise<boolean> = askYesNo): Promise<void> {
   const sketch = sketchNamed(bp, word);
   const screen = screenOf(sketch, screenWord);
+  // The lock (US-15): refused before the question. The store refuses it too.
+  if (screen.status === 'approved') throw new Error(approvedWords(screen.name));
   const stamp = stampFor(sketch, opts);
   if (!opts.yes) {
     if (!ui.isInteractive() && ask === askYesNo) throw new Error(`Add --yes to delete "${screen.name}" and its drawings without asking.`);
@@ -298,6 +306,61 @@ export async function studioScreenDelete(bp: BoardPaths, api: BoardApi | null, w
   if (api) await api.call('DELETE', screensApi(sketch.id, screen.id), { stamp });
   else deleteScreen(bp, sketch.id, screen.id, stamp);
   ui.success(`Deleted "${sketch.name} / ${screen.name}" and its drawings. The other screens stay.`);
+}
+
+/** When an approval was made, as the terminal says it: "23 Nov, 14:05". */
+function approvalTime(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * `squad studio sketch screen approve <sketch> <screen>` (US-15): Approve screen from the terminal. The screen is frozen
+ * at the version it shows now, Approved with who and when, and the line "Alaa approved Form at v3" goes to the
+ * sketch's conversation: the board's open one when the board is open, else its current one.
+ */
+export async function studioScreenApprove(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, opts: SketchOpts): Promise<void> {
+  const sketch = sketchNamed(bp, word);
+  const screen = screenOf(sketch, screenWord);
+  const stamp = stampFor(sketch, opts);
+  const done = await approvalCall(bp, api, sketch, screen, stamp, 'approve');
+  if (!done) ui.info(`${screen.name} is already approved. Nothing changed.`);
+  else ui.success(`${approvalWords(done)}, ${approvalTime(done.at)}. It is locked until it is reopened: squad studio sketch screen reopen ${sketch.id} ${screen.id}`);
+}
+
+/**
+ * `squad studio sketch screen reopen <sketch> <screen>` (US-15): Reopen from the terminal. It asks "Are you sure?" first,
+ * unless --yes; No leaves the screen Approved. The stamp is the one read before asking.
+ */
+export async function studioScreenReopen(bp: BoardPaths, api: BoardApi | null, word: string, screenWord: string, opts: SketchOpts, ask: (q: string) => Promise<boolean> = askYesNo): Promise<void> {
+  const sketch = sketchNamed(bp, word);
+  const screen = screenOf(sketch, screenWord);
+  if (screen.status !== 'approved') {
+    ui.info(`${screen.name} is not approved. Nothing changed.`);
+    return;
+  }
+  const stamp = stampFor(sketch, opts);
+  if (!opts.yes) {
+    if (!ui.isInteractive() && ask === askYesNo) throw new Error(`Add --yes to reopen "${screen.name}" without asking.`);
+    if (!(await ask(`Reopen "${screen.name}"? It goes back to Draft, and the next change makes a new version. Are you sure?`))) {
+      ui.info(`Not reopened. ${screen.name} stays Approved.`);
+      return;
+    }
+  }
+  const done = await approvalCall(bp, api, sketch, screen, stamp, 'reopen');
+  if (!done) ui.info(`${screen.name} is not approved. Nothing changed.`);
+  else ui.success(`${approvalWords(done)}. It is Draft again: the next change makes a new version, and v${done.version} stays.`);
+}
+
+/** Approve or Reopen: the board's own call when it is open, so its line shows in its open conversation; else here. */
+async function approvalCall(bp: BoardPaths, api: BoardApi | null, sketch: SketchView, screen: SketchScreen, stamp: string, what: 'approve' | 'reopen'): Promise<ApprovalLine | null> {
+  const owner: ChatOwner = { kind: 'sketch', id: sketch.id };
+  if (api) {
+    const { current } = await api.call<{ current: string }>('GET', pathOf(owner));
+    return (await api.call<{ done: ApprovalLine | null }>('POST', `${screensApi(sketch.id, screen.id)}/${what}`, { stamp, chat: current })).done;
+  }
+  const act = what === 'approve' ? approveSketchScreen : reopenSketchScreen;
+  return act(bp, sketch.id, screen.id, stamp, { chat: currentConversation(bp, owner) }).done;
 }
 
 /** Asks the question with (y/N) after it; Enter alone is No. */
@@ -333,7 +396,7 @@ function sketchCommand(): Command {
         await studioSketchPick(bp, boardApi(bp), word, screen, variant, opts);
       }),
     );
-  const screen = new Command('screen').description('Add a screen to a sketch, or delete one, with the same rules as the board');
+  const screen = new Command('screen').description('Add, delete, approve or reopen a screen of a sketch, with the same rules as the board');
   screen
     .command('add <sketch> [name...]')
     .description('Add a screen. With no name it is "New screen", named by the AI Designer\'s first drawing of it. A name the sketch has is refused')
@@ -353,6 +416,27 @@ function sketchCommand(): Command {
       wrapArgs(async (word: string, screenWord: string, opts: SketchOpts) => {
         const bp = board();
         await studioScreenDelete(bp, boardApi(bp), word, screenWord, opts);
+      }),
+    );
+  screen
+    .command('approve <sketch> <screen>')
+    .description('Approve a screen: it is frozen at the version it shows, with who and when, and locked until it is reopened')
+    .option(...stamp)
+    .action(
+      wrapArgs(async (word: string, screenWord: string, opts: SketchOpts) => {
+        const bp = board();
+        await studioScreenApprove(bp, boardApi(bp), word, screenWord, opts);
+      }),
+    );
+  screen
+    .command('reopen <sketch> <screen>')
+    .description('Reopen an approved screen: back to Draft, so it can change again. It asks first, unless --yes')
+    .option(...stamp)
+    .option('--yes', 'Reopen without asking')
+    .action(
+      wrapArgs(async (word: string, screenWord: string, opts: SketchOpts) => {
+        const bp = board();
+        await studioScreenReopen(bp, boardApi(bp), word, screenWord, opts);
       }),
     );
   k.addCommand(screen);

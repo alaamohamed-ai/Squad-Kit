@@ -9,8 +9,8 @@ import { DEFAULT_ASK_VARIANTS, type ChatLanguage, type ChatSort } from './studio
 
 /**
  * The sample board's AI Designer (US-52): no AI and no sign-in, only a few fixed replies, so the Studio's chat can be
- * shown. A question gets an answer and a "maybe" a question back, both changing nothing; export, frames and approving
- * are "not available yet"; "rename the sketch to …" and "duplicate this sketch" are done, and "delete this sketch" points to the card menu; anything else changes every screen, one at a time, slowly enough to press Stop. A sketch
+ * shown. A question gets an answer and a "maybe" a question back, both changing nothing; export and frames are "not
+ * available yet", and approving points to the screen's own buttons (US-15); "rename the sketch to …" and "duplicate this sketch" are done, and "delete this sketch" points to the card menu; anything else changes every screen, one at a time, slowly enough to press Stop. A sketch
  * with no screens gets a booking form and its confirmation. A sketch started from the start page (US-08) is named from
  * a few plain words ("book" → Booking / Form); a short first message gets two questions first, a longer one has its
  * first screen drawn once per variant, each a little different.
@@ -111,10 +111,13 @@ export function demoSort(text: string, language: ChatLanguage, lastReply: string
       };
     }
   }
+  // Approving and reopening are done with the screen's own buttons (US-15), so the person decides.
+  if (/\b(?:approve|reopen)\b|اعتمد|اعتماد|أعد\s+فتح/.test(t) && !/[?؟]/.test(t)) {
+    return { kind: 'unavailable', action: 'approve-screen', reply: T(language, 'I do not approve or reopen screens from the chat. Use "Approve screen" or "Reopen" above the screen.', 'لا أعتمد الشاشات ولا أعيد فتحها من المحادثة. استخدم زر «Approve screen» أو «Reopen» فوق الشاشة.') };
+  }
   const unavailable: [RegExp, string, string, string][] = [
     [/export|pdf|png|download|تصدير|تنزيل/, 'export', 'Exporting', 'التصدير'],
     [/\bframe\b|\bmobile frame|\btablet\b|إطار/, 'add-frame', 'Adding a frame', 'إضافة إطار'],
-    [/approve|اعتمد|اعتماد/, 'approve-screen', 'Approving a screen', 'اعتماد الشاشة'],
   ];
   for (const [re, action, en, ar] of unavailable) {
     if (re.test(t)) return { kind: 'unavailable', action, reply: T(language, `${en} is not available yet. It comes in a later version of the Studio; nothing changed.`, `${ar} غير متاح بعد. سيأتي في نسخة قادمة من الاستوديو، ولم يتغير شيء.`) };

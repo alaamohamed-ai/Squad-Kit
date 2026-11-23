@@ -9,7 +9,7 @@ import { VIEW_SIZES, frameLabel, isColorValue, pickPath, sealedHtml, warningText
    A card whose pages use what the design system lacks says so, naming each value; one drawn with no design system says
    "No design system". "Use this one" saves the pick with the sketch's stamp the page read (AB-129.1), and its line goes
    to the conversation open beside it (AB-143.1); a stale stamp is refused with "Changed elsewhere, reload" and the pick
-   in use stays. The buttons wait while the AI Designer works. What the cards show is what was saved: nothing is
+   in use stays. The buttons wait while the AI Designer works, and are off while the screen is approved (US-15). What the cards show is what was saved: nothing is
    checked again on the page. */
 
 export interface VariantCardsProps {
@@ -23,11 +23,13 @@ export interface VariantCardsProps {
   chat?: string | null;
   /** The AI Designer is working: the buttons wait. */
   working?: boolean;
+  /** The screen is approved (US-15): "Use this one" is off until it is reopened. */
+  locked?: boolean;
   /** A pick was saved: the page reads the sketch again, and the chat shows the conversation it answered with. */
   onPicked: (answer: PickAnswer) => void;
 }
 
-export function VariantCards({ sketch, screen, frame, cards, stamp, chat, working = false, onPicked }: VariantCardsProps) {
+export function VariantCards({ sketch, screen, frame, cards, stamp, chat, working = false, locked = false, onPicked }: VariantCardsProps) {
   const [busy, setBusy] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -69,8 +71,8 @@ export function VariantCards({ sketch, screen, frame, cards, stamp, chat, workin
                   <button
                     type="button"
                     className="vc-use"
-                    disabled={busy !== null || working}
-                    title={working ? 'Wait for the AI Designer to finish, then pick' : undefined}
+                    disabled={busy !== null || working || locked}
+                    title={locked ? `${screen.name} is approved. Reopen it first.` : working ? 'Wait for the AI Designer to finish, then pick' : undefined}
                     aria-label={`Use this one: Variant ${c.letter} · ${c.name}`}
                     onClick={() => void use(c.version)}
                   >

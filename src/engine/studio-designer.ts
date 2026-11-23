@@ -128,6 +128,7 @@ function briefOf(bp: BoardPaths, a: DesignerAsk, project: string, pictures: stri
         screens: sketch.screens.map((s) => ({
           id: s.id,
           name: s.name,
+          ...(s.status === 'approved' ? { approved: true } : {}),
           files: Object.fromEntries(Object.keys(s.variants.find((v) => v.version === s.chosen)?.frames ?? {}).map((f) => [f, relative(bp, frameFile(bp, sketch.id, s.id, s.chosen!, f))])),
         })),
       }

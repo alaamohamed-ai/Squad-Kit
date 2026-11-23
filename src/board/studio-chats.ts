@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
-import { readChat, saveChat, type ChatOwner, type PickMark, type StudioChat, type StudioChatMessage } from './studio.js';
+import { readChat, saveChat, type ApprovalLine, type ChatOwner, type PickMark, type StudioChat, type StudioChatMessage } from './studio.js';
 import { StudioNotFound, getDesignSystem, getSketch } from './studio-actions.js';
 import { writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
@@ -81,11 +81,15 @@ function rowOf(id: string, chat: StudioChat | null): ConversationRow {
   };
 }
 
-/** A message, or a pick line a Studio button added (AB-143.1); anything else in the file is left out. */
+/** A message, or a line a Studio button added (a pick, an approval, AB-143.1); anything else in the file is left out. */
 function isMessage(m: unknown): m is StudioChatMessage {
   if (!isPlain(m) || typeof m.text !== 'string') return false;
   if (m.role === 'person' || m.role === 'designer') return true;
-  return m.role === 'action' && isPickMark(m.picked);
+  return m.role === 'action' && (isPickMark(m.picked) || isApprovalLine(m.approval));
+}
+
+function isApprovalLine(a: unknown): a is ApprovalLine {
+  return isPlain(a) && typeof a.screen === 'string' && typeof a.screenName === 'string' && typeof a.version === 'number' && typeof a.at === 'string';
 }
 
 function isPickMark(p: unknown): p is PickMark {
@@ -176,6 +180,23 @@ export function pickWords(p: PickMark): string {
 export function addPickLine(bp: BoardPaths, owner: ChatOwner, chat: string, picked: PickMark): StudioChatMessage {
   checkedStudioId(chat);
   const line: StudioChatMessage = { role: 'action', text: pickWords(picked), at: picked.at, picked };
+  addChatMessage(bp, owner, chat, line);
+  return line;
+}
+
+/** The words of an approval line (US-15): "Alaa approved Form at v3", "Alaa reopened Form"; "You …" when no name is set. */
+export function approvalWords(a: ApprovalLine): string {
+  const who = a.by?.trim() || 'You';
+  return a.reopened ? `${who} reopened ${a.screenName}` : `${who} approved ${a.screenName} at v${a.version}`;
+}
+
+/**
+ * Adds the short line Approve or Reopen leaves in a conversation (US-15, AB-143.1), on this computer only. The caller
+ * adds it only after the change was saved, so a refused one adds nothing.
+ */
+export function addApprovalLine(bp: BoardPaths, owner: ChatOwner, chat: string, approval: ApprovalLine): StudioChatMessage {
+  checkedStudioId(chat);
+  const line: StudioChatMessage = { role: 'action', text: approvalWords(approval), at: approval.at, approval };
   addChatMessage(bp, owner, chat, line);
   return line;
 }

@@ -146,6 +146,7 @@ const WORDS: Record<
     picked: (screen: string, variant: string) => string;
     noVariant: (screen: string, variant: string) => string;
     noScreen: (screen: string) => string;
+    approved: (screens: string[]) => string;
   }
 > = {
   English: {
@@ -160,6 +161,7 @@ const WORDS: Record<
     picked: (screen, variant) => `Done. ${screen} now uses variant ${variant}. The other variants stay.`,
     noVariant: (screen, variant) => `${screen} has no variant ${variant}. Nothing changed.`,
     noScreen: (screen) => `The sketch has no screen "${screen}". Nothing changed.`,
+    approved: (s) => (s.length === 1 ? `${s[0]} is approved, so I did not change it. Reopen it first.` : `${s.slice(0, -1).join(', ')} and ${s[s.length - 1]} are approved, so I did not change them. Reopen them first.`),
     named: (sketch, screen) => `I named the sketch "${sketch}" and its first screen "${screen}". You can rename both later.`,
     screenNamed: (screen) => `I named the new screen "${screen}". You can rename it later.`,
     renamed: (from, to) => `Done. "${from}" is now called "${to}".`,
@@ -183,6 +185,7 @@ const WORDS: Record<
     picked: (screen, variant) => `تم. صارت "${screen}" تستخدم النسخة ${variant}. باقي النسخ محفوظة.`,
     noVariant: (screen, variant) => `لا توجد في "${screen}" نسخة ${variant}. لم يتغير شيء.`,
     noScreen: (screen) => `لا توجد في المخطط شاشة "${screen}". لم يتغير شيء.`,
+    approved: (s) => (s.length === 1 ? `الشاشة "${s[0]}" معتمدة، فلم أغيّرها. أعد فتحها أولًا.` : `الشاشات ${s.map((x) => `"${x}"`).join(' و')} معتمدة، فلم أغيّرها. أعد فتحها أولًا.`),
     named: (sketch, screen) => `سمّيت المخطط "${sketch}" وشاشته الأولى "${screen}". يمكنك تغيير الاسمين لاحقًا.`,
     screenNamed: (screen) => `سمّيت الشاشة الجديدة "${screen}". يمكنك تغيير اسمها لاحقًا.`,
     renamed: (from, to) => `تم. صار اسم المخطط "${to}" بدل "${from}".`,
@@ -248,7 +251,7 @@ function briefOf(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null): ChatBri
   const lookingAt = screenName || turn.lookingAt?.frame ? { ...(screenName ? { screen: screenName } : {}), ...(turn.lookingAt?.frame ? { frame: turn.lookingAt.frame } : {}) } : undefined;
   return {
     ...common,
-    target: { kind: 'sketch', name: sketch.name, frames: sketch.frames, screens: sketch.screens.map((s) => ({ id: s.id, name: s.name, files: chosenFiles(bp, sketch, s.id) })) },
+    target: { kind: 'sketch', name: sketch.name, frames: sketch.frames, screens: sketch.screens.map((s) => ({ id: s.id, name: s.name, files: chosenFiles(bp, sketch, s.id), ...(s.status === 'approved' ? { approved: true } : {}) })) },
     ...(follows && sketch.designSystem ? { designSystem: { name: follows.name, version: sketch.designSystem.version, dir: relative(bp, designSystemVersionDir(bp, follows.id, sketch.designSystem.version)) } } : {}),
     ...(lookingAt ? { lookingAt } : {}),
   };
@@ -310,9 +313,26 @@ async function liveWorker(bp: BoardPaths, turn: ChatTurn, o: ChatOptions): Promi
 
 type Reply = Pick<StudioChatMessage, 'text' | 'kind' | 'saved'>;
 
+/**
+ * The work without the sketch's approved screens (US-15, AB-140.1): they stay at their version until they are
+ * reopened, as the store's lock says. Gives back the rest of the work and the approved screens' names, for the reply.
+ */
+export function withoutApproved<T extends { screen?: string }>(sketch: Sketch, work: T[]): { work: T[]; locked: string[] } {
+  const locked: string[] = [];
+  const open = work.filter((w) => {
+    const s = w.screen ? sketch.screens.find((x) => x.id === w.screen) : undefined;
+    if (s?.status !== 'approved') return true;
+    if (!locked.includes(s.name)) locked.push(s.name);
+    return false;
+  });
+  return { work: open, locked };
+}
+
 async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, worker: ChatWorker, o: ChatOptions): Promise<Reply> {
   const W = WORDS[turn.language];
-  const work = workOf(sketch, sort);
+  // An approved screen is left out and said so; the other screens change as asked (US-15).
+  const { work, locked } = withoutApproved(sketch, workOf(sketch, sort));
+  if (!work.length) return { kind: 'answer', text: W.approved(locked) };
   const done: DrawnScreen[] = [];
   const notes: string[] = [];
   let why: string | null = null;
@@ -329,6 +349,7 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   }
   const stopped = Boolean(o.signal?.aborted);
   if (!done.length) return stopped ? { kind: 'stopped', text: W.stoppedNothing } : { kind: 'failed', text: why ?? W.stoppedNothing };
+  const lockedWords = locked.length ? [W.approved(locked)] : [];
   o.onProgress?.('Saving the new version');
   // One new version for the finished screens, with the stamp read when the message was sent (AB-129.1).
   // Marked as the AI Designer's work for the person who asked (AB-131.1).
@@ -336,8 +357,9 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   const saved = saveDrawnScreens(bp, sketch.id, done, turn.stamp ?? '', { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) });
   const rows = saved.saved.map((s) => ({ screen: s.screen, name: saved.sketch.screens.find((x) => x.id === s.screen)?.name ?? s.screen, version: s.version }));
   const list = rows.map((s) => `${s.name} v${s.version}`).join(', ');
-  if (stopped) return { kind: 'stopped', text: W.stopped(list), saved: rows };
-  const text = [sort.reply.trim(), ...notes, W.changed(list), ...(why ? [W.partly(why)] : [])].filter(Boolean).join('\n\n');
+  if (stopped) return { kind: 'stopped', text: [W.stopped(list), ...lockedWords].join('\n\n'), saved: rows };
+  // With an approved screen left out, the plan said in the sorting no longer holds: what was done is said instead.
+  const text = [locked.length ? '' : sort.reply.trim(), ...notes, W.changed(list), ...lockedWords, ...(why ? [W.partly(why)] : [])].filter(Boolean).join('\n\n');
   return { kind: 'changed', text, saved: rows };
 }
 
@@ -348,8 +370,12 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
  * in one change with the stamp of the turn, each screen's variant A in use, and their pages checked against the
  * design system's tokens as they are saved. Stop keeps the finished variants only: the one being drawn is dropped.
  */
-async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, work: Work[], each: number, worker: ChatWorker, o: ChatOptions, first = false): Promise<Reply> {
+async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: ChatSort, asked: Work[], each: number, worker: ChatWorker, o: ChatOptions, first = false): Promise<Reply> {
   const W = WORDS[turn.language];
+  // An approved screen gets no new variants until it is reopened (US-15): it is left out and said so.
+  const { work, locked } = withoutApproved(sketch, asked);
+  if (!work.length) return { kind: 'answer', text: W.approved(locked) };
+  const lockedWords = locked.length ? [W.approved(locked)] : [];
   const total = work.length * each;
   const ds = sketch.designSystem;
   const tokensDir = ds ? relative(bp, designSystemVersionDir(bp, ds.id, ds.version)) : undefined;
@@ -405,9 +431,9 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
     if (v?.warnings?.length && v.checkedWith) checks.push(W.offTokens(label(s), v.checkedWith.name, v.warnings.map((x) => x.value).join(', ')));
   }
   const rows = saved.saved.map((s) => ({ screen: s.screen, name: nameOf(s.screen), version: s.version }));
-  const found = [...checks, ...(plain ? [W.plainStyles] : [])];
+  const found = [...checks, ...(plain ? [W.plainStyles] : []), ...lockedWords];
   if (stopped) return { kind: 'stopped', text: [W.stoppedVariants(list), ...found].join('\n\n'), saved: rows };
-  const text = [sort.reply.trim(), W.drewVariants(rows.length, oneScreen ? nameOf(saved.saved[0]!.screen) : null, list), ...found, ...(why ? [W.partly(why)] : [])];
+  const text = [locked.length ? '' : sort.reply.trim(), W.drewVariants(rows.length, oneScreen ? nameOf(saved.saved[0]!.screen) : null, list), ...found, ...(why ? [W.partly(why)] : [])];
   return { kind: 'changed', text: text.filter(Boolean).join('\n\n'), saved: rows };
 }
 
@@ -448,6 +474,8 @@ function pickFromChat(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort: Chat
   const w = workOf(sketch, sort)[0];
   const screen = w?.screen ? sketch.screens.find((s) => s.id === w.screen) : undefined;
   if (!screen) return { kind: 'failed', text: W.noScreen(w?.name ?? '') };
+  // An approved screen keeps the variant it was approved at until it is reopened (US-15).
+  if (screen.status === 'approved') return { kind: 'answer', text: W.approved([screen.name]) };
   const letter = sort.letter?.trim().toUpperCase();
   const target = letter ? variantOfLetter(screen, letter) : (screen.variants.find((v) => v.version === sort.version) ?? null);
   const said = letter ?? `v${sort.version}`;
@@ -538,7 +566,10 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
       } else if (sketch && variantsAsked(sort) !== null) {
         // Variants keep to the sketch's design system (US-17). With none selected, nothing is drawn: the board shows an
         // alert to select one, or to skip, which sends the message again with plain styles, this once.
-        if (!sketch.designSystem && !turn.plainStyles) reply = { kind: 'needs-design-system', text: WORDS[turn.language].needsDesignSystem(sketch.name) };
+        // Every screen asked for is approved (US-15): that is said first, since nothing would be drawn anyway.
+        const open = withoutApproved(sketch, workOf(sketch, sort));
+        if (!open.work.length) reply = { kind: 'answer', text: WORDS[turn.language].approved(open.locked) };
+        else if (!sketch.designSystem && !turn.plainStyles) reply = { kind: 'needs-design-system', text: WORDS[turn.language].needsDesignSystem(sketch.name) };
         else reply = await drawVariants(bp, turn, sketch, sort, workOf(sketch, sort), variantsAsked(sort)!, w, o);
       } else if (sketch) reply = await changeSketch(bp, turn, sketch, sort, w, o);
       else reply = await changeSystem(bp, turn, sort, w, o);

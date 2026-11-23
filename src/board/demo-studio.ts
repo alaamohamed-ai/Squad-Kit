@@ -96,7 +96,9 @@ function writeSketch(bp: BoardPaths, id: string, sketch: SketchFile, screens: De
       for (const [f, html] of Object.entries(d.frames)) files[frameFile(bp, id, s.id, version, f)] = html;
       writeNewVersion(variantDir(bp, id, s.id, version), files);
     });
-    const file: ScreenFile = { name: s.name, order: i + 1, status: s.status, chosen: s.drawings.length || null, edited: s.edited };
+    // An approved screen carries who approved it, when, and the version it froze (US-15).
+    const approved = s.status === 'approved' && s.drawings.length ? { approved: { version: s.drawings.length, at: s.edited.at, ...(s.edited.by ? { by: s.edited.by } : {}) } } : {};
+    const file: ScreenFile = { name: s.name, order: i + 1, status: s.status, chosen: s.drawings.length || null, ...approved, edited: s.edited };
     writeShared(screenFile(bp, id, s.id), dumpYaml(file));
   });
 }

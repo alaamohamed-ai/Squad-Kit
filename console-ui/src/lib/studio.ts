@@ -335,6 +335,8 @@ export interface ChatMessageView {
   role: 'person' | 'designer' | 'action';
   /** An "action" line for a pick. */
   picked?: PickMarkView;
+  /** An "action" line for Approve or Reopen (US-15): "Alaa approved Form at v3". */
+  approval?: ApprovalLineView;
   text: string;
   at?: string;
   /** Addresses of the message's pictures, served from this computer's chat folder. */
@@ -464,7 +466,62 @@ export interface ScreenView {
   chosen: number | null;
   /** Not named yet (US-11, AB-136.1): added with Add screen, its first drawing by the AI Designer names it. */
   unnamed?: boolean;
+  /** Approved (US-15): the version it froze, who and when, as its screen.yaml says; only while its status is "approved". */
+  approved?: ApprovalView;
   variants: VariantView[];
+}
+
+/* ── Approve and reopen a screen (US-15, AB-140) ── */
+
+/** A screen's approval, as saved on its own file: the version it froze, who approved it and when. */
+export interface ApprovalView {
+  version: number;
+  at: string;
+  by?: string;
+}
+
+/** The line Approve or Reopen added to the conversation: which screen, at which version, who and when. */
+export interface ApprovalLineView extends ApprovalView {
+  screen: string;
+  screenName: string;
+  reopened?: boolean;
+}
+
+/** Where Approve screen and Reopen are sent, with the sketch's stamp and the conversation open beside the screen. */
+export const approvalPath = (sketch: string, screen: string, what: 'approve' | 'reopen') => `${sketchApiPath(sketch)}/screens/${encodeURIComponent(screen)}/${what}`;
+
+/** What Approve screen and Reopen answer: the sketch as saved, what was done, and the conversation with its new line. */
+export interface ApprovalAnswer {
+  sketch: SketchFull;
+  done: ApprovalLineView | null;
+  conversation: ConversationData | null;
+}
+
+/** A screen is approved: locked, so "Use this one", Delete and changes are off until Reopen. */
+export const isApproved = (screen: Pick<ScreenView, 'status'> | undefined) => screen?.status === 'approved';
+
+/** When it was approved, like "23 Nov, 14:05"; empty when the time cannot be read. */
+export function approvalTime(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? '' : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${timeOf(at)}`;
+}
+
+/** "Approved by Alaa · 23 Nov, 14:05"; "Approved" alone for a screen approved before who and when were kept. */
+export function approvedByText(approved: ApprovalView | undefined): string {
+  if (!approved) return 'Approved';
+  const when = approvalTime(approved.at);
+  return `Approved${approved.by ? ` by ${approved.by}` : ''}${when ? ` · ${when}` : ''}`;
+}
+
+/** A screen's status as its chip says it: Draft, Ready or Approved. */
+export const statusLabel = (status: string) => (status ? status[0]!.toUpperCase() + status.slice(1) : 'Draft');
+
+/** Reopen's "Are you sure?" question, naming the screen and the version that stays. */
+export function reopenQuestion(screen: string, version: number | null): { title: string; holds: string } {
+  return {
+    title: `Reopen "${screen}"?`,
+    holds: `Are you sure? ${screen} goes back to Draft and its lock goes away. The next change makes a new version${version ? `; v${version} stays` : ''}.`,
+  };
 }
 
 /** One sketch read on its own, with each variant's HTML by frame. */

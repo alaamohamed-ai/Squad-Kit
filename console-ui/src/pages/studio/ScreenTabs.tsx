@@ -1,14 +1,15 @@
 import { useRef, useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Lock, Plus, Trash2, X } from 'lucide-react';
 import { send } from '../../api/client';
 import { Modal } from '../../components/ui';
-import { addScreenStamp, deleteScreenQuestion, screenApiPath, screensPath, tabAfterDelete, type ScreenView, type SketchFull } from '../../lib/studio';
+import { addScreenStamp, approvedByText, deleteScreenQuestion, screenApiPath, screensPath, tabAfterDelete, type ScreenView, type SketchFull } from '../../lib/studio';
 
 /* ── The screen tabs of a sketch (US-11, AB-136) ──
    One tab per screen, then "+ Add screen". Add screen makes "New screen" (then "New screen 2" …) at once, with no form,
    and selects it: the AI Designer's first drawing of it, from the chat, gives it a name (AB-136.1). Each tab has a
    Delete that asks first, naming the screen. Both send the sketch's stamp the page read (AB-129.1), so a change made
    elsewhere since is refused with "Changed elsewhere, reload". The selected tab stays in this browser tab (AB-127.1).
+   An approved screen's tab shows a lock, and its Delete is off until it is reopened (US-15).
    `squad studio sketch screen add|delete` do the same from the terminal. */
 
 const said = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -56,14 +57,17 @@ export function ScreenTabs({
       <div className="ws-tabs" role="tablist" aria-label="Screens">
         {screens.map((x) => (
           <span key={x.id} className="ws-tab" role="presentation">
-            <button role="tab" aria-selected={x.id === selected} dir="auto" onClick={() => onSelect(x.id)}>
+            <button role="tab" aria-selected={x.id === selected} dir="auto" title={x.status === 'approved' ? approvedByText(x.approved) : undefined} onClick={() => onSelect(x.id)}>
+              {x.status === 'approved' && <Lock size={11} className="ws-tab-lock" aria-label="Approved" />}
               {x.name}
             </button>
             <button
               type="button"
               className="ws-tab-del"
               aria-label={`Delete ${x.name}`}
-              title={`Delete ${x.name}`}
+              // An approved screen is not deleted until it is reopened (US-15).
+              disabled={x.status === 'approved'}
+              title={x.status === 'approved' ? `${x.name} is approved. Reopen it first.` : `Delete ${x.name}`}
               onClick={() => {
                 setProblem(null);
                 setDeleting(x);

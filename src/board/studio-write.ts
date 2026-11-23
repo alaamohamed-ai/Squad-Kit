@@ -114,6 +114,30 @@ export function existingScreen(bp: BoardPaths, sketch: string, screen: string): 
   return readScreenFile(file);
 }
 
+/** What a change to an approved screen is refused with (US-15, AB-140.1): "Form is approved. Reopen it first." */
+export function approvedWords(screenName: string): string {
+  return `${screenName} is approved. Reopen it first.`;
+}
+
+/**
+ * A change to an approved screen (US-15, AB-140.1): a new drawing, a pick, a delete or a new status. Refused by the
+ * Studio store itself, so the board, the terminal and the AI Designer all meet the same lock. Nothing was written.
+ */
+export class StudioScreenApproved extends Error {
+  constructor(
+    readonly screen: string,
+    readonly screenName: string,
+  ) {
+    super(approvedWords(screenName));
+    this.name = 'StudioScreenApproved';
+  }
+}
+
+/** The lock (AB-140.1): refuses a change to a screen while it is approved. Call it before anything is written. */
+export function checkNotApproved(screen: { id: string; name: string; status: ScreenStatus }): void {
+  if (screen.status === 'approved') throw new StudioScreenApproved(screen.id, screen.name);
+}
+
 /** Every frame must be one of the sketch's frames. */
 export function checkFrames(bp: BoardPaths, sketch: string, frames: Record<string, string>): void {
   const allowed = readSketchFile(sketchFile(bp, sketch)).frames;
@@ -147,6 +171,8 @@ export function askMarksOf(v: VariantAskMarks | undefined): Pick<VariantAskMarks
  */
 export function writeVariant(bp: BoardPaths, sketch: string, screen: string, frames: Record<string, string>, input: Omit<VariantInput, 'frames'> & { ask?: VariantAskMarks | null }): number {
   const before = existingScreen(bp, sketch, screen);
+  // An approved screen keeps its version until it is reopened (US-15, AB-140.1).
+  checkNotApproved({ id: screen, ...before });
   const version = Math.max(0, ...versionsIn(screenDir(bp, sketch, screen))) + 1;
   const meta: VariantMetaFile = { madeAt: new Date().toISOString() };
   if (typeof input.madeBy === 'string' && input.madeBy.trim()) meta.madeBy = input.madeBy.trim().slice(0, MAX_NAME);

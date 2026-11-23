@@ -3,6 +3,7 @@ import { isPlain } from './shape.js';
 import {
   SCREEN_STATUSES,
   addNewScreen,
+  approveScreen as approve,
   byMadeOrder,
   deleteDesignSystem as removeDesignSystem,
   deleteScreen as removeScreen,
@@ -13,8 +14,10 @@ import {
   readDesignSystem,
   readSketch,
   readStudio,
+  reopenScreen as reopen,
   saveDesignSystem,
   saveSketch,
+  type ApprovalLine,
   type DesignSystem,
   type DesignSystemInput,
   type EditBy,
@@ -28,7 +31,7 @@ import {
 } from './studio.js';
 import { checkedStudioId } from './studio-paths.js';
 import { holdStudio } from './studio-lock.js';
-import { addPickLine, readConversation } from './studio-chats.js';
+import { addApprovalLine, addPickLine, readConversation } from './studio-chats.js';
 
 /**
  * The Studio's actions (US-04, AB-129): list, read, create, change and delete for sketches and design systems, and
@@ -521,7 +524,53 @@ export function pickScreenVariant(bp: BoardPaths, sketch: string, screen: string
   });
 }
 
-/** Deletes a screen and every variant of it, for good. */
+/** What Approve or Reopen did: the sketch as saved, and the line it added to the conversation. */
+export interface ScreenApproval {
+  sketch: SketchView;
+  /** The approval or reopen as saved; null when the screen already was so, and nothing was written. */
+  done: ApprovalLine | null;
+  /** The conversation the line went to, when one was given. */
+  chat: string | null;
+  line: StudioChatMessage | null;
+}
+
+/**
+ * Approve screen and Reopen (US-15, AB-140.1), through the Studio store's own approve and reopen, under the sketch's
+ * lock and with the stamp the page read (AB-129.1); a stale one is refused with "Changed elsewhere, reload". Approve
+ * freezes the screen at the version it shows, as Approved with who and when; Reopen sets it back to Draft. With `chat`,
+ * the line "Alaa approved Form at v3" (or "Alaa reopened Form") goes to that conversation on this computer, only after
+ * the save (AB-143.1). While the AI Designer works on that conversation, it is refused before anything is written, as
+ * a pick is. The board and `squad studio sketch screen approve|reopen` both call this.
+ */
+function approval(bp: BoardPaths, sketch: string, screen: string, stamp: unknown, opts: PickOptions, reopened: boolean): ScreenApproval {
+  const from = checkedStamp(stamp);
+  const sc = screenOf(getSketch(bp, sketch), screen);
+  const chat = opts.chat === undefined || opts.chat === null || opts.chat === '' ? null : checkedStudioId(maybeText(opts.chat, 'conversation') ?? '');
+  const owner = { kind: 'sketch', id: sketch } as const;
+  if (chat) readConversation(bp, owner, chat);
+  return holdStudio(bp, () => {
+    if (chat && opts.busy?.(chat)) throw new StudioDesignerWorking();
+    const saved = (reopened ? reopen : approve)(bp, sketch, screen, from, personEditing(bp));
+    const after = getSketch(bp, saved.sketch.id);
+    if (!saved.mark) return { sketch: after, done: null, chat, line: null };
+    const done: ApprovalLine = { screen, screenName: sc.name, version: saved.mark.version, ...(reopened ? { reopened: true } : {}), at: saved.mark.at, ...(saved.mark.by ? { by: saved.mark.by } : {}) };
+    // Only now that it is saved does its line go to the chat (AB-143.1).
+    const line = chat ? addApprovalLine(bp, owner, chat, done) : null;
+    return { sketch: after, done, chat, line };
+  });
+}
+
+/** Approve screen (US-15): Approved with a lock, who and when, at the version it shows now. */
+export function approveSketchScreen(bp: BoardPaths, sketch: string, screen: string, stamp: unknown, opts: PickOptions = {}): ScreenApproval {
+  return approval(bp, sketch, screen, stamp, opts, false);
+}
+
+/** Reopen (US-15): back to Draft, the lock goes away; the next change makes a new version, and every version stays. */
+export function reopenSketchScreen(bp: BoardPaths, sketch: string, screen: string, stamp: unknown, opts: PickOptions = {}): ScreenApproval {
+  return approval(bp, sketch, screen, stamp, opts, true);
+}
+
+/** Deletes a screen and every variant of it, for good. Refused while it is approved (US-15). */
 export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: unknown): SketchView {
   const from = checkedStamp(stamp);
   screenOf(getSketch(bp, sketch), screen);

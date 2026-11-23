@@ -54,6 +54,20 @@ export interface PickMark {
 }
 
 /**
+ * Approve or Reopen on a screen (US-15, AB-143.1): the screen, the version it was approved at, who did it and when.
+ * Its line says "Alaa approved Form at v3" or "Alaa reopened Form".
+ */
+export interface ApprovalLine {
+  screen: string;
+  screenName: string;
+  version: number;
+  /** Reopen; left out for Approve. */
+  reopened?: boolean;
+  at: string;
+  by?: string;
+}
+
+/**
  * One line of a chat. "person" and "designer" are the messages; "action" is a short line a Studio button added after
  * its save (AB-143.1), such as "You picked Variant B · Step by step". The Designer is told about those on its next turn.
  */
@@ -73,6 +87,8 @@ export interface StudioChatMessage {
   start?: StartMark;
   /** An "action" line for "Use this one" (US-18): what was picked, by whom and when. */
   picked?: PickMark;
+  /** An "action" line for Approve or Reopen (US-15): which screen, at which version, by whom and when. */
+  approval?: ApprovalLine;
 }
 
 /** What the start page keeps on a sketch's first message (US-08), on this computer only. */

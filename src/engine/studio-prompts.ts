@@ -69,7 +69,12 @@ export interface BriefScreen {
   name: string;
   /** The chosen variant's pages, relative to the project folder, by frame. */
   files: Record<string, string>;
+  /** Approved (US-15, AB-140.1): locked, left out of every change until it is reopened. */
+  approved?: boolean;
 }
+
+/** How a locked screen is listed to the Designer (US-15). */
+export const APPROVED_NOTE = 'approved and locked: never change it, it needs Reopen first';
 
 /** Everything one Designer run is told, filled in by the runner from the Studio store. */
 export interface DesignerBrief {
@@ -118,7 +123,7 @@ function screensText(screens: BriefScreen[]): string {
   return screens
     .map((s) => {
       const files = Object.entries(s.files).map(([frame, file]) => `${frame}: ${file}`);
-      return `- ${s.name} (id ${s.id})${files.length ? `: ${files.join(', ')}` : ', not drawn yet'}`;
+      return `- ${s.name} (id ${s.id}${s.approved ? `, ${APPROVED_NOTE}` : ''})${files.length ? `: ${files.join(', ')}` : ', not drawn yet'}`;
     })
     .join('\n');
 }

@@ -253,9 +253,11 @@ describe('US-06 the Sketches home (AB-131)', () => {
     try {
       vi.setSystemTime(NOW - 3 * 24 * 60 * 60_000);
       store.saveDesignSystem(bp, { name: 'Brand' });
-      store.saveSketch(bp, { id: 'onboarding', name: 'Onboarding draft', designSystem: { id: 'brand', version: 1 }, frames: ['desktop'], screens: ['Welcome', 'Account', 'Interests', 'Alerts', 'Done'].map((name, i) => ({ name, status: i < 2 ? ('approved' as const) : i === 2 ? ('ready' as const) : ('draft' as const) })) }, null, { by: 'Sara' });
+      store.saveSketch(bp, { id: 'onboarding', name: 'Onboarding draft', designSystem: { id: 'brand', version: 1 }, frames: ['desktop'], screens: ['Welcome', 'Account', 'Interests', 'Alerts', 'Done'].map((name, i) => ({ name, status: i === 2 ? ('ready' as const) : ('draft' as const) })) }, null, { by: 'Sara' });
       let o = store.readSketch(bp, 'onboarding')!;
       for (const sc of o.screens) o = store.addVariant(bp, 'onboarding', sc.id, { frames: { desktop: `<h1>${sc.name}</h1>` }, madeBy: 'Sara' }, o.stamp);
+      // Drawn first, then approved (US-15): an approved screen gets no new drawing.
+      for (const sc of o.screens.slice(0, 2)) o = store.approveScreen(bp, 'onboarding', sc.id, o.stamp, { by: 'Sara' }).sketch;
       vi.setSystemTime(NOW - 2 * 24 * 60 * 60_000);
       const c = store.saveSketch(bp, { name: 'Checkout', designSystem: { id: 'brand', version: 1 }, frames: ['desktop', 'mobile'], screens: [{ name: 'Cart' }, { name: 'Payment', status: 'ready' }, { name: 'Done' }] }, null, { by: 'Sara' });
       store.addVariant(bp, 'checkout', 'cart', { frames: { desktop: '<h1>Cart</h1>', mobile: '<h1>Cart, small</h1>' }, madeBy: 'Sara' }, c.stamp);

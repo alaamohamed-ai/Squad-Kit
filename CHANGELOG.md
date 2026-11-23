@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Approve and reopen a screen.** "Approve screen" in a sketch's workspace freezes the screen at the version it
+  shows: it reads Approved with a lock, "Approved by Alaa · time", and the chat gets the line "Alaa approved Form at
+  v3". While it is approved, nothing can change it: "Use this one" and its tab's Delete are off, the AI Designer
+  leaves it out of a change and says it needs Reopen first, and the terminal refuses a change with "Form is approved.
+  Reopen it first." Reopen asks "Are you sure?", sets it back to Draft, and the next change makes a new version while
+  the approved one stays. The approval is kept in the screen's own file, so teammates see who approved what, and the
+  sketch card counts "2 of 3 approved". From the terminal: `squad studio sketch screen approve <sketch> <screen>` and
+  `squad studio sketch screen reopen <sketch> <screen>`.
 - **Add screens to a sketch.** The screen tabs of a sketch end with "+ Add screen": a new tab, "New screen", appears
   and is selected at once. Describe it in the chat, add a picture, or say "start from a copy of Form", and the AI
   Designer draws its variants in the sketch's design system and frames, matching the sketch's approved screens (or,

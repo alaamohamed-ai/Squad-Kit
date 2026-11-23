@@ -74,9 +74,20 @@ export interface SketchFile {
 
 /** What a person can mark a screen as today. */
 export const SCREEN_STATUSES = ['draft', 'ready'] as const;
-/** Every status a screen file can hold: "approved" is read already, so approving (US-15) only adds the button. */
+/** Every status a screen file can hold: "approved" comes only with Approve screen and goes only with Reopen (US-15). */
 export const SCREEN_STATES = [...SCREEN_STATUSES, 'approved'] as const;
 export type ScreenStatus = (typeof SCREEN_STATES)[number];
+
+/**
+ * A screen's approval (US-15, AB-140.1): the version it froze, who approved it and when. Kept on the screen's own
+ * screen.yaml with the status "approved", so a teammate gets it through git. Reopen takes it away.
+ */
+export interface ApprovalMark {
+  version: number;
+  at: string;
+  /** The person who approved it. Left out when the change did not say who. */
+  by?: string;
+}
 
 /** `screen.yaml`. */
 export interface ScreenFile {
@@ -85,6 +96,11 @@ export interface ScreenFile {
   status: ScreenStatus;
   /** The chosen variant's version, or null before the first one is drawn. */
   chosen: number | null;
+  /**
+   * Its approval (US-15, AB-140.1), while its status is "approved". A file approved before the mark was kept (or by a
+   * hand edit) has the status alone: it is still approved, with no version, who or when.
+   */
+  approved?: ApprovalMark;
   /**
    * Not named yet (AB-136.1): a screen added with no name is "New screen" until its first drawing by the AI Designer
    * names it from the description. Kept on the screen's own file, so a teammate who pulls it gets it named the same way.
@@ -178,6 +194,8 @@ export interface SketchScreen {
   chosen: number | null;
   /** Not named yet (AB-136.1): its first drawing by the AI Designer names it. */
   unnamed?: boolean;
+  /** Its approval (US-15): the version it froze, who and when; only while its status is "approved". */
+  approved?: ApprovalMark;
   /** The last change its screen file saved. */
   edited?: EditMark;
   variants: ScreenVariant[];
@@ -278,16 +296,32 @@ export function readSketchFile(file: string): SketchFile {
   return { name: raw.name, designSystem, frames, ...(edited ? { edited } : {}) };
 }
 
+/**
+ * An approval as written (US-15, AB-140.1), or undefined when there is none or it cannot be read: a hand edit never
+ * breaks the read, and the status alone still says the screen is approved.
+ */
+function readApprovalMark(x: unknown): ApprovalMark | undefined {
+  if (!isPlain(x) || !positive(x.version)) return undefined;
+  const at = timeText(x.at);
+  if (Number.isNaN(Date.parse(at))) return undefined;
+  const by = markName(x.by);
+  return { version: x.version, at, ...(by ? { by } : {}) };
+}
+
 export function readScreenFile(file: string): ScreenFile {
   const raw = readYamlFile(file);
   if (!isPlain(raw) || typeof raw.name !== 'string') throw problem(`The screen file ${file}`);
   const edited = readEditMark(raw.edited);
+  const status = (SCREEN_STATES as readonly unknown[]).includes(raw.status) ? (raw.status as ScreenStatus) : 'draft';
+  // The approval counts only with the status that says it: a mark left on a draft is not read.
+  const approved = status === 'approved' ? readApprovalMark(raw.approved) : undefined;
   return {
     name: raw.name,
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
-    status: (SCREEN_STATES as readonly unknown[]).includes(raw.status) ? (raw.status as ScreenStatus) : 'draft',
+    status,
     chosen: positive(raw.chosen) ? raw.chosen : null,
     ...(raw.unnamed === true ? { unnamed: true } : {}),
+    ...(approved ? { approved } : {}),
     ...(edited ? { edited } : {}),
   };
 }

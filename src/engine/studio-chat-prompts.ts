@@ -1,5 +1,5 @@
 import { asData } from './prompts.js';
-import { MAX_SCREENS, MAX_SCREEN_NAME, SCREENS_SCHEMA, type BriefScreen } from './studio-prompts.js';
+import { APPROVED_NOTE, MAX_SCREENS, MAX_SCREEN_NAME, SCREENS_SCHEMA, type BriefScreen } from './studio-prompts.js';
 
 /**
  * What the AI Designer reads in the Studio's chat (US-52, AB-177.1): each message is first sorted (an answer, a
@@ -29,7 +29,8 @@ export const STUDIO_ACTIONS: readonly { id: string; words: string; on: 'sketch' 
   { id: 'change-design-system', words: "Change the design system's tokens (colors, fonts, spacing, corners) and its components", on: 'design-system', available: true },
   { id: 'add-frame', words: 'Add a frame to the sketch (mobile, tablet …) or remove one', on: 'sketch', available: false },
   { id: 'export', words: 'Export screens or the design system (PDF, PNG, HTML, code)', on: 'both', available: false },
-  { id: 'approve-screen', words: 'Approve a screen, or mark it ready', on: 'sketch', available: false },
+  // Done only with the screen's own buttons (US-15), so the person decides: the chat points to them.
+  { id: 'approve-screen', words: 'Approve a screen or reopen it (done only with the "Approve screen" and "Reopen" buttons above the screen)', on: 'sketch', available: false },
   { id: 'pick-variant', words: 'Use another variant of a screen ("Use B"), as its card\'s "Use this one" button does, or an older version', on: 'sketch', available: true },
   { id: 'make-default', words: 'Make a design system the default, or move the sketch to another design system', on: 'both', available: false },
   // Never done from the chat (US-13): the person deletes a sketch from its card's menu, so they see the confirmation.
@@ -206,7 +207,7 @@ function screensText(screens: BriefScreen[]): string {
   return screens
     .map((s) => {
       const files = Object.entries(s.files).map(([frame, file]) => `${frame}: ${file}`);
-      return `- ${s.name} (id ${s.id})${files.length ? `: ${files.join(', ')}` : ', not drawn yet'}`;
+      return `- ${s.name} (id ${s.id}${s.approved ? `, ${APPROVED_NOTE}` : ''})${files.length ? `: ${files.join(', ')}` : ', not drawn yet'}`;
     })
     .join('\n');
 }
@@ -223,6 +224,12 @@ export function chatSortPrompt(b: ChatBrief): string {
   if (b.lookingAt?.screen || b.lookingAt?.frame) parts.push(`The person is looking at${b.lookingAt.screen ? ` the screen "${b.lookingAt.screen}"` : ''}${b.lookingAt.frame ? ` in its ${b.lookingAt.frame} frame` : ''}. "This" and "it" mean that, unless they say otherwise.`);
   if (b.earlier.length) parts.push(asData('The conversation so far', b.earlier.map((m) => `${m.role === 'person' ? 'Person' : 'You'}: ${m.text}`).join('\n')));
   if (b.picked?.length) parts.push(`Since your last reply, the person picked ${b.picked.map((p) => `"${p}"`).join(', then ')} with the variant's "Use this one" button. That is the screen's current version now: its pages listed above are the picked one, and any change starts from it.`);
+  if (b.target.kind === 'sketch' && b.target.screens.some((s) => s.approved)) {
+    const names = b.target.screens.filter((s) => s.approved).map((s) => `"${s.name}"`);
+    parts.push(
+      `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} approved: locked until the person reopens ${names.length === 1 ? 'it' : 'them'} with Reopen. Never list an approved screen in "screens", and never pick a variant of one. When the message asks to change one, list only the other screens it asks for, and say in "reply" that the approved one needs Reopen first. Questions about approved screens are answered as usual.`,
+    );
+  }
   if (b.pictures.length) parts.push(`The person added ${b.pictures.length === 1 ? 'a picture' : `${b.pictures.length} pictures`} to this message as a reference. Read ${b.pictures.length === 1 ? 'it' : 'them'} first:\n${b.pictures.map((p) => `- ${p}`).join('\n')}`);
   parts.push(
     `What the Studio can do:\n${actionsText(b.target.kind)}`,
