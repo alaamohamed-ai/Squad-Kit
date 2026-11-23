@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { designSystemsKey, isColorValue, lookingAtText, saveStudioTab, type DesignSystemFull } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
+import { useMarkStudioSeen } from '../../lib/studio-seen';
 
 /* ── A design system's page (US-52) ──
    Opened from its card on the Design systems tab. The chat with the AI Designer is on the left, as in a sketch's
@@ -27,6 +28,8 @@ function colorTokens(tokens: unknown, prefix = '', out: [string, string][] = [],
 }
 
 export function DesignSystemPage({ project, id }: { project: string; id: string }) {
+  // Opening any Studio page, a sketch from a link too, takes the sidebar's New away (AB-178.1).
+  useMarkStudioSeen(project);
   const key = ['studio', project, 'design-system', id];
   const qc = useQueryClient();
   const ds = useQuery({ queryKey: key, queryFn: () => api<DesignSystemFull>(`/api/v1/studio/design-systems/${encodeURIComponent(id)}`) });

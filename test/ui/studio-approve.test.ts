@@ -115,14 +115,18 @@ afterEach(async () => {
 describe('Approve screen in the workspace', () => {
   it('done when 1: sends the stamp and the conversation; Form shows Approved with a lock, "Approved by Alaa · time", still v3, and the chat line', async () => {
     await open();
-    expect(approval()).toBe('Draft Approve screen');
+    // The version sits before the status (US-53): "v3 · Draft".
+    expect(approval()).toBe('v3 · Draft Approve screen');
     await press(button('Approve screen'));
     expect(changes).toEqual([{ method: 'POST', url: `${BASE}/sketches/booking/screens/form/approve`, body: { stamp: 'stamp-1', chat: 'main' } }]);
-    await until(() => approval().startsWith('Approved'));
-    expect(approval()).toMatch(/^Approved Approved by Alaa · .+ Reopen$/);
+    await until(() => approval().startsWith('v3 · Approved'));
+    expect(approval()).toMatch(/^v3 · Approved Approved by Alaa · .+ Reopen$/);
     expect(page.querySelector('.ws-status.approved svg')).not.toBeNull();
     expect(page.querySelector('.ws-version').textContent).toBe('v3');
     expect(page.querySelector('.ws-version.locked')).not.toBeNull();
+    // In the top bar before the status, no longer in the row of screen tabs (US-53).
+    expect(page.querySelector('.top .ws-status .ws-version')).not.toBeNull();
+    expect(page.querySelector('.ws-bar .ws-version')).toBeNull();
     await until(() => !!page.querySelector('.dc-line'));
     expect(page.querySelector('.dc-msgs .dc-line span').textContent).toBe('Alaa approved Form at v3');
   });
@@ -152,12 +156,12 @@ describe('Reopen asks "Are you sure?" first', () => {
     await press(button('Cancel', dialog));
     expect(page.querySelector('[role="dialog"]')).toBeNull();
     expect(changes).toEqual([]);
-    expect(approval()).toMatch(/^Approved /);
+    expect(approval()).toMatch(/^v3 · Approved /);
 
     await press(button('Reopen'));
     await press(button('Reopen', page.querySelector('[role="dialog"]')));
     expect(changes).toEqual([{ method: 'POST', url: `${BASE}/sketches/booking/screens/form/reopen`, body: { stamp: 'stamp-1', chat: 'main' } }]);
-    await until(() => approval() === 'Draft Approve screen');
+    await until(() => approval() === 'v3 · Draft Approve screen');
     expect(page.querySelector('[role="dialog"]')).toBeNull();
     expect(page.querySelector('.dc-locked')).toBeNull();
     expect((page.querySelector('[aria-label="Delete Form"]') as any).disabled).toBe(false);

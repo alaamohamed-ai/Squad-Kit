@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { ChevronLeft, Lock } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { askCards, chatsKey, emptyScreenText, frameName, isApproved, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type ConversationData, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
@@ -9,6 +9,7 @@ import { ScreenApproval } from './ScreenApproval';
 import { ScreenTabs } from './ScreenTabs';
 import { SketchNameHeader } from './SketchActions';
 import { VariantCards } from './VariantCards';
+import { useMarkStudioSeen } from '../../lib/studio-seen';
 
 /* ── A sketch's workspace (US-05, US-52) ──
    The chat with the AI Designer is always open on the left: it is how the screens are made and changed. On the right,
@@ -26,6 +27,8 @@ export function SketchWorkspacePage() {
 }
 
 export function SketchWorkspace({ project, id }: { project: string; id: string }) {
+  // Opening any Studio page, a sketch from a link too, takes the sidebar's New away (AB-178.1).
+  useMarkStudioSeen(project);
   const base = `/api/v1/studio/sketches/${encodeURIComponent(id)}`;
   const key = sketchKey(project, id);
   const qc = useQueryClient();
@@ -87,7 +90,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
         {s ? <SketchNameHeader key={`${s.id}:${s.name}`} project={project} sketch={{ id: s.id, name: s.name, stamp: s.stamp, screens: s.screens.length }} /> : <h1 dir="auto">{sketch.isError ? 'Sketch' : '…'}</h1>}
         {s && <span className="note">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'Follows no design system'}</span>}
         <span className="grow" />
-        {s && screen && <ScreenApproval key={screen.id} sketch={s} screen={screen} chat={chat} working={doing !== null} onDone={picked} onRefused={answered} />}
+        {s && screen && <ScreenApproval key={screen.id} sketch={s} screen={screen} version={variant?.version ?? null} chat={chat} working={doing !== null} onDone={picked} onRefused={answered} />}
       </div>
       {sketch.isError ? (
         <div className="page">
@@ -116,11 +119,6 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
             {s && (
               <div className="ws-bar">
                 <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />
-                {variant && (
-                  <span className={`ws-version${locked ? ' locked' : ''}`} title={locked ? `${screen!.name} is approved at v${variant.version}` : undefined}>
-                    {locked && <Lock size={11} aria-label="Approved" />}v{variant.version}
-                  </span>
-                )}
                 {frames.length > 0 && (
                   <div className="seg ws-frames" role="tablist" aria-label="Frames">
                     {frames.map((f) => (

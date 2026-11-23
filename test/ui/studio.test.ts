@@ -34,6 +34,7 @@ const board = (file: string) => import(/* @vite-ignore */ new URL(`../../console
 const S = await board('src/lib/studio.ts');
 const { StudioPage } = await board('src/pages/Studio.tsx');
 const { SketchWorkspacePage } = await board('src/pages/studio/SketchWorkspace.tsx');
+const Seen = await board('src/lib/studio-seen.ts');
 const h = React.createElement;
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -64,16 +65,24 @@ let appOption: { ok: boolean; why?: string; app?: string };
 let changes: { method: string; url: string; body: any }[];
 
 /** The Studio page and a sketch's workspace, in a router of their own, as the board serves them. */
-async function open(project: string, at = '/studio') {
+async function open(project: string, at = '/studio', opts: { side?: boolean } = {}) {
   await close();
   root = createRoot(page.getElementById('root'));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const top = Router.createRootRoute();
   const studio = Router.createRoute({ getParentRoute: () => top, path: '/studio', component: () => h(StudioPage, { project }) });
   const sketch = Router.createRoute({ getParentRoute: () => top, path: '/studio/sketches/$id', component: SketchWorkspacePage });
-  router = Router.createRouter({ routeTree: top.addChildren([studio, sketch]), history: Router.createMemoryHistory({ initialEntries: [at] }) });
-  await act(async () => root!.render(h(QueryClientProvider, { client }, h(Router.RouterProvider, { router }))));
+  const boardPage = Router.createRoute({ getParentRoute: () => top, path: '/board', component: () => h('p', { className: 'board-page' }, 'Board') });
+  router = Router.createRouter({ routeTree: top.addChildren([studio, sketch, boardPage]), history: Router.createMemoryHistory({ initialEntries: [at] }) });
+  const app = h(Router.RouterProvider, { router });
+  // The sidebar's Studio badge, as the Shell shows it (US-53): New, or nothing.
+  const side = opts.side ? h('span', { id: 'studio-new' }, h(SideBadge, { project })) : null;
+  await act(async () => root!.render(h(QueryClientProvider, { client }, side, app)));
+  if (at === '/board') return;
   await settle();
+}
+function SideBadge({ project }: { project: string }) {
+  return Seen.useStudioNew(project) ? 'New' : '';
 }
 async function close() {
   if (root) await act(async () => root!.unmount());
@@ -149,6 +158,21 @@ beforeEach(() => {
       changes.push({ method, url, body: null });
       return json({ picture: { name: 'Mawid.png', type: 'image/png', data: `data:image/png;base64,${PNG.toString('base64')}` } });
     }
+    // A sketch's screens (US-11): Add screen and a tab's Delete, each with the stamp the page read.
+    const screensAt = /^\/p\/mawid\/api\/v1\/studio\/sketches\/([a-z0-9-]+)\/screens(?:\/([a-z0-9-]+))?$/.exec(url);
+    if (screensAt && (method === 'POST' || method === 'DELETE')) {
+      const body = JSON.parse(String(init.body));
+      changes.push({ method, url, body });
+      const s = sketches.find((x) => x.id === screensAt[1])!;
+      if (method === 'POST') {
+        s.screens = [...s.screens, { id: 'new-screen', name: 'New screen', order: s.screens.length + 1, status: 'draft', unnamed: true } as { id: string; name: string }];
+        s.stamp = `${s.stamp}+`;
+        return json({ added: 'new-screen', stamp: s.stamp });
+      }
+      s.screens = s.screens.filter((x) => x.id !== screensAt[2]);
+      s.stamp = `${s.stamp}-`;
+      return json({ deleted: screensAt[2] });
+    }
     throw new Error(`The Studio must not call ${method} ${url}`);
   });
   vi.stubGlobal('fetch', fetchSpy);
@@ -163,12 +187,19 @@ describe('the Studio in the sidebar', () => {
     return [...list.matchAll(/\{ to: '([^']+)', label: '([^']+)', icon: (\w+)([^}]*)\}/g)].map((m) => ({ to: m[1], label: m[2], icon: m[3], rest: m[4] }));
   };
 
-  it('shows Studio with the palette icon right after Architecture, with no switch and no counter', () => {
+  it('done when 1: shows Studio with the palette icon right after Conversations, then Releases, Architecture and Bugs', () => {
     const items = nav();
-    const at = items.findIndex((n) => n.label === 'Architecture');
+    const labels = items.map((n) => n.label);
+    const at = labels.indexOf('Conversations');
     expect(at).toBeGreaterThanOrEqual(0);
-    expect(items[at + 1]).toEqual({ to: '/studio', label: 'Studio', icon: 'Palette', rest: ' ' });
-    expect(read('console-ui/src/components/Shell.tsx')).toMatch(/import \{[^}]*\bPalette\b[^}]*\} from 'lucide-react'/);
+    expect(labels.slice(at, at + 5)).toEqual(['Conversations', 'Studio', 'Releases', 'Architecture', 'Bugs']);
+    // Drawn like the other entries, with the New badge the same as Requirements': no switch and no counter.
+    expect(items[at + 1]).toEqual({ to: '/studio', label: 'Studio', icon: 'Palette', rest: ", badge: 'studio' as const " });
+    const shell = read('console-ui/src/components/Shell.tsx');
+    expect(shell).toMatch(/import \{[^}]*\bPalette\b[^}]*\} from 'lucide-react'/);
+    expect(shell).toContain(`{n.badge === 'studio' && studioNew && <span className="badge new">New</span>}`);
+    expect(shell).toContain(`<span className="badge new">New</span>}`);
+    expect(shell).toContain("const studioNew = useStudioNew(PROJECT ?? '');");
   });
 
   it('opens at /p/<project>/studio, with the tab not in the address', () => {
@@ -181,12 +212,36 @@ describe('the Studio in the sidebar', () => {
 });
 
 describe('the Studio page', () => {
-  it('opens on Sketches the first time, with its title, its line and the two tabs', async () => {
+  it('opens on Sketches the first time, with its title and the two tabs', async () => {
     await open('mawid');
     expect(page.querySelector('h1').textContent).toBe('Studio');
-    expect(page.querySelector('.top .note').textContent).toBe('Your sketches and design systems for this project.');
     expect(tabs().map((t) => t.textContent)).toEqual(['Sketches', 'Design systems']);
     expect(openTab()).toBe('Sketches');
+  });
+
+  it('done when 2: the title Studio, then one segmented control with two text-only tabs, the selected one raised', async () => {
+    await open('mawid');
+    const top = page.querySelector('.top');
+    expect([...top.children].map((el: any) => el.tagName + (el.className ? `.${el.className.split(' ').join('.')}` : ''))).toEqual(['H1', 'DIV.seg.studio-seg']);
+    const seg = top.querySelector('.seg');
+    expect(seg.getAttribute('role')).toBe('tablist');
+    // Text only, as the person decided: no icon in either tab, Design systems included. No subtitle line and no
+    // underline tabs any more.
+    expect(seg.querySelectorAll('svg')).toHaveLength(0);
+    expect(page.querySelector('.ptabs')).toBeNull();
+    expect(top.querySelector('.note')).toBeNull();
+    // The selected tab is the raised one: the .seg look's "on", the same in light and dark.
+    expect([...seg.querySelectorAll('button')].map((b: any) => [b.textContent, b.className, b.getAttribute('aria-selected')])).toEqual([
+      ['Sketches', 'on', 'true'],
+      ['Design systems', '', 'false'],
+    ]);
+    await click('Design systems');
+    expect([...seg.querySelectorAll('button.on')].map((b: any) => b.textContent)).toEqual(['Design systems']);
+    // Only squad-kit's own look: the shared .seg rule, raised with the theme's own colours, no colour of its own.
+    const css = read('console-ui/src/styles/app.css');
+    expect(css).toContain('.seg button.on { background: var(--surface); color: var(--text);');
+    const studioRules = [...css.matchAll(/^\.studio-[^{]*\{[^}]*\}/gm)].map((m) => m[0]).join('\n');
+    expect(studioRules).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
   });
 
   it('shows the start page on an empty Sketches tab, and only a short message on an empty Design systems tab', async () => {
@@ -197,6 +252,12 @@ describe('the Studio page', () => {
     await click('Design systems');
     expect(panel().textContent).toBe('No design systems yet.');
     expect(panel().children).toHaveLength(1);
+    // done when 3: centred the same way as the Sketches start page, across the whole content area.
+    expect(panel().firstElementChild.className).toBe('studio-empty');
+    const css = read('console-ui/src/styles/app.css');
+    expect(css).toContain('.studio-empty { max-width: 760px; margin: 48px auto 24px; text-align: center; }');
+    expect(css).toContain('.sk-start { max-width: 760px; margin: 48px auto 24px;');
+    expect(css).toContain('#studio-panel:has(> .sk-start), #studio-panel:has(> .studio-empty) { max-width: none; }');
   });
 
   it('remembers the last tab per project, also after a reload', async () => {
@@ -223,8 +284,9 @@ describe('the Studio page', () => {
     newBrowserTab();
     await open('mawid');
     expect(openTab()).toBe('Sketches');
-    // Nothing lasts past the tab: the computer's lasting storage holds no Studio choice, only the board's sign-in.
-    expect(Object.keys(dom.window.localStorage)).toEqual(['squad.console.token']);
+    // Nothing lasts past the tab: the computer's lasting storage holds no Studio choice, only the board's sign-in and
+    // the sidebar's "seen the Studio" mark (AB-178.1).
+    expect(Object.keys(dom.window.localStorage).sort()).toEqual(['squad-studio-seen:mawid', 'squad.console.token']);
   });
 
   it('falls back to Sketches when the saved value is unknown or unreadable', async () => {
@@ -261,7 +323,7 @@ describe('the Studio page', () => {
     // changes, each in its own file.
     for (const file of ['console-ui/src/pages/Studio.tsx', 'console-ui/src/lib/studio.ts'])
       expect(read(file)).not.toMatch(/lib\/data|useAct|apiFetch|fetch\(|useMutation|\bsend\b|method:/);
-    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchActions', './studio/StartSketch']);
+    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchActions', './studio/StartSketch', '../lib/studio-seen']);
   });
 });
 
@@ -375,11 +437,20 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     expect(button('Send')).toBeTruthy();
     expect(button('Send').disabled).toBe(true);
     // The box comes before the options, which are smaller and under it.
-    const order = [box(), ...page.querySelectorAll('.sk-chip'), button('Start from an image'), button('A screen from your app')];
+    const order = [box(), ...page.querySelectorAll('.sk-chip'), button('An image'), button('A screen from your app')];
     for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect([...page.querySelectorAll('.sk-chip')].map((c: any) => c.textContent)).toEqual(['A login page in Arabic and English', "An admin dashboard with today's visits", 'A profile page for patients']);
     expect([...S.EXAMPLE_PROMPTS]).toEqual(['A login page in Arabic and English', "An admin dashboard with today's visits", 'A profile page for patients']);
     expect(panel().textContent).not.toContain('Nothing here yet');
+  });
+
+  it('US-53 done when 3: centred, and under the chat box only the options that work today: An image and A screen from your app', async () => {
+    await open('mawid');
+    expect(panel().firstElementChild.className).toBe('sk-start');
+    const from = page.querySelector('.sk-from');
+    expect([...from.querySelectorAll('button')].map((b: any) => b.textContent.trim())).toEqual(['An image', 'A screen from your app']);
+    expect(from.querySelector('span').textContent).toBe('Or start from');
+    expect(panel().textContent).not.toMatch(/Figma|coming soon/i);
   });
 
   it('done when 2: a prompt fills the box and a picked picture shows as a small preview, with nothing sent', async () => {
@@ -396,11 +467,11 @@ describe('the start page on an empty Sketches tab (US-05)', () => {
     expect(changes).toEqual([]);
     expect(fetchSpy.mock.calls.every(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET')).toBe(true);
 
-    // "Start from an image" opens the same picker.
+    // "An image" opens the same picker.
     const input = page.querySelector('input[type="file"]') as any;
     const opened = vi.fn();
     input.addEventListener('click', opened);
-    await press(button('Start from an image'));
+    await press(button('An image'));
     expect(opened).toHaveBeenCalledTimes(1);
     expect(input.getAttribute('accept')).toBe('image/png,image/jpeg,image/webp');
 
@@ -889,5 +960,271 @@ describe('US-17 Draw variants: the variants of an ask side by side (AB-142)', ()
       ['C', 3, false],
     ]);
     expect(S.askCards({ chosen: 1, variants: [{ version: 1, frames: [], html: {} }] })).toBeNull();
+  });
+});
+
+describe('US-53 the sidebar\'s New badge on Studio (AB-178.1)', () => {
+  const badge = () => page.getElementById('studio-new')?.textContent ?? null;
+  const wait = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  };
+  const listsRead = () => fetchSpy.mock.calls.filter(([url]) => /\/studio\/(sketches|design-systems)$/.test(String(url))).length;
+  const go = async (to: string) => {
+    await act(async () => {
+      await router.navigate({ to });
+    });
+    await wait(() => to !== '/studio' || !!page.querySelector('h1'));
+  };
+
+  it('done when 1: New on a project never opened with nothing in it; gone once the Studio opens, and after a reload', async () => {
+    await open('mawid', '/board', { side: true });
+    await wait(() => badge() === 'New');
+    expect(badge()).toBe('New');
+    // Open the Studio, then back to the Board: New is gone, and the mark is in this browser's lasting memory only.
+    await go('/studio');
+    await wait(() => badge() === '');
+    expect(badge()).toBe('');
+    await go('/board');
+    expect(badge()).toBe('');
+    expect(dom.window.localStorage.getItem(S.studioSeenKey('mawid'))).not.toBeNull();
+    expect(changes).toEqual([]);
+    // A reload: the page mounts again; New stays gone, and the lists are not even read for it.
+    await close();
+    fetchSpy.mockClear();
+    await open('mawid', '/board', { side: true });
+    await wait(() => false);
+    expect(badge()).toBe('');
+    expect(listsRead()).toBe(0);
+    // One mark per project: another project never opened still shows New.
+    await open('shop', '/board', { side: true });
+    await wait(() => badge() === 'New');
+    expect(badge()).toBe('New');
+  });
+
+  it('never flashes while the lists load: New only once both have come back empty', async () => {
+    const real = fetchSpy.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/studio/sketches')) await gate;
+      return real(url, init);
+    });
+    await open('mawid', '/board', { side: true });
+    await wait(() => false);
+    expect(listsRead()).toBe(2);
+    expect(badge()).toBe('');
+    release();
+    await wait(() => badge() === 'New');
+    expect(badge()).toBe('New');
+  });
+
+  it('never shows New in a project that already has a sketch or a design system', async () => {
+    sketches = [{ id: 'login', name: 'Login', designSystem: null, stamp: 's', screens: [] }];
+    await open('mawid', '/board', { side: true });
+    await wait(() => listsRead() >= 2);
+    await wait(() => false);
+    expect(badge()).toBe('');
+
+    sketches = [];
+    systems = [{ id: 'brand', name: 'Brand', isDefault: true, version: 1, colors: [], sketches: 0 }];
+    fetchSpy.mockClear();
+    await open('mawid', '/board', { side: true });
+    await wait(() => listsRead() >= 2);
+    await wait(() => false);
+    expect(badge()).toBe('');
+  });
+
+  it('is set by any Studio page, a sketch opened from a link too', async () => {
+    sketches = [{ id: 'login', name: 'Login', designSystem: null, stamp: 's', screens: [] }];
+    await open('mawid', '/studio/sketches/login');
+    expect(dom.window.localStorage.getItem(S.studioSeenKey('mawid'))).not.toBeNull();
+    expect(S.hasSeenStudio('shop')).toBe(false);
+    // The design system page sets it too.
+    expect(read('console-ui/src/pages/studio/DesignSystemPage.tsx')).toContain('useMarkStudioSeen(project);');
+  });
+
+  it('counts a browser that cannot keep the mark as seen: no New that never goes away', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('storage is off');
+      },
+      setItem: () => {
+        throw new Error('storage is off');
+      },
+    });
+    try {
+      expect(S.hasSeenStudio('mawid')).toBe(true);
+      expect(() => Seen.markStudioSeen('mawid')).not.toThrow();
+    } finally {
+      vi.stubGlobal('localStorage', dom.window.localStorage);
+    }
+  });
+});
+
+describe('US-53 the screen tabs stay on one row', () => {
+  const LONG = 'Booking follow-up for older patients in Arabic and English';
+  const NAMES: [string, string][] = [
+    ['doctor', 'Choose a doctor'],
+    ['older-patients', LONG],
+    ['day', 'Pick a day'],
+    ['time', 'Pick a time'],
+    ['details', 'Your details'],
+    ['confirm', 'Confirm'],
+    ['reminders', 'Reminders'],
+    ['done', 'Done'],
+  ];
+  let scrolled: string[];
+  const press = async (el: any) => {
+    await act(async () => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })));
+    await settle();
+  };
+  const wait = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
+  };
+  const tab = (id: string) => page.querySelector(`.ws-tab[data-screen="${id}"]`) as any;
+  const selected = () => page.querySelector('.ws-tabs [aria-selected="true"]')?.closest('.ws-tab')?.getAttribute('data-screen');
+  const css = () => read('console-ui/src/styles/app.css');
+  const rule = (selector: string) => {
+    const at = css().split('\n').find((l) => l.startsWith(`${selector} {`));
+    expect(at, selector).toBeTruthy();
+    return at!;
+  };
+
+  beforeEach(() => {
+    scrolled = [];
+    // A row 300px wide whose tabs are 190px each, 10px apart: only the first fits. Scrolling records the screen it
+    // brought into view, so the test sees which tab the row scrolled to, and that only the row scrolled.
+    const proto = dom.window.HTMLElement.prototype;
+    proto.getBoundingClientRect = function (this: any) {
+      if (this.classList.contains('ws-tabs')) return { left: 0, right: 300, top: 0, bottom: 30, width: 300, height: 30 };
+      if (this.classList.contains('ws-tab')) {
+        const i = [...this.parentElement.children].indexOf(this);
+        return { left: i * 200, right: i * 200 + 190, top: 0, bottom: 30, width: 190, height: 30 };
+      }
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+    };
+    proto.scrollBy = function (this: any, by: { left: number }) {
+      expect(this.className).toBe('ws-tabs');
+      const i = Math.round((by.left - 8 + 300 - 190) / 200);
+      scrolled.push(this.children[i]?.getAttribute('data-screen'));
+    };
+    // The chat keeps its last message in view on its own; a tab never scrolls the page around the row.
+    proto.scrollIntoView = function (this: any) {
+      if (this.closest('.ws-tabrow')) throw new Error('The page around the row must not scroll');
+    };
+    sketches = [
+      {
+        id: 'follow-up-visit',
+        name: 'Follow-up visit',
+        designSystem: null,
+        stamp: 'f1',
+        screens: NAMES.map(([id, name], i) => ({
+          id,
+          name,
+          order: i + 1,
+          status: id === 'confirm' ? 'approved' : 'draft',
+          ...(id === 'confirm' ? { chosen: 1, approved: { version: 1, at: '2026-11-20T10:00:00.000Z', by: 'Sara' }, variants: [{ version: 1, frames: ['desktop'], html: { desktop: '<p>Confirm</p>' } }] } : {}),
+        })),
+      },
+    ];
+  });
+  afterEach(() => {
+    const proto = dom.window.HTMLElement.prototype;
+    delete proto.scrollIntoView;
+    delete proto.scrollBy;
+    delete proto.getBoundingClientRect;
+  });
+
+  it('done when 5: all 8 tabs sit on one row that never wraps and scrolls sideways; the long name is cut with … and full on hover', async () => {
+    await open('mawid', '/studio/sketches/follow-up-visit');
+    expect([...page.querySelectorAll('.ws-tabs .ws-tab-name')].map((n: any) => n.textContent)).toEqual(NAMES.map(([, n]) => n));
+    // One row, scrolling sideways; each pill keeps its size and its name on one line, cut at about 200px.
+    expect(rule('.ws-tabs')).toMatch(/flex-wrap: nowrap;.*overflow-x: auto;/);
+    expect(rule('.ws-tab')).toContain('flex: none;');
+    expect(rule('.ws-tab-name')).toMatch(/max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/);
+    expect(rule('.ws-tab > button[role=\'tab\']')).toContain('white-space: nowrap;');
+    // The full name on hover, written in its own direction.
+    const long = tab('older-patients');
+    expect(long.querySelector('[role="tab"]').getAttribute('title')).toBe(LONG);
+    expect(long.querySelector('.ws-tab-name').getAttribute('dir')).toBe('auto');
+    // The pill holds its × at the end; its space is kept in every pill, shown on the selected one and on hover.
+    expect([...long.children].map((c: any) => c.className || c.getAttribute('role'))).toEqual(['tab', 'ws-tab-del']);
+    expect(rule('.ws-tab-del')).toMatch(/flex: none;.*visibility: hidden;/);
+    expect(css()).toContain(".ws-tab:hover .ws-tab-del, .ws-tab:focus-within .ws-tab-del, .ws-tab:has([aria-selected='true']) .ws-tab-del { visibility: visible; }");
+    expect(rule('.ws-tabs')).toContain('gap: 8px;');
+    // Confirm is approved: its lock, and its full line on hover.
+    const confirm = tab('confirm');
+    expect(confirm.querySelector('[aria-label="Approved"]')).not.toBeNull();
+    expect(confirm.querySelector('[role="tab"]').getAttribute('title')).toMatch(/^Confirm · Approved by Sara/);
+    // The first tab is selected and already in view, so the row stays where it is.
+    expect(scrolled).toEqual([]);
+  });
+
+  it('done when 5: the long-named tab\'s × stays whole and deletes it after asking', async () => {
+    await open('mawid', '/studio/sketches/follow-up-visit');
+    const del = tab('older-patients').querySelector('.ws-tab-del');
+    expect(del.getAttribute('aria-label')).toBe(`Delete ${LONG}`);
+    expect(del.disabled).toBe(false);
+    await press(del);
+    const dialog = page.querySelector('[role="dialog"]');
+    expect(dialog.getAttribute('aria-label')).toBe(`Delete "${LONG}" and its drawings?`);
+    expect(changes).toEqual([]);
+    await press([...dialog.querySelectorAll('button')].find((b: any) => b.textContent === 'Delete'));
+    expect(changes).toEqual([{ method: 'DELETE', url: '/p/mawid/api/v1/studio/sketches/follow-up-visit/screens/older-patients', body: { stamp: 'f1' } }]);
+    await wait(() => !tab('older-patients'));
+    expect(tab('older-patients')).toBeNull();
+  });
+
+  it('done when 5: at the end of the row, outside the scrolling part, a divider, All screens and then Add screen; a new screen is scrolled into view', async () => {
+    await open('mawid', '/studio/sketches/follow-up-visit');
+    const row = page.querySelector('.ws-tabrow');
+    expect([...row.children].map((c: any) => c.className)).toEqual(['ws-tabs', 'ws-tabs-div', 'more ws-all', 'ws-add']);
+    expect(row.lastElementChild.textContent.trim()).toBe('Add screen');
+    expect(page.querySelector('.ws-tabs .ws-add, .ws-tabs .ws-all')).toBeNull();
+    for (const end of ['.ws-tabs-div', '.ws-all', '.ws-add']) expect(rule(end)).toContain('flex: none;');
+    expect(rule('.ws-tabrow')).toContain('min-width: 0;');
+
+    scrolled = [];
+    await press(row.lastElementChild);
+    expect(changes).toEqual([{ method: 'POST', url: '/p/mawid/api/v1/studio/sketches/follow-up-visit/screens', body: { stamp: 'f1' } }]);
+    await wait(() => selected() === 'new-screen');
+    expect(selected()).toBe('new-screen');
+    expect(scrolled).toContain('new-screen');
+    expect(page.querySelector('.ws-tabrow').lastElementChild.textContent.trim()).toBe('Add screen');
+  });
+
+  it('done when 5: All screens lists all 8 in tab order with the approved mark on Confirm and no Delete; a pick selects it and scrolls it into view', async () => {
+    await open('mawid', '/studio/sketches/follow-up-visit');
+    const all = page.querySelector('button[aria-label="All screens"]');
+    expect(all.getAttribute('aria-haspopup')).toBe('menu');
+    await press(all);
+    const menu = page.querySelector('[role="menu"][aria-label="All screens"]');
+    const items = [...menu.querySelectorAll('[role="menuitem"]')] as any[];
+    expect(items.map((i) => i.textContent)).toEqual(NAMES.map(([, n]) => n));
+    expect(items.map((i) => !!i.querySelector('[aria-label="Approved"]'))).toEqual(NAMES.map(([id]) => id === 'confirm'));
+    expect(items[1].getAttribute('title')).toBe(LONG);
+    // Only for picking: no Delete in the list.
+    expect(menu.querySelector('[aria-label^="Delete"]')).toBeNull();
+    expect(menu.textContent).not.toContain('Delete');
+
+    scrolled = [];
+    await press(items[1]);
+    expect(page.querySelector('[role="menu"]')).toBeNull();
+    expect(selected()).toBe('older-patients');
+    expect(scrolled).toContain('older-patients');
+    // Picking the tab that is already selected still brings it into view.
+    scrolled = [];
+    await press(page.querySelector('button[aria-label="All screens"]'));
+    await press(page.querySelector('[role="menuitem"][aria-current="true"]'));
+    expect(scrolled).toEqual(['older-patients']);
+    expect(changes).toEqual([]);
+  });
+
+  it('shows the version in the top bar before the status, "v1 · Approved", not in the row of tabs', async () => {
+    await open('mawid', '/studio/sketches/follow-up-visit');
+    await press(page.querySelector('button[aria-label="All screens"]'));
+    await press([...page.querySelectorAll('[role="menuitem"]')].find((i: any) => i.textContent === 'Confirm'));
+    expect(page.querySelector('.top .ws-status').textContent.replace(/\s+/g, ' ').trim()).toBe('v1 · Approved');
+    expect(page.querySelector('.ws-bar .ws-version')).toBeNull();
   });
 });

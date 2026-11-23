@@ -11,9 +11,6 @@
   --rq-blue-soft: rgba(143, 179, 255, 0.12);
 }
 
-/* The sidebar's "New" pill, until the page is known. */
-.nav .badge.new { background: var(--accent-soft); color: var(--accent); }
-
 .rq-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-align: start; }
 .rq-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rq-link:disabled { opacity: 0.5; cursor: default; text-decoration: none; }

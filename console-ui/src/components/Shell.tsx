@@ -23,6 +23,8 @@ import { useTools } from '../pages/Tools';
 import { LeadMark } from './LeadMark';
 import { useLead } from '../lib/leadData';
 import { JourneyBar } from './Journey';
+import { PROJECT } from '../api/client';
+import { useStudioNew } from '../lib/studio-seen';
 
 const NAV = [
   { to: '/overview', label: 'Overview', icon: Compass, badge: 'setup' as const },
@@ -34,10 +36,11 @@ const NAV = [
   { to: '/inbox', label: 'Waiting for you', icon: Inbox, badge: 'you' as const },
   { to: '/lead', label: 'Squad lead', icon: LeadMark, badge: 'lead' as const },
   { to: '/conversations', label: 'Conversations', icon: MessagesSquare, badge: 'chats' as const },
+  // The Studio is always on: no switch and no counter (AB-127). Right after Conversations, as in the prototype (US-53),
+  // with New until the person opens it the first time in this project (lib/studio-seen).
+  { to: '/studio', label: 'Studio', icon: Palette, badge: 'studio' as const },
   { to: '/releases', label: 'Releases', icon: ArrowUp },
   { to: '/architecture', label: 'Architecture', icon: Network },
-  // The Studio is always on: no switch and no counter (AB-127).
-  { to: '/studio', label: 'Studio', icon: Palette },
   { to: '/bugs', label: 'Bugs', icon: Bug, badge: 'bugs' as const },
   { to: '/harness', label: 'Harness', icon: ShieldCheck },
   { to: '/tools', label: 'Tools', icon: Wrench, badge: 'tools' as const },
@@ -67,6 +70,8 @@ export function Shell() {
   const reqs = requirementsWaiting(breakdowns.data?.breakdowns ?? [], meta?.user.name);
   // The Squad lead's dot: it is answering a question now, maybe one asked from another page.
   const answering = useLead(5000).data?.conversations.some((c) => c.thinking) ?? false;
+  // Studio's New: never opened here, and nothing in it yet (AB-178.1).
+  const studioNew = useStudioNew(PROJECT ?? '');
   // On a phone the sidebar folds away behind a menu button, and closes again when you go to another page.
   const [menu, setMenu] = useState(false);
   useEffect(() => setMenu(false), [path]);
@@ -149,6 +154,7 @@ export function Shell() {
               <n.icon size={16} />
               {n.label}
               {count > 0 && <span className={`badge ${n.badge === 'you' ? 'you' : n.badge === 'chats' ? 'talk' : ''}`}>{count}</span>}
+              {n.badge === 'studio' && studioNew && <span className="badge new">New</span>}
             </Link>
           );
         })}

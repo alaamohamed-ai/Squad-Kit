@@ -11,10 +11,8 @@ import {
   designSystemsDir,
   frameFile,
   STUDIO_ID,
-  screenDir,
   screenFile,
   screensDir,
-  screenThumbnailsDir,
   sketchChatsDir,
   sketchDir,
   sketchFile,
@@ -25,7 +23,7 @@ import {
   variantMetaFile,
   type ChatOwner,
 } from './studio-paths.js';
-import { dumpYaml, folders, idsIn, plainFile, versionsIn, writeNewVersion, writeShared } from './studio-files.js';
+import { dumpYaml, folders, idsIn, plainFile, writeNewVersion, writeShared } from './studio-files.js';
 import { holdStudio } from './studio-lock.js';
 import { checkScreenNames, nameOnDrawing } from './studio-screens.js';
 import { MAX_NAME, checkSketchNameFree, checkedName, freeScreenName, freeSketchId, freeSketchName, screenNameKey, studioIdFor } from './studio-names.js';
@@ -56,8 +54,6 @@ import {
   checkFrames,
   checkStudioStamp,
   checkedHtml,
-  existingScreen,
-  markNow,
   screenNamed,
   writeMarked,
   writeNewScreen,
@@ -75,8 +71,8 @@ import {
  * stamp and writing), studio-lock.ts (one change at a time per project), studio-names.ts (one sketch name per
  * project, and the free-name and free-id helpers, AB-138.1), studio-write.ts (the stamp check, the edit marks and the
  * writing of a variant, and the lock on an approved screen), studio-approval.ts (approving and reopening a screen,
- * US-15), studio-tokens.ts (the token check of a variant's pages, US-17) and studio-local.ts (thumbnails and chats, on
- * this computer).
+ * US-15, with the pick and the screen delete its lock guards), studio-tokens.ts (the token check of a variant's pages,
+ * US-17) and studio-local.ts (thumbnails and chats, on this computer).
  *
  * Each item (one design system, one sketch) is its own folder of plain YAML, JSON and HTML. Versions (v1, v2 …) only
  * grow: a saved version is never written again, so every variant stays pickable. Each item is read back with a change
@@ -117,7 +113,7 @@ export {
 } from './studio-read.js';
 export { tokenWarnings } from './studio-tokens.js';
 export { CHANGED_ELSEWHERE, StudioChangedElsewhere, StudioScreenApproved, approvedWords, changeStudioItem, checkStudioStamp, type EditBy, type VariantInput } from './studio-write.js';
-export { approveScreen, reopenScreen } from './studio-approval.js';
+export { approveScreen, deleteScreen, pickVariant, reopenScreen } from './studio-approval.js';
 export { stampOfFolder } from './studio-files.js';
 export { addNewScreen, nameNewScreen } from './studio-screens.js';
 export {
@@ -493,19 +489,6 @@ export function nameSketchAndFirstScreen(bp: BoardPaths, sketch: string, names: 
   });
 }
 
-/** Marks one saved variant of a screen as the chosen one. The others stay, pickable later. The screen file gets the mark. */
-export function pickVariant(bp: BoardPaths, sketch: string, screen: string, version: number, stamp: string, who: EditBy = {}): Sketch {
-  checkedStudioId(sketch);
-  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    const before = existingScreen(bp, sketch, screen);
-    // An approved screen keeps the variant it was approved at until it is reopened (US-15, AB-140.1).
-    checkNotApproved({ id: screen, ...before });
-    if (!versionsIn(screenDir(bp, sketch, screen)).includes(version)) throw new Error(`The screen "${screen}" has no variant ${version}.`);
-    writeMarked(screenFile(bp, sketch, screen), before, { ...before, chosen: version }, who);
-    return readSketch(bp, sketch)!;
-  });
-}
-
 /* ── Deletes: for good, with no bin ─────────────────────── */
 
 /** A design system that sketches still follow is not deleted. Nothing was written. */
@@ -593,22 +576,6 @@ export function duplicateSketch(bp: BoardPaths, source: string, stamp: string, w
     }
     writeMarked<SketchFile>(sketchFile(bp, id), null, { name, designSystem: from.designSystem, frames: from.frames }, who);
     return readSketch(bp, id)!;
-  });
-}
-
-/**
- * Deletes one screen of a sketch and every variant of it for good, with this computer's thumbnails for it. The sketch
- * file keeps the mark of the delete, since the screen's own files are gone (AB-131.1).
- */
-export function deleteScreen(bp: BoardPaths, sketch: string, screen: string, stamp: string, who: EditBy = {}): Sketch {
-  checkedStudioId(sketch);
-  return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    // An approved screen is not deleted until it is reopened (US-15, AB-140.1).
-    checkNotApproved({ id: screen, ...existingScreen(bp, sketch, screen) });
-    fs.rmSync(screenDir(bp, sketch, screen), { recursive: true, force: true });
-    fs.rmSync(screenThumbnailsDir(bp, sketch, screen), { recursive: true, force: true });
-    writeShared(sketchFile(bp, sketch), dumpYaml({ ...readSketchFile(sketchFile(bp, sketch)), edited: markNow(who) }));
-    return readSketch(bp, sketch)!;
   });
 }
 

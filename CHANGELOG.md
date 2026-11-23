@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The Studio looks like the prototype.** In the sidebar, Studio now sits right after Conversations, with a small
+  New badge until you first open it in a project on this computer (it never shows in a project that already has a
+  sketch or a design system). The page header is the title and one switch with Sketches and Design systems, the
+  selected one raised. The empty Sketches and Design systems pages are centred. A sketch's screen tabs stay on one row:
+  each tab is one pill with its name and its ×, a long name is cut with … and shows in full on hover, the row scrolls
+  sideways, and a list of all screens and "+ Add screen" stay at its end. The version moved next to the status: "v2 ·
+  Ready".
 - **Approve and reopen a screen.** "Approve screen" in a sketch's workspace freezes the screen at the version it
   shows: it reads Approved with a lock, "Approved by Alaa · time", and the chat gets the line "Alaa approved Form at
   v3". While it is approved, nothing can change it: "Use this one" and its tab's Delete are off, the AI Designer

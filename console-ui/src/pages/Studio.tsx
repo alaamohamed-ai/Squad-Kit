@@ -26,6 +26,7 @@ import {
 } from '../lib/studio';
 import { SketchCardMenu } from './studio/SketchActions';
 import { NewSketchButton, StartSketch } from './studio/StartSketch';
+import { useMarkStudioSeen } from '../lib/studio-seen';
 
 /* ── Studio: the project's sketches and design systems ──
    The tab the person last used stays in this browser tab, one per project (lib/studio). Both tabs read from the board
@@ -33,6 +34,8 @@ import { NewSketchButton, StartSketch } from './studio/StartSketch';
    Sketches tab is the start page (US-05): its Send is the one thing here that makes something, the first sketch. */
 
 export function StudioPage({ project = PROJECT ?? '' }: { project?: string }) {
+  // Opening any Studio page, a sketch from a link too, takes the sidebar's New away (AB-178.1).
+  useMarkStudioSeen(project);
   const [tab, setTab] = useState<StudioTab>(() => readStudioTab(project));
   const pick = (t: StudioTab) => {
     setTab(t);
@@ -41,16 +44,16 @@ export function StudioPage({ project = PROJECT ?? '' }: { project?: string }) {
 
   return (
     <>
-      <div className="top">
+      {/* The title, then the two tabs as one segmented control, the selected one raised (US-53). */}
+      <div className="top studio-top">
         <h1>Studio</h1>
-        <span className="note">Your sketches and design systems for this project.</span>
-      </div>
-      <div className="ptabs" role="tablist">
-        {STUDIO_TABS.map((t) => (
-          <button key={t.id} id={`studio-tab-${t.id}`} role="tab" aria-selected={tab === t.id} aria-controls="studio-panel" className={tab === t.id ? 'on' : ''} onClick={() => pick(t.id)}>
-            {t.label}
-          </button>
-        ))}
+        <div className="seg studio-seg" role="tablist" aria-label="Studio">
+          {STUDIO_TABS.map((t) => (
+            <button key={t.id} id={`studio-tab-${t.id}`} type="button" role="tab" aria-selected={tab === t.id} aria-controls="studio-panel" className={tab === t.id ? 'on' : ''} onClick={() => pick(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="scroll">
         <div className="page" id="studio-panel" role="tabpanel" aria-labelledby={`studio-tab-${tab}`}>
@@ -208,7 +211,13 @@ function DesignSystems({ project }: { project: string }) {
   if (list.isPending) return <p className="note">Reading the design systems…</p>;
   if (list.isError) return <p className="note bad">{list.error.message}</p>;
   const systems = list.data.designSystems;
-  if (!systems.length) return <p className="note">No design systems yet.</p>;
+  // Centred the same way as the Sketches start page: only the short message, no chat box, nothing "coming soon" (US-53).
+  if (!systems.length)
+    return (
+      <div className="studio-empty">
+        <p className="note">No design systems yet.</p>
+      </div>
+    );
   return (
     <>
       <p className="note ds-lead">Each sketch follows one design system. New sketches start with the default.</p>

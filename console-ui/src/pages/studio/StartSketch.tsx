@@ -239,7 +239,7 @@ export function StartSketch({ project, noDesignSystem, onSetUpDesignSystem, syst
       <div className="sk-from">
         <span>Or start from</span>
         <button type="button" className="sk-link" disabled={pictures.length >= MAX_PICTURES || Boolean(busy)} onClick={() => picker.current?.click()}>
-          <ImagePlus size={14} aria-hidden /> Start from an image
+          <ImagePlus size={14} aria-hidden /> An image
         </button>
         <button type="button" className="sk-link" disabled={!app?.ok || Boolean(busy)} aria-describedby={appWhy ? 'sk-app-why' : undefined} title={appWhy ?? undefined} onClick={() => void takeAppPicture()}>
           <Monitor size={14} aria-hidden /> A screen from your app

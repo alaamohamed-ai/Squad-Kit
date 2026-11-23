@@ -4,12 +4,13 @@ import { designSystemFile, frameFile, screenFile, sketchFile, tokensFile, varian
 import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantMetaFile } from './studio-read.js';
 
 /**
- * The sample board's Studio (US-06, AB-131): one design system, "Brand", and seven sketches with edits by different
+ * The sample board's Studio (US-06, AB-131): one design system, "Brand", and eight sketches with edits by different
  * people, so the Sketches home shows its cards: "Checkout" drawn for desktop and mobile and redrawn by the AI Designer
  * for Sara, "Profile" just made by Omar with nothing drawn yet, and "Onboarding" drawn for desktop only, renamed by
  * Sara yesterday, with two of its five screens approved. For US-13 (rename, duplicate, delete), "Booking" has two drawn
  * screens with one Approved, "Patient profile" three, and "Login" is a name already used. For US-17 (variants),
- * "Feedback" follows no design system. The files are the ones the Studio store writes, with times in the past, so the
+ * "Feedback" follows no design system. For US-53, "Follow-up visit" has eight screens, one with a long name and
+ * "Confirm" approved, so its row of screen tabs scrolls. The files are the ones the Studio store writes, with times in the past, so the
  * sample board looks lived in.
  */
 
@@ -166,6 +167,26 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
   writeSketch(bp, 'feedback', { name: 'Feedback', designSystem: null, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 5, 'Omar') }, [
     { id: 'rate', name: 'Rate your visit', status: 'draft', edited: mark(60 * 24 * 5, 'Omar'), drawings: [{ minutes: 60 * 24 * 5, by: 'Omar', frames: both((w) => clinic('How was your visit?', 'Tell us in a minute: it helps the clinic.', [['Doctor', 'Dr. Hana Saleh'], ['Your rating', '★★★★☆']], 'Send', w)) }] },
   ]);
+
+  // US-53's row of screen tabs: eight screens, one with a long name, and "Confirm" approved with its drawing. The oldest
+  // edit of the sample, so its card comes last.
+  const old = 60 * 24 * 6;
+  const visit: [string, string, ScreenStatus, ((w: 'desktop' | 'mobile') => string) | null][] = [
+    ['doctor', 'Choose a doctor', 'draft', (w) => clinic('Choose a doctor', 'Your last visit was with Dr. Hana Saleh.', [['Dr. Hana Saleh', 'Cardiology'], ['Dr. Karim Nour', 'Family medicine']], 'Next', w)],
+    ['older-patients', 'Booking follow-up for older patients in Arabic and English', 'draft', (w) => clinic('Book a follow-up · احجز متابعة', 'Big text and big buttons, in Arabic and English.', [['Doctor', 'Dr. Hana Saleh'], ['Day', 'Tue 17 Nov']], 'Book visit', w)],
+    ['day', 'Pick a day', 'draft', null],
+    ['time', 'Pick a time', 'draft', null],
+    ['details', 'Your details', 'draft', null],
+    ['confirm', 'Confirm', 'approved', (w) => clinic('Confirm your visit', 'Check the details, then confirm.', [['Doctor', 'Dr. Hana Saleh'], ['When', 'Tue 17 Nov · 10:00'], ['Where', 'Floor 2, Room 14']], 'Confirm visit', w)],
+    ['reminders', 'Reminders', 'draft', null],
+    ['done', 'Done', 'draft', null],
+  ];
+  writeSketch(
+    bp,
+    'follow-up-visit',
+    { name: 'Follow-up visit', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(old, 'Sara') },
+    visit.map(([id, name, status, draw]) => ({ id, name, status, edited: mark(old, 'Sara'), drawings: draw ? [{ minutes: old, by: 'Sara', frames: both(draw) }] : [] })),
+  );
 
   // Drawn for desktop only, renamed by Sara yesterday; two of its five screens approved.
   const steps: [string, string, string, ScreenStatus][] = [

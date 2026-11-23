@@ -7,6 +7,8 @@
  * reads the sketches; with none it shows the start page (US-05), where only Send makes something: the sketch.
  */
 
+import { timeOf } from './studio-tabs';
+
 export type StudioTab = 'sketches' | 'systems';
 
 export const STUDIO_TABS: { id: StudioTab; label: string }[] = [
@@ -36,6 +38,36 @@ export function saveStudioTab(project: string, tab: StudioTab): void {
   } catch {
     // Private windows and full storage: the Studio opens on Sketches next time.
   }
+}
+
+/* ── The sidebar's New badge (US-53, AB-178.1) ── */
+
+/**
+ * Whether the person has opened this project's Studio on this computer: one mark per project, kept in this browser's
+ * lasting memory (localStorage), apart from the tab memory above. Nothing goes to the board server or the project.
+ */
+export const studioSeenKey = (project: string) => `squad-studio-seen:${project}`;
+/** Said on the window when a Studio page sets the mark, so the sidebar hears it at once (lib/studio-seen). */
+export const STUDIO_SEEN_EVENT = 'squad-studio-seen';
+
+/** True once this project's Studio was opened here. A browser that cannot read its memory counts it as seen: no New. */
+export function hasSeenStudio(project: string): boolean {
+  try {
+    return localStorage.getItem(studioSeenKey(project)) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/** Keeps the mark: true when it was not there before. A browser that refuses storage just keeps nothing. */
+export function saveStudioSeen(project: string): boolean {
+  if (hasSeenStudio(project)) return false;
+  try {
+    localStorage.setItem(studioSeenKey(project), new Date().toISOString());
+  } catch {
+    // Private windows and full storage: nothing to remember, and hasSeenStudio already says seen.
+  }
+  return true;
 }
 
 /* ── The Design systems tab (US-33, AB-158) ── */
@@ -260,35 +292,8 @@ export const sketchKey = (project: string, id: string) => ['studio', project, 's
 export const screensPath = (sketch: string) => `${sketchApiPath(sketch)}/screens`;
 export const screenApiPath = (sketch: string, screen: string) => `${screensPath(sketch)}/${encodeURIComponent(screen)}`;
 
-/**
- * The stamp Add screen sends (AB-129.1): the one the last add answered with, while the page still shows the sketch it
- * read before that add; else the one the page read. A second click before the sketch is read again then adds "New
- * screen 2" instead of being refused with "Changed elsewhere, reload".
- */
-export function addScreenStamp(read: string, answered: { read: string; now: string } | null): string {
-  return answered && answered.read === read ? answered.now : read;
-}
-
-/** A frame's name as a tab shows it: "desktop" → "Desktop". */
-export const frameName = (frame: string) => (frame ? frame[0]!.toUpperCase() + frame.slice(1) : frame);
-
-/** What an empty screen shows in a frame: "New screen has no Desktop page yet. Ask the AI Designer in the chat to draw it." */
-export function emptyScreenText(screen: string, frame: string | undefined): string {
-  return `${screen} has no ${frame ? `${frameName(frame)} ` : ''}page yet. Ask the AI Designer in the chat to draw it.`;
-}
-
-/** Delete's question on a screen's tab, naming it. */
-export function deleteScreenQuestion(screen: string): { title: string; holds: string } {
-  return { title: `Delete "${screen}" and its drawings?`, holds: 'This cannot be undone. The other screens stay as they are.' };
-}
-
-/** The tab selected once a screen is deleted: the one after it, or else the one before it, or none. */
-export function tabAfterDelete(screens: { id: string }[], gone: string): string | undefined {
-  const at = screens.findIndex((s) => s.id === gone);
-  const rest = screens.filter((s) => s.id !== gone);
-  if (!rest.length) return undefined;
-  return (rest[at] ?? rest[rest.length - 1])!.id;
-}
+/* The screen tabs' and the screens list's helpers live in studio-tabs.ts (US-53); they are given out here as before. */
+export { addScreenStamp, approvalTime, approvedByText, deleteScreenQuestion, emptyScreenText, frameName, isApproved, reopenQuestion, statusLabel, tabAfterDelete, timeOf } from './studio-tabs';
 
 /** What a delete answers: the sketch's name and how many screens went with it. */
 export interface DeletedSketch {
@@ -390,13 +395,6 @@ export function lookingAtText(name: string, screen?: string | null, frame?: stri
   return `${name}${screen ? ` / ${screen}` : ''}${frame ? `, ${frame}` : ''}`;
 }
 
-/** A message's time, like 16:02. */
-export function timeOf(at?: string | null): string {
-  if (!at) return '';
-  const d = new Date(at);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
 /** A conversation's name in the list: "Conversation 2 · 16 Nov, 16:02 · 4 messages". */
 export function conversationLabel(row: ConversationRow, n: number): string {
   const d = row.startedAt ? new Date(row.startedAt) : null;
@@ -495,33 +493,6 @@ export interface ApprovalAnswer {
   sketch: SketchFull;
   done: ApprovalLineView | null;
   conversation: ConversationData | null;
-}
-
-/** A screen is approved: locked, so "Use this one", Delete and changes are off until Reopen. */
-export const isApproved = (screen: Pick<ScreenView, 'status'> | undefined) => screen?.status === 'approved';
-
-/** When it was approved, like "23 Nov, 14:05"; empty when the time cannot be read. */
-export function approvalTime(at: string): string {
-  const d = new Date(at);
-  return Number.isNaN(d.getTime()) ? '' : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${timeOf(at)}`;
-}
-
-/** "Approved by Alaa · 23 Nov, 14:05"; "Approved" alone for a screen approved before who and when were kept. */
-export function approvedByText(approved: ApprovalView | undefined): string {
-  if (!approved) return 'Approved';
-  const when = approvalTime(approved.at);
-  return `Approved${approved.by ? ` by ${approved.by}` : ''}${when ? ` · ${when}` : ''}`;
-}
-
-/** A screen's status as its chip says it: Draft, Ready or Approved. */
-export const statusLabel = (status: string) => (status ? status[0]!.toUpperCase() + status.slice(1) : 'Draft');
-
-/** Reopen's "Are you sure?" question, naming the screen and the version that stays. */
-export function reopenQuestion(screen: string, version: number | null): { title: string; holds: string } {
-  return {
-    title: `Reopen "${screen}"?`,
-    holds: `Are you sure? ${screen} goes back to Draft and its lock goes away. The next change makes a new version${version ? `; v${version} stays` : ''}.`,
-  };
 }
 
 /** One sketch read on its own, with each variant's HTML by frame. */

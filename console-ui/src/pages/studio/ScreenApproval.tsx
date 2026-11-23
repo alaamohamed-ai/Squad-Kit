@@ -14,9 +14,23 @@ import { approvalPath, approvedByText, reopenQuestion, statusLabel, type Approva
 
 const said = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** The version before the status, "v2 · ", moved here from the tab row (US-53). */
+function shown(version: number | null, locked: boolean, screen: string) {
+  if (version === null) return null;
+  return (
+    <>
+      <span className={`ws-version${locked ? ' locked' : ''}`} title={locked ? `${screen} is approved at v${version}` : undefined}>
+        v{version}
+      </span>
+      {' · '}
+    </>
+  );
+}
+
 export function ScreenApproval({
   sketch,
   screen,
+  version,
   chat,
   working,
   onDone,
@@ -24,6 +38,8 @@ export function ScreenApproval({
 }: {
   sketch: Pick<SketchFull, 'id' | 'stamp'>;
   screen: ScreenView;
+  /** The version shown, said before the status: "v2 · Ready" (US-53). Null while the screen has no drawing. */
+  version: number | null;
   /** The conversation open in the chat: the line goes there. */
   chat: string | null;
   /** The AI Designer is working: the buttons wait. */
@@ -62,7 +78,10 @@ export function ScreenApproval({
       {approved ? (
         <>
           <span className="ws-status approved" role="status">
-            <Lock size={13} aria-hidden /> Approved
+            <Lock size={13} aria-hidden />
+            <span>
+              {shown(version, true, screen.name)}Approved
+            </span>
           </span>
           <span className="ws-approved-by" dir="auto">
             {approvedByText(screen.approved)}
@@ -73,7 +92,12 @@ export function ScreenApproval({
         </>
       ) : (
         <>
-          <span className="ws-status">{statusLabel(screen.status)}</span>
+          <span className="ws-status">
+            <span>
+              {shown(version, false, screen.name)}
+              {statusLabel(screen.status)}
+            </span>
+          </span>
           <button
             type="button"
             className="btn pri"
