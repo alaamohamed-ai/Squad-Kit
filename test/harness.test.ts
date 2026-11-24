@@ -78,6 +78,8 @@ const EXCUSED: Record<string, string> = {
   'studio-start.ts:MAX_START_PICTURES': 'How many pictures the first Studio message may bring. It says so in plain words when there are more, and nothing is made.',
   'studio-start.ts:MAX_PICTURE_BYTES': 'How big one picture in the first Studio message may be. It says so in plain words when it is bigger, and nothing is made.',
   'studio-chat-demo.ts:DEMO_SCREEN_MS': "How long the sample board's AI Designer takes on one screen, so its progress and Stop can be seen. No AI runs, and it stops nothing.",
+  'studio-link.ts:DEMO_LINK_MS': "How long the sample board's linker takes on Generate the prototype, so its working state can be seen. No AI runs, and it stops nothing.",
+  'studio-prototype-map.ts:MAX_BUTTON_NAME': "How long a button's name in a prototype link may be. A longer one is cut, so it fits the picker; it stops nothing.",
   'studio-designer.ts:DESIGNER_RUN_MS':'The longest one Designer run may take. It ends in a plain "ask again", saves nothing, and stops no ticket.',
   'now.ts:STILL_WORKING_S': 'How recent the last progress must be for a slow card to say "still working" in its calm color. It changes words and a color, and stops nothing.',
   'story-redis.ts:FLUSH_MS': "How long clearing a story's own Redis number may take when its copy goes. Nobody waits on it: the keys stay, and the log says so.",

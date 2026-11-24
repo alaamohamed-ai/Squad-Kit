@@ -51,8 +51,9 @@ const THRIFTY: Record<string, Record<string, LevelChoice>> = {
   // The Squad lead answers questions about the whole project: it reads and looks, so the balanced level is enough.
   lead: { ask: balanced('medium') },
   // The Designer in the Studio: a new screen or a design system is open work; a change to a drawn screen is narrower.
-  // Its chat sorts each message, then changes screens one at a time in the same session: as open as drawing.
-  designer: { draw: balanced('high'), change: balanced('medium'), system: balanced('high'), chat: balanced('high') },
+  // Its chat sorts each message, then changes screens one at a time in the same session: as open as drawing. Linking a
+  // prototype (US-54) reads drawn pages and picks from a short list: narrow work.
+  designer: { draw: balanced('high'), change: balanced('medium'), system: balanced('high'), chat: balanced('high'), link: balanced('medium') },
 };
 
 /** Best: the strongest model builds and reviews, at high effort. */
@@ -60,14 +61,14 @@ const BEST: Record<string, Record<string, LevelChoice>> = {
   ...THRIFTY,
   builder: { ...THRIFTY.builder, build: strong('high'), fix: strong('high') },
   reviewer: { ...THRIFTY.reviewer, review: strong('high') },
-  designer: { draw: strong('high'), change: strong('medium'), system: strong('high'), chat: strong('high') },
+  designer: { draw: strong('high'), change: strong('medium'), system: strong('high'), chat: strong('high'), link: strong('medium') },
 };
 
 /** Balanced: the strongest model builds at medium effort. */
 const BALANCED: Record<string, Record<string, LevelChoice>> = {
   ...BEST,
   builder: { ...THRIFTY.builder, build: strong('medium'), fix: strong('medium') },
-  designer: { draw: strong('medium'), change: balanced('medium'), system: strong('medium'), chat: strong('medium') },
+  designer: { draw: strong('medium'), change: balanced('medium'), system: strong('medium'), chat: strong('medium'), link: balanced('medium') },
 };
 
 /**

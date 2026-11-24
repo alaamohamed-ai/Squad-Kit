@@ -1,6 +1,6 @@
 import type { BoardPaths } from './store.js';
 import { dumpYaml, writeNewVersion, writeShared } from './studio-files.js';
-import { designSystemFile, frameFile, screenFile, sketchFile, tokensFile, variantDir, variantMetaFile } from './studio-paths.js';
+import { designSystemFile, frameFile, prototypeFile, screenFile, sketchFile, tokensFile, variantDir, variantMetaFile } from './studio-paths.js';
 import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantAskMarks, type VariantMetaFile } from './studio-read.js';
 
 /**
@@ -11,8 +11,10 @@ import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type Sk
  * screens with one Approved, "Patient profile" three, and "Login" is a name already used. For US-17 (variants),
  * "Feedback" follows no design system. For US-46 (export to PDF), Booking's Form is drawn as variants A, B and C and
  * "الحجز" is a long right-to-left form. For US-53, "Follow-up visit" has eight screens, one with a long name and
- * "Confirm" approved, so its row of screen tabs scrolls. The files are the ones the Studio store writes, with times in the past, so the
- * sample board looks lived in.
+ * "Confirm" approved, so its row of screen tabs scrolls. For US-54 (the prototype), Booking's approved Home and Confirm
+ * are linked, Confirm with an icon-only back button and one broken link, and "الحجز" has two approved Arabic screens
+ * linked right to left. The files are the ones the Studio store writes, with times in the past, so the sample board
+ * looks lived in.
  */
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -79,6 +81,44 @@ function clinic(title: string, line: string, rows: [string, string][], button: s
 
 const both = (f: (w: 'desktop' | 'mobile') => string) => ({ desktop: f('desktop'), mobile: f('mobile') });
 
+/** A real button in the sample's look, for the prototype's screens (US-54). */
+const BUTTON = 'style="border:0;width:100%;font:inherit;cursor:pointer"';
+/** An icon-only back button: no words, only its label. */
+const backIcon = (label: string, arrow: string) => `<button aria-label="${label}" style="border:0;background:none;font-size:26px;line-height:1;padding:0 8px;color:${BRAND.primary};cursor:pointer">${arrow}</button>`;
+
+/** Booking's Confirm (US-54): back, the visit's details, Confirm visit and "Change the time". */
+function confirmVisit(width: 'desktop' | 'mobile'): string {
+  const rows = [
+    ['Doctor', 'Dr. Hana Saleh · Cardiology'],
+    ['When', 'Tue 17 Nov · 10:00'],
+    ['Where', 'Floor 2, Room 14'],
+  ]
+    .map(([k, v]) => `<div class="row"><span class="muted">${k}</span><span>${v}</span></div>`)
+    .join('');
+  return page(
+    `<header><span style="display:flex;align-items:center;gap:6px">${backIcon('Back', '‹')}<span class="logo">Al Noor Clinic</span></span><span class="muted">Visits · Doctors · Profile</span></header>
+<main style="max-width:760px"><h1>Confirm your visit</h1><p class="muted">Check the details, then confirm.</p><div class="card">${rows}</div><button class="btn" ${BUTTON}>Confirm visit</button><p style="text-align:center"><a class="muted">Change the time</a></p></main>`,
+    width,
+  );
+}
+
+/** The Arabic booking's confirmation (US-54), right to left: back, the visit, "تأكيد الحجز" and "تعديل الموعد". */
+function arabicConfirm(width: 'desktop' | 'mobile'): string {
+  const rows = [
+    ['الطبيب', 'د. هناء صالح · أمراض القلب'],
+    ['الموعد', 'الثلاثاء ١٧ نوفمبر · ١٠:٠٠ صباحًا'],
+    ['المكان', 'الدور الثاني، غرفة ١٤'],
+  ]
+    .map(([k, v]) => `<div class="row"><span class="muted">${k}</span><span>${v}</span></div>`)
+    .join('');
+  return page(
+    `<div dir="rtl" lang="ar" style="font-family:'Geeza Pro','Noto Sans Arabic',Tahoma,sans-serif">
+<header><span style="display:flex;align-items:center;gap:6px">${backIcon('رجوع', '›')}<span class="logo">عيادة النور</span></span><span class="muted">الزيارات · الأطباء · الملف</span></header>
+<main style="max-width:760px"><h1>تأكيد الحجز</h1><p class="muted">راجع البيانات ثم أكّد الزيارة.</p><div class="card">${rows}</div><button class="btn" ${BUTTON}>تأكيد الحجز</button><p style="text-align:center"><a class="muted">تعديل الموعد</a></p></main></div>`,
+    width,
+  );
+}
+
 /** A long booking form in Arabic, right to left, that scrolls far below one screen's height (US-46). */
 function arabicForm(width: 'desktop' | 'mobile'): string {
   const fields = [
@@ -117,8 +157,16 @@ interface DemoScreen {
   unnamed?: boolean;
 }
 
-function writeSketch(bp: BoardPaths, id: string, sketch: SketchFile, screens: DemoScreen[]): void {
+/** A sample prototype file (US-54), as the Studio store writes it. */
+interface DemoPrototype {
+  start?: string;
+  links: ({ screen: string; button: string; to: string } | { screen: string; button: string; back: true })[];
+  edited: EditMark;
+}
+
+function writeSketch(bp: BoardPaths, id: string, sketch: SketchFile, screens: DemoScreen[], prototype?: DemoPrototype): void {
   writeShared(sketchFile(bp, id), dumpYaml(sketch));
+  if (prototype) writeShared(prototypeFile(bp, id), dumpYaml(prototype));
   screens.forEach((s, i) => {
     s.drawings.forEach((d, j) => {
       const version = j + 1;
@@ -194,7 +242,17 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
       ],
     },
     { id: 'new-screen', name: 'New screen', status: 'draft', edited: mark(60 * 3, 'Sara'), unnamed: true, drawings: [] },
-  ]);
+    // US-54: approved and linked from Home; its icon-only back button goes Back, and "Change the day" is a link whose
+    // button a new drawing dropped ("Change the time" now), so it shows as broken.
+    { id: 'confirm', name: 'Confirm', status: 'approved', edited: mark(40, 'Sara'), drawings: [{ minutes: 60 * 2, by: AI_DESIGNER, for: 'Sara', frames: both(confirmVisit) }] },
+  ], {
+    links: [
+      { screen: 'home', button: 'Book a follow-up', to: 'confirm' },
+      { screen: 'confirm', button: 'Back', back: true },
+      { screen: 'confirm', button: 'Change the day', to: 'home' },
+    ],
+    edited: mark(35, 'Sara'),
+  });
   writeSketch(bp, 'patient-profile', { name: 'Patient profile', designSystem: brand, frames: ['desktop'], edited: mark(60 * 24 * 2, 'Omar') }, [
     ['overview', 'Overview', 'Mona Adel', [['Born', '12 Mar 1958'], ['Phone', '+20 100 555 0101']], 'Edit details'],
     ['visits', 'Visits', 'Your last visits', [['2 Nov', 'Dr. Hana Saleh'], ['14 Sep', 'Dr. Karim Nour']], 'Book a visit'],
@@ -218,7 +276,16 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
   // US-46's right-to-left example: "الحجز" with a long Arabic form that scrolls far below one screen's height.
   writeSketch(bp, 'arabic-booking', { name: 'الحجز', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 5 + 60, 'Omar') }, [
     { id: 'booking-form', name: 'نموذج الحجز', status: 'approved', edited: mark(60 * 24 * 5 + 60, 'Omar'), drawings: [{ minutes: 60 * 24 * 5 + 60, by: 'Omar', frames: both(arabicForm) }] },
-  ]);
+    // US-54: the Arabic prototype, linked and played right to left.
+    { id: 'booking-done', name: 'تأكيد الحجز', status: 'approved', edited: mark(60 * 24 * 5 + 60, 'Omar'), drawings: [{ minutes: 60 * 24 * 5 + 60, by: 'Omar', frames: both(arabicConfirm) }] },
+  ], {
+    links: [
+      { screen: 'booking-form', button: 'احجز الزيارة', to: 'booking-done' },
+      { screen: 'booking-done', button: 'رجوع', back: true },
+      { screen: 'booking-done', button: 'تعديل الموعد', to: 'booking-form' },
+    ],
+    edited: mark(60 * 24 * 5 + 60, 'Omar'),
+  });
 
   // US-53's row of screen tabs: eight screens, one with a long name, and "Confirm" approved with its drawing. The oldest
   // edit of the sample, so its card comes last.

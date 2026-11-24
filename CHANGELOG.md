@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Link the approved screens into a clickable prototype.** A sketch's header has "Screens | Prototype" right after its
+  name. Prototype shows every approved screen at the version it was approved at, with arrows for the links between
+  them and the start screen marked ("Make start" moves it). Pick where any button or link leads (a screen, Back or no
+  link), or press "Generate the prototype" and the AI Designer links them all (it asks first before replacing links).
+  Play opens the start screen full size: click through as a user would, switch Desktop and Mobile, and leave with Esc
+  or Close. The links are saved with the sketch, so a teammate gets them through git. A link whose button a new
+  drawing dropped, or whose screen is reopened, shows as broken with a short warning, and Play skips it. Arabic screens
+  link and play right to left.
 - **Export a sketch to PDF.** A sketch's ⋯ menu, on its card and in its header, has an Export group: "Export sketch
   to PDF" opens a small window to pick all screens or the approved ones only, the frames, the screens, and whether to
   include every variant of a draft screen. squad-kit's own browser makes one PDF for clients: a plain cover with the

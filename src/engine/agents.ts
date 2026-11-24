@@ -46,6 +46,7 @@ export const STEPS: Record<AgentRole, { id: string; name: string }[]> = {
     { id: 'change', name: 'Change' },
     { id: 'system', name: 'Design system' },
     { id: 'chat', name: 'Chat' },
+    { id: 'link', name: 'Prototype links' },
   ],
 };
 

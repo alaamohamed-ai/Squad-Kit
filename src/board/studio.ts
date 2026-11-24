@@ -117,6 +117,7 @@ export { approveScreen, deleteScreen, pickVariant, reopenScreen } from './studio
 export { stampOfFolder } from './studio-files.js';
 export { StudioExportRefused, exportPlan, type ExportChoice, type ExportOption, type ExportPage, type ExportPlan, type ExportScreen } from './studio-export.js';
 export { addNewScreen, nameNewScreen } from './studio-screens.js';
+export { readPrototypeFile, replacePrototypeLinks, setPrototypeLink, setPrototypeStart, prototypeMap, findButtons, type LinkTarget, type PrototypeFile, type PrototypeLink, type PrototypeMap, type PrototypeSaved } from './studio-prototype.js';
 export {
   NEW_SCREEN_NAME,
   StudioNameTaken,

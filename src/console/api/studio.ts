@@ -34,6 +34,7 @@ import { ChatBusy, chatWorking, startChatJob } from '../../engine/studio-chat-ru
 import { act } from './act.js';
 import { conversationRead, mountStudioChatApi } from './studio-chat.js';
 import { mountStudioExportApi } from './studio-export.js';
+import { mountStudioPrototypeApi } from './studio-prototype.js';
 
 /**
  * The Studio API (US-04, AB-129), under /api/v1/studio; the server serves it for each project at
@@ -323,4 +324,7 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
 
   /* ── Export sketch to PDF (US-46, AB-171.1): the PDF itself, made in memory ── */
   mountStudioExportApi(app, opts.paths, bp, { run, body });
+
+  /* ── The sketch's prototype (US-54, AB-179.1): its links and start screen, and Generate ── */
+  mountStudioPrototypeApi(app, bp, { run, body });
 }

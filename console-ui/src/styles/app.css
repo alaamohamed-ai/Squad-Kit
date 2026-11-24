@@ -1550,6 +1550,61 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .dc-alert button.primary { background: var(--text); color: var(--surface); border-color: var(--text); }
 .dc-alert button:disabled { opacity: 0.55; cursor: default; }
 .ws-empty { margin: 40px auto; max-width: 420px; text-align: center; font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* ── A sketch's prototype (US-54): the approved screens as cards, their links as arrows above them, and Play ── */
+.ws.proto { grid-template-columns: minmax(0, 1fr); }
+.ws.proto > .dc { display: none; }
+.ws-modes { flex: none; }
+/* Beside the view switch in the header: one line, cut with … when the header is full. */
+.ws-follows { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pt-row { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); }
+.pt-row .btn { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pt-line { flex: 1 1 auto; margin: 0; min-width: 0; font-size: 13px; color: var(--muted); }
+.pt-working, .pt-problem { margin: 10px 20px 0; font-size: 13px; }
+.pt-working { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.pt-note { padding: 24px; }
+.pt-map { flex: 1; min-height: 0; overflow: auto; padding: 24px 24px 32px; }
+.pt-canvas { margin: 0 auto; }
+.pt-arrows { display: block; overflow: visible; }
+.pt-arrows path { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.pt-arrows marker path { fill: var(--accent); stroke: none; }
+.pt-arrows g.on path { stroke-width: 2.8; }
+.pt-arrows text { font-size: 11.5px; font-weight: 650; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+.pt-cards { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-start; }
+.pt-card { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--card-shadow); }
+.pt-card.start { border-color: var(--accent); }
+.pt-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13.5px; }
+.pt-card-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-start { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 650; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 2px 8px; }
+.pt-make-start { flex: none; font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 2px 7px; border-radius: 6px; }
+.pt-make-start:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.pt-preview { display: flex; justify-content: center; align-items: flex-start; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
+.pt-frame { display: block; border: 0; background: #fff; }
+.pt-only { margin: 0; font-size: 12px; color: var(--dim); }
+.pt-buttons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.pt-btn { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; padding: 3px 4px; border-radius: 7px; }
+.pt-btn.on { background: var(--accent-soft); }
+.pt-btn-name { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--text); text-align: start; }
+.pt-btn-name > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-btn-name svg { flex: none; color: var(--accent); }
+.pt-btn-name.gone { text-decoration: line-through; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-btn-note { flex: none; font-size: 11px; font-weight: 500; color: var(--dim); }
+.pt-btn select { max-width: 124px; font: inherit; font-size: 12px; color: var(--text); background: var(--surface-2); border: 0; border-radius: 6px; padding: 3px 6px; }
+.pt-unlink { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.pt-unlink:hover:not(:disabled) { color: var(--text); }
+.pt-warn { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 5px; font-size: 11.5px; line-height: 1.4; color: #b45309; }
+.pt-warn svg { flex: none; margin-top: 2px; }
+.pp { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: #1d1f24; }
+.pp-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.pp-bar .btn { display: inline-flex; align-items: center; gap: 6px; }
+.pp-bar .grow { flex: 1; }
+.pp-screen { font-size: 13px; color: var(--muted); }
+.pp-stage { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: 16px; overflow: auto; }
+.pp-frame { border: 0; background: #fff; border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4); }
+.pp-frame.desktop { width: 100%; max-width: 1280px; height: 100%; }
+.pp-frame.tablet { width: 820px; height: min(1180px, 100%); }
+.pp-frame.mobile { width: 390px; height: min(844px, 100%); }
 .ds-tokens { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 16px 20px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 .ds-token { display: inline-flex; align-items: center; gap: 6px; }
 .ds-comps { list-style: none; margin: 0; padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; overflow: auto; }

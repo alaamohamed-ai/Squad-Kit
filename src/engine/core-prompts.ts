@@ -8,6 +8,7 @@ import { repoFor, rulesFiles } from './repos.js';
 import { openTicketsFor } from './depends.js';
 import { designerPrompt, designerRules, exampleBrief } from './studio-prompts.js';
 import { exampleChatPrompt } from './studio-chat-prompts.js';
+import { exampleLinkBrief, linkPrompt } from './studio-link-prompts.js';
 
 /**
  * The core prompts of a role, read only, filled in from a real ticket so the team sees exactly what the agent reads.
@@ -90,6 +91,7 @@ export async function corePrompts(bp: BoardPaths, role: AgentRole, ticketId?: st
     change: () => [designerRules(), designerPrompt(exampleBrief('change', meta.project))].join('\n\n────────\n\n'),
     system: () => [designerRules(), designerPrompt(exampleBrief('system', meta.project))].join('\n\n────────\n\n'),
     chat: () => [designerRules(), exampleChatPrompt(meta.project)].join('\n\n────────\n\n'),
+    link: () => [designerRules(), linkPrompt(exampleLinkBrief(meta.project))].join('\n\n────────\n\n'),
   };
   const agent = readAgent(bp, role);
   return {

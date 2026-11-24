@@ -10,6 +10,7 @@ import type { BoardPaths } from './store.js';
  *   .squad/studio/design-systems/<system>/v1/tokens.json
  *   .squad/studio/design-systems/<system>/v1/components/<component>.html
  *   .squad/studio/sketches/<sketch>/sketch.yaml
+ *   .squad/studio/sketches/<sketch>/prototype.yaml
  *   .squad/studio/sketches/<sketch>/screens/<screen>/screen.yaml
  *   .squad/studio/sketches/<sketch>/screens/<screen>/v1/<frame>.html
  *   .squad/studio/sketches/<sketch>/screens/<screen>/v1/meta.yaml
@@ -84,6 +85,14 @@ export function sketchDir(bp: BoardPaths, sketch: string): string {
 /** sketch.yaml: the name, the design system and its version, and the frames. */
 export function sketchFile(bp: BoardPaths, sketch: string): string {
   return path.join(sketchDir(bp, sketch), 'sketch.yaml');
+}
+
+/**
+ * prototype.yaml (US-54, AB-179.1): the sketch's prototype, its start screen and the links from a screen's button (by
+ * its name) to another screen or Back. In the sketch's own folder, so its stamp counts it and a teammate gets it.
+ */
+export function prototypeFile(bp: BoardPaths, sketch: string): string {
+  return path.join(sketchDir(bp, sketch), 'prototype.yaml');
 }
 
 export function screensDir(bp: BoardPaths, sketch: string): string {

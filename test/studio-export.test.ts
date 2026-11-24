@@ -186,27 +186,28 @@ describe('the export plan reads what is saved, and writes nothing', () => {
     return out;
   };
 
-  it('plans the sample "Booking": Home approved, Form as A, B and C, and "New screen" left out', () => {
+  it('plans the sample "Booking": Home approved, Form as A, B and C, "New screen" left out, and Confirm approved (US-54)', () => {
     const before = files();
     const sketch = readSketch(bp, 'booking')!;
     expect(sketch.screens.map((s) => [s.name, s.status])).toEqual([
       ['Home', 'approved'],
       ['Form', 'draft'],
       ['New screen', 'draft'],
+      ['Confirm', 'approved'],
     ]);
     const plan = exportPlan(sketch, { screens: sketch.screens.map((s) => s.id), frames: sketch.frames, allVariants: true });
-    expect(rows(plan.pages)).toEqual(['2 Home desktop', '3 Home mobile', '4 Form desktop A', '5 Form desktop B', '6 Form desktop C', '7 Form mobile A', '8 Form mobile B', '9 Form mobile C']);
+    expect(rows(plan.pages)).toEqual(['2 Home desktop', '3 Home mobile', '4 Form desktop A', '5 Form desktop B', '6 Form desktop C', '7 Form mobile A', '8 Form mobile B', '9 Form mobile C', '10 Confirm desktop', '11 Confirm mobile']);
     expect(plan.pages[3]!.option).toEqual({ letter: 'B', name: 'Split steps', idea: 'One question per step, with a clear Next.' });
     expect(files()).toEqual(before);
   });
 
-  it('plans the sample "Login" (no screen approved) and "الحجز" (one long right-to-left screen)', () => {
+  it('plans the sample "Login" (no screen approved) and "الحجز" (a long right-to-left screen and its confirmation)', () => {
     const login = readSketch(bp, 'login')!;
     expect(login.screens.some((s) => s.status === 'approved')).toBe(false);
     const arabic = readSketch(bp, 'arabic-booking')!;
     expect(arabic.name).toBe('الحجز');
     const plan = exportPlan(arabic, { screens: arabic.screens.map((s) => s.id), frames: arabic.frames });
-    expect(rows(plan.pages)).toEqual(['2 نموذج الحجز desktop', '3 نموذج الحجز mobile']);
+    expect(rows(plan.pages)).toEqual(['2 نموذج الحجز desktop', '3 نموذج الحجز mobile', '4 تأكيد الحجز desktop', '5 تأكيد الحجز mobile']);
     expect(plan.pages[0]!.html).toContain('dir="rtl"');
   });
 });

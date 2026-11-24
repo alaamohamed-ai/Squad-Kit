@@ -94,6 +94,8 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
       { id: 'system', name: 'Design system' },
       // The Studio chat (US-52) goes through the same runner, as its own step.
       { id: 'chat', name: 'Chat' },
+      // Generate the prototype (US-54): linking the approved screens, its own step too.
+      { id: 'link', name: 'Prototype links' },
     ]);
     const a = new Hono();
     mountBoardApi(a, { paths: buildPaths(tmp) });
@@ -102,12 +104,13 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
     expect(agents.map((x) => x.role)).toContain('designer');
     const designer = agents.find((x) => x.role === 'designer')!;
     expect(designer.name).toBe('Designer');
-    expect(designer.stepList.map((s) => s.id)).toEqual(['draw', 'change', 'system', 'chat']);
+    expect(designer.stepList.map((s) => s.id)).toEqual(['draw', 'change', 'system', 'chat', 'link']);
     expect(designer.levels.map((l) => [l.step, l.name, l.now.level, l.now.effort])).toEqual([
       ['draw', 'Draw', 'balanced', 'high'],
       ['change', 'Change', 'balanced', 'medium'],
       ['system', 'Design system', 'balanced', 'high'],
       ['chat', 'Chat', 'balanced', 'high'],
+      ['link', 'Prototype links', 'balanced', 'medium'],
     ]);
     for (const l of designer.levels) expect(l.now).toMatchObject(resolveLevel({ role: 'designer', step: l.step, quality: 'thrifty' }));
     expect(designer.levels.every((l) => l.now.modelName === 'Sonnet')).toBe(true);
@@ -116,7 +119,7 @@ describe('done when 1: the Designer is on the agents list, with its three steps 
     expect(fs.existsSync(path.join(bp.rulesDir, 'designer.md'))).toBe(true);
     // Its core prompts show on the page too, one per step.
     const core = (await (await a.request('/api/v1/agents/designer/prompts')).json()) as { prompts: { step: string; prompt: string }[] };
-    expect(core.prompts.map((p) => p.step)).toEqual(['draw', 'change', 'system', 'chat']);
+    expect(core.prompts.map((p) => p.step)).toEqual(['draw', 'change', 'system', 'chat', 'link']);
     expect(core.prompts.every((p) => p.prompt.includes('You are the Designer'))).toBe(true);
   });
 

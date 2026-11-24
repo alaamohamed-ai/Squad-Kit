@@ -7,6 +7,7 @@ import {
   designSystemDir,
   designSystemFile,
   designSystemsDir,
+  prototypeFile,
   screenDir,
   screenFile,
   screensDir,
@@ -375,9 +376,10 @@ function readVariantMeta(file: string): VariantMetaFile {
  * A sketch's last edit (AB-131.1): the newest mark on its sketch file, its screen files and its drawings. On equal
  * times the sketch file's mark wins, then the screens' in their order. Null when no file has a mark.
  */
-export function lastEditOf(sketch: SketchFile, screens: SketchScreen[]): EditMark | null {
+export function lastEditOf(sketch: SketchFile, screens: SketchScreen[], prototype?: EditMark): EditMark | null {
   const marks: EditMark[] = [];
   if (sketch.edited) marks.push(sketch.edited);
+  if (prototype) marks.push(prototype);
   for (const s of screens) {
     if (s.edited) marks.push(s.edited);
     for (const v of s.variants) {
@@ -449,6 +451,18 @@ function readScreen(bp: BoardPaths, sketch: string, id: string): SketchScreen {
   return { id, ...screen, variants };
 }
 
+/** The mark of the last change to the sketch's prototype (US-54), or undefined: a file that cannot be read has none. */
+function prototypeMark(bp: BoardPaths, sketch: string): EditMark | undefined {
+  const file = prototypeFile(bp, sketch);
+  if (!plainFile(file)) return undefined;
+  try {
+    const raw = readYamlFile(file);
+    return isPlain(raw) ? readEditMark(raw.edited) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** One sketch with its screens and every variant, or null when the project has none by that id. */
 export function readSketch(bp: BoardPaths, id: string): Sketch | null {
   const file = sketchFile(bp, id);
@@ -459,7 +473,7 @@ export function readSketch(bp: BoardPaths, id: string): Sketch | null {
     .filter((s) => STUDIO_ID.test(s) && plainFile(screenFile(bp, id, s)))
     .map((s) => readScreen(bp, id, s))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  return { id, name: sketch.name, designSystem: sketch.designSystem, frames: sketch.frames, screens, lastEdit: lastEditOf(sketch, screens), stamp: stamp ?? '' };
+  return { id, name: sketch.name, designSystem: sketch.designSystem, frames: sketch.frames, screens, lastEdit: lastEditOf(sketch, screens, prototypeMark(bp, id)), stamp: stamp ?? '' };
 }
 
 /**

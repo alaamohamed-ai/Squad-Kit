@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { askCards, chatsKey, emptyScreenText, frameName, isApproved, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type ConversationData, type SketchFull, type WorkspaceView } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
+import { PrototypeView } from './PrototypeView';
 import { ScreenApproval } from './ScreenApproval';
 import { ScreenTabs } from './ScreenTabs';
 import { SketchNameHeader } from './SketchActions';
@@ -21,7 +22,12 @@ import { useMarkStudioSeen } from '../../lib/studio-seen';
    Designer draws and names from the chat; each tab has a Delete that asks first.
    The header's "Approve screen" (US-15) freezes the screen shown, with a lock, "Approved by Alaa · time" and Reopen;
    while it is approved, its "Use this one" and its tab's Delete are off, and the chat says the Designer leaves it.
-   The header's ⋯ menu (SketchMenu.tsx) has Rename, Duplicate and Delete, and the Export group (US-46). */
+   The header's ⋯ menu (SketchMenu.tsx) has Rename, Duplicate and Delete, and the Export group (US-46).
+   "Screens | Prototype" in the header, right after the sketch's name (US-54): the sketch opens on Screens; on Prototype the chat is hidden
+   (it stays as it was, for coming back) and the approved screens' map takes the full width (PrototypeView.tsx). */
+
+/** What the workspace shows: the screens with the chat, or the prototype of the approved screens. */
+type WorkspaceMode = 'screens' | 'prototype';
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -37,6 +43,8 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
   const navigate = useNavigate();
   const sketch = useQuery({ queryKey: key, queryFn: () => api<SketchFull>(base) });
   const [view, setView] = useState<WorkspaceView>(() => readWorkspaceView(project, id));
+  const [mode, setMode] = useState<WorkspaceMode>('screens');
+  const proto = mode === 'prototype';
   const choose = (next: WorkspaceView) => {
     const v = { ...view, ...next };
     if ('screen' in next && next.screen === undefined) delete v.screen;
@@ -91,7 +99,17 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
           <ChevronLeft size={15} /> Sketches
         </Link>
         {s ? <SketchNameHeader key={`${s.id}:${s.name}`} project={project} sketch={{ id: s.id, name: s.name, stamp: s.stamp, screens: s.screens.length }} /> : <h1 dir="auto">{sketch.isError ? 'Sketch' : '…'}</h1>}
-        {s && <span className="note">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'Follows no design system'}</span>}
+        {/* One fixed place for both views (US-54), right after the name: the screen tabs keep their whole row. */}
+        {s && (
+          <div className="seg ws-modes" role="tablist" aria-label="View">
+            {(['screens', 'prototype'] as const).map((m) => (
+              <button key={m} role="tab" aria-selected={m === mode} className={m === mode ? 'on' : ''} onClick={() => setMode(m)}>
+                {m === 'screens' ? 'Screens' : 'Prototype'}
+              </button>
+            ))}
+          </div>
+        )}
+        {s && <span className="note ws-follows">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'Follows no design system'}</span>}
         <span className="grow" />
         {s && (
           <SketchMenu
@@ -104,14 +122,14 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
             }}
           />
         )}
-        {s && screen && <ScreenApproval key={screen.id} sketch={s} screen={screen} version={variant?.version ?? null} chat={chat} working={doing !== null} onDone={picked} onRefused={answered} />}
+        {s && screen && !proto && <ScreenApproval key={screen.id} sketch={s} screen={screen} version={variant?.version ?? null} chat={chat} working={doing !== null} onDone={picked} onRefused={answered} />}
       </div>
       {sketch.isError ? (
         <div className="page">
           <p className="note bad">{sketch.error.message}</p>
         </div>
       ) : (
-        <div className="ws">
+        <div className={`ws${proto ? ' proto' : ''}`}>
           {s ? (
             <ChatPanel
               project={project}
@@ -129,10 +147,10 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
           ) : (
             <aside className="dc" aria-label="Chat with the AI Designer" />
           )}
-          <section className="ws-main" aria-label="Screens">
+          <section className="ws-main" aria-label={proto ? 'Prototype' : 'Screens'}>
             {s && (
               <div className="ws-bar">
-                <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />
+                {proto ? <span className="grow" /> : <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />}
                 {frames.length > 0 && (
                   <div className="seg ws-frames" role="tablist" aria-label="Frames">
                     {frames.map((f) => (
@@ -144,34 +162,38 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
                 )}
               </div>
             )}
-            <div className="ws-view">
-              {!s ? (
-                <p className="note">Reading the sketch…</p>
-              ) : cards && screen && frame ? (
-                <VariantCards
-                  key={`${screen.id}:${s.stamp}`}
-                  sketch={s.id}
-                  screen={{ id: screen.id, name: screen.name }}
-                  frame={frame}
-                  cards={cards}
-                  stamp={s.stamp}
-                  chat={chat}
-                  working={doing !== null}
-                  locked={locked}
-                  onPicked={picked}
-                />
-              ) : html !== undefined ? (
-                <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
-              ) : doing ? (
-                <p className="ws-empty" role="status">
-                  The AI Designer draws here. {doing}…
-                </p>
-              ) : (
-                <p className="ws-empty">
-                  {screens.length ? emptyScreenText(screen!.name, frame) : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
-                </p>
-              )}
-            </div>
+            {s && proto ? (
+              <PrototypeView project={project} sketch={s.id} frame={frame} onChanged={answered} />
+            ) : (
+              <div className="ws-view">
+                {!s ? (
+                  <p className="note">Reading the sketch…</p>
+                ) : cards && screen && frame ? (
+                  <VariantCards
+                    key={`${screen.id}:${s.stamp}`}
+                    sketch={s.id}
+                    screen={{ id: screen.id, name: screen.name }}
+                    frame={frame}
+                    cards={cards}
+                    stamp={s.stamp}
+                    chat={chat}
+                    working={doing !== null}
+                    locked={locked}
+                    onPicked={picked}
+                  />
+                ) : html !== undefined ? (
+                  <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
+                ) : doing ? (
+                  <p className="ws-empty" role="status">
+                    The AI Designer draws here. {doing}…
+                  </p>
+                ) : (
+                  <p className="ws-empty">
+                    {screens.length ? emptyScreenText(screen!.name, frame) : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </div>
       )}
