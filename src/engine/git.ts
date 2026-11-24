@@ -757,7 +757,7 @@ function copyLink(dir: string): string | null {
 }
 
 /** The copy of this repo in this folder as git knows it: its own git folder. Null for anything else, which is not git's to remove. */
-function copyGitDir(root: string, dir: string): string | null {
+export function copyGitDir(root: string, dir: string): string | null {
   if (!fs.lstatSync(path.join(dir, '.git'), { throwIfNoEntry: false })?.isFile()) return null;
   const own = git(dir, ['rev-parse', '--absolute-git-dir'], { allowFail: true });
   const common = git(root, ['rev-parse', '--git-common-dir'], { allowFail: true });

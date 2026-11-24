@@ -107,13 +107,22 @@ export function Cmd({ text, keep, always }: { text: string; keep?: string; alway
   if (!showCommands && !always) return null;
   const copy = () => {
     void navigator.clipboard?.writeText(text).then(
-      () => toast('Command copied'),
-      () => toast('Could not copy. Select the text instead.', 'err'),
+      () => toast(always ? 'Command copied' : `Copied: ${text}. Paste it in a terminal.`),
+      () => toast(always ? 'Could not copy. Select the text instead.' : `Could not copy. The command: ${text}`, 'err'),
     );
   };
+  // The terminal twin of a button (#27): a small ">_" chip, so it never reads as one more button. Pointing at it shows
+  // the command; pressing it copies it, and the note says which command.
+  if (!always) {
+    return (
+      <button className="term term-icon" dir="ltr" onClick={copy} title={`${text}\nPress to copy it for a terminal`} aria-label={`Copy the terminal command: ${text}`}>
+        <b>&gt;_</b>
+      </button>
+    );
+  }
   const cut = keep && text.endsWith(keep) && text.length > keep.length ? text.length - keep.length : 0;
   return (
-    <span className="term" dir="ltr" title="The same action in the terminal">
+    <span className="term" dir="ltr">
       <b>&gt;_</b>
       {cut ? (
         <>
@@ -153,12 +162,14 @@ export function Tracker({ ticket }: { ticket: Ticket }) {
       {TRACK.map((s, i) => {
         const cls = i < at ? 'done' : i === at ? `cur ${mode}` : '';
         const note = notes.get(s.stage);
+        // A short window shows only the current step's note: pointing at a step shows its whole note.
+        const full = [note === 'your turn' ? '' : note, waits.get(s.stage)].filter(Boolean).join(', ');
         return (
-          <div key={s.stage} className={`ts ${cls}`}>
+          <div key={s.stage} className={`ts ${cls}`} title={full || undefined}>
             <span className="nd">{i < at ? <Check size={12} strokeWidth={3} /> : null}</span>
             {s.name}
             {i === at && (
-              <span className="tag">{mode === 'you' ? 'Your turn' : ticket.now?.merging ? 'Working' : ticket.stage === 'release' ? 'Ready' : ticket.dependency?.way === 'wait' && !ticket.dependency.started && !ticket.squad ? 'Waiting' : 'Working'}</span>
+              <span className="tag">{mode === 'you' ? 'Your turn' : ticket.now?.merging ? 'Working' : ticket.stage === 'release' ? 'Ready' : (ticket.dependency?.way === 'wait' && !ticket.dependency.started && !ticket.squad) || ticket.toolWait ? 'Waiting' : 'Working'}</span>
             )}
             {notes.size > 0 && <span className="tnote">{i === at && note === 'your turn' ? '' : s.stage === 'release' && ticket.sendAs ? 'as a pull request' : (note ?? '')}</span>}
             {waits.has(s.stage) && <span className="tnote twait">{waits.get(s.stage)}</span>}

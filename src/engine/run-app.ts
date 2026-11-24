@@ -7,6 +7,7 @@ import { findApp, isUp, projectApps, type ProjectApp } from '../board/apps.js';
 import { readMeta, type BoardPaths } from '../board/store.js';
 import type { RepoInfo } from '../board/types.js';
 import { runCommand, tail } from './checks.js';
+import { logAppFailure } from './app-failure-log.js';
 import { DOCKER_STOP_MS, DOCKER_WAIT_MS, composeRun, dockerGuard } from './compose-run.js';
 import { dockerBlockedWords, guardSupport, projectGuardFor, spawnProject, type GuardSpec } from './project-guard.js';
 import { GitStopped, NoRoomForCopy, clearHalfCopy, copyIsWhole, copyTurn, gitLater, gitRecords, latestBase, makeCopy, type CopyHow } from './git.js';
@@ -668,6 +669,7 @@ export class AppRunner {
     run.error = error;
     if (more.detail) run.detail = more.detail;
     if (more.busy) run.busy = more.busy;
+    logAppFailure(this.bp, this.runs, run);
     this.leaveIfIdle();
   }
 
@@ -817,12 +819,7 @@ export class AppRunner {
       ended = true;
       exited();
       this.record(app.repo, (rec) => delete rec.pid);
-      if (run.state === 'running' && !signal.aborted) {
-        run.state = 'failed';
-        run.error = 'It stopped by itself.';
-        run.detail = `${command}\n${tail(printed, 30)}`;
-        this.leaveIfIdle();
-      }
+      if (run.state === 'running' && !signal.aborted) this.fail(run, 'It stopped by itself.', { detail: `${command}\n${tail(printed, 30)}` });
     };
     child.once('error', (err) => {
       printed += `\n${err.message}`;

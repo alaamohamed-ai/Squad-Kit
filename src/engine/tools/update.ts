@@ -14,7 +14,7 @@ import { GetTrouble, measured, noteTime, setTrouble, startOne, type Getting } fr
  * `flutter upgrade`, never with --force. One Flutter serves every Flutter project on the computer, so the page warns
  * and asks first. squad-kit updates only a plain copy of Flutter's own repository, on one of its channels, with no
  * changes of its own, in a folder this person may change, and not looked after by another tool. Any other copy gets
- * the steps to do it yourself.
+ * the steps to do it yourself. (FVM is squad-kit's own to get instead: Get it, engine/tools/get.ts.)
  */
 
 /* ── whether it is safe ─────────────────────────────────── */
@@ -65,12 +65,20 @@ export async function flutterUpdateLook(h: DetectHost, f: Found): Promise<NonNul
   return {};
 }
 
-/** Adds whether squad-kit can update Flutter here, the one tool it updates for now. Never stops a check: a problem is a plain reason. */
+/** Whether squad-kit can update this tool's copy here, looked at again right before an update. */
+export async function updateLookOf(h: DetectHost, id: ToolId, f: Found): Promise<NonNullable<Found['update']> | undefined> {
+  return id === 'flutter' ? flutterUpdateLook(h, f) : { cant: cant(`squad-kit doesn't update ${nameOf(id)}`) };
+}
+
+/** Adds whether squad-kit can update Flutter here, the one tool it updates. Never stops a check: a problem is a plain reason. */
 export async function addUpdateLooks(h: DetectHost, book: FoundBook): Promise<FoundBook> {
-  const f = book.tools.flutter;
-  if (f?.state !== 'found') return book;
-  const update = await flutterUpdateLook(h, f).catch(() => ({ cant: cant('it could not look inside your Flutter folder') }));
-  return update ? { ...book, tools: { ...book.tools, flutter: { ...f, update } } } : book;
+  const tools = { ...book.tools };
+  const f = tools.flutter;
+  if (f?.state === 'found') {
+    const update = await flutterUpdateLook(h, f).catch(() => ({ cant: cant('it could not look inside your Flutter folder') }));
+    if (update) tools.flutter = { ...f, update };
+  }
+  return { ...book, tools };
 }
 
 /* ── what the page says first ───────────────────────────── */
@@ -324,7 +332,7 @@ export function startUpdate(
   const name = nameOf(id);
   const guess = updateGuess(id, home);
   const t0 = Date.now();
-  const first: Getting = { tool: id, name, startedAt: new Date(t0).toISOString(), step: 'update', done: 0, total: guess, secondsLeft: guess, words: FIRST_STEP };
+  const first: Getting = { tool: id, name, startedAt: new Date(t0).toISOString(), step: 'update', done: 0, total: guess, secondsLeft: guess, words: id === 'flutter' ? FIRST_STEP : `Looking for the new ${name}` };
   return startOne(
     first,
     async (set) => {
@@ -332,7 +340,9 @@ export function startUpdate(
       const show = (words = g.words) => {
         const elapsed = (Date.now() - t0) / 1000;
         // Counted from the usual time; the bar never reaches the end before the update does.
-        g = { ...g, ...(words ? { words } : {}), done: Math.min(Math.round(elapsed), Math.round(guess * 0.95)), secondsLeft: Math.max(10, Math.round(guess - elapsed)) };
+        // Past its usual time it says so, and still working, never "about 10 s left" for half an hour.
+        const longer = elapsed > guess;
+        g = { ...g, ...(words ? { words } : {}), done: Math.min(Math.round(elapsed), Math.round(guess * 0.95)), secondsLeft: longer ? 0 : Math.max(10, Math.round(guess - elapsed)), ...(longer ? { longer: true as const } : {}) };
         set(g);
       };
       const tick = setInterval(() => show(), 1000);

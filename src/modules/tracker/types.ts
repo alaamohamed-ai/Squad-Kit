@@ -24,6 +24,19 @@ export interface TrackerItemRow {
 /** A backlog. `more`: the tracker had more than it reads at once, and the rest is not in this list. */
 export type ItemList = TrackerItemRow[] & { more?: boolean };
 
+/** An epic or a feature above backlog items: a branch of the backlog's tree. Its type is the tracker's own word. */
+export interface TrackerGroup extends TrackerItemRow {
+  level: 'epic' | 'feature';
+}
+
+/** How a backlog's items nest under epics and features. */
+export interface TrackerTree {
+  /** The item right above each item that has one, by id: the listed items' and the groups' own. */
+  above: Record<string, string>;
+  /** The epics and features above the listed items that are not listed themselves, in no set order. */
+  groups: TrackerGroup[];
+}
+
 export interface TrackerItem extends TrackerItemRow {
   description: string;
   acceptanceCriteria: string;
@@ -71,6 +84,11 @@ export interface TrackerLevels {
   process: string;
   /** The project the items go into, for "Into project RoomFlow". */
   project?: string;
+  /**
+   * Levels the tracker cannot nest under the epic above them: those items are linked to their epic instead. 'feature':
+   * every feature; 'story': a story straight under its epic. Left out: everything nests.
+   */
+  linked?: ('feature' | 'story')[];
 }
 
 /** A new item. squad-kit writes Markdown; the module turns it into the tracker's own format. */
@@ -115,6 +133,11 @@ export interface Tracker {
   sprints(): Promise<Sprint[]>;
   /** Stories and bugs, in backlog order; a sprint's items when given its path. */
   list(opts?: { sprint?: string; includeDone?: boolean }): Promise<ItemList>;
+  /**
+   * The epics and features above these items, and what sits under what, up to three levels up. Optional: without it,
+   * or when nothing has a parent, the backlog is a flat list.
+   */
+  tree?(rows: TrackerItemRow[]): Promise<TrackerTree>;
   get(id: string): Promise<TrackerItem>;
   /** Saves an attachment to a file and returns its path. */
   download(url: string, file: string): Promise<string>;
@@ -188,14 +211,17 @@ export interface TrackerModule {
   fields: SetupField[];
   /** The tracker for a project folder, or null when it is not set up or has no sign-in saved. */
   open(root: string): Tracker | null;
-  /** What is saved now (secrets only say whether they are there), and one plain line about it for Settings. */
-  read(root: string): { values: Record<string, string>; hasSecret: boolean; note?: string };
+  /**
+   * What is saved now (secrets only say whether they are there), and one plain line about it for Settings. `signedIn`:
+   * signed in on the Connections page instead, so no token is needed.
+   */
+  read(root: string): { values: Record<string, string>; hasSecret: boolean; note?: string; signedIn?: boolean };
   /** Saves the settings; secrets left empty keep the saved ones. It may check them with the tracker first. */
   save(root: string, values: Record<string, string | undefined>): void | Promise<void>;
   /** Settings read from a git remote that lives on this product, for a project not set up yet. */
   guess(remoteUrl: string): Record<string, string> | null;
   /** What this computer still needs before it can connect, for these values. Optional: none. */
   setupSteps?(values: Record<string, string>): Promise<SetupStep[]>;
-  /** The lists its choice fields pick from, for the values chosen so far. */
-  choices?(values: Record<string, string>): Promise<Record<string, SetupChoice[]>>;
+  /** The lists its choice fields pick from, for the values chosen so far. `root`: the project, for a sign-in saved there. */
+  choices?(values: Record<string, string>, root?: string): Promise<Record<string, SetupChoice[]>>;
 }

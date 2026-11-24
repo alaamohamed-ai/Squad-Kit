@@ -23,6 +23,7 @@ vi.mock('../src/modules/registry.js', async (orig) => ({
 
 const { AgentWindow, ALL_TOOLS, MISTAKES_TO_STOP, tooManyMistakesWords, tooManyWords } = await import('../src/engine/window.js');
 const { openWindow, closeWindow, windowAccess } = await import('../src/engine/window-server.js');
+const { keyName } = await import('../src/engine/window-calls.js');
 
 let tmp: string;
 let fake: FakeBrowser;
@@ -141,9 +142,24 @@ describe("the exact calls from RO-8, RO-12 and RO-13's log", () => {
     expect(w.mistakes).toEqual([]);
   });
 
+  it('takes an action named as a field when it can mean only one thing, and the usual key names (#38)', async () => {
+    const { w, access } = await tester();
+    const a = await callTool(access, 'take_screenshots', {
+      shots: [{ page: '/app', steps: [{ fill: { role: 'textbox', name: 'Title' }, value: 'Sprint review' }, { press: 'enter' }, { click: { role: 'button', name: 'Book' } }] }],
+    });
+    expect(a.isError, textOf(a)).toBeUndefined();
+    expect(fake.log).toEqual(['goto /app', 'fill textbox:Title', 'press', 'click button:Book']);
+    expect(w.mistakes).toEqual([]);
+    expect(keyName('enter')).toBe('Enter');
+    expect(keyName('esc')).toBe('Escape');
+    expect(keyName('shift+tab')).toBe('Shift+Tab');
+    expect(keyName('a')).toBe('a');
+  });
+
   it('a shape squad-kit does not guess gets the right shape back, with an example, and is never counted', async () => {
     const { w, access, stopped } = await tester();
-    const fill = await callTool(access, 'take_screenshots', { shots: [{ page: '/app', steps: [{ fill: { role: 'textbox', name: 'Title' }, value: 'Sprint review' }] }] });
+    // A fill named as a field with only text: which field it fills cannot be told.
+    const fill = await callTool(access, 'take_screenshots', { shots: [{ page: '/app', steps: [{ fill: 'Sprint review' }] }] });
     expect(wrongShape(fill)).toBe(true);
     expect(textOf(fill)).toContain('step 1 names its action as a field ("fill")');
     expect(textOf(fill)).toContain('{ "action": "fill", "target": { "role": "textbox", "name": "Title" }, "value": "Sprint review" }');

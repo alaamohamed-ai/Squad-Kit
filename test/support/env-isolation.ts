@@ -47,6 +47,9 @@ for (const tool of ['pbcopy', 'xclip', 'xsel', 'wl-copy', 'termux-clipboard-set'
 fs.writeFileSync(path.join(standIns, 'gh'), '#!/bin/sh\necho "not signed in (test)" >&2\nexit 1\n', { mode: 0o755 });
 process.env.GH_CONFIG_DIR = path.join(standIns, 'gh-config');
 fs.mkdirSync(process.env.GH_CONFIG_DIR, { recursive: true });
+// Nor with Microsoft's: this az answers nothing, and squad-kit's own az folder is inside the test's home (ADR-011). A
+// test that wants az puts its own made-up one first on the PATH.
+fs.writeFileSync(path.join(standIns, 'az'), "#!/bin/sh\necho \"ERROR: Please run 'az login' to setup account. (test)\" >&2\nexit 1\n", { mode: 0o755 });
 process.env.PATH = `${standIns}${path.delimiter}${process.env.PATH ?? ''}`;
 
 // A locale for git, as a person's terminal has. Started with none (an app opened from the Dock, an editor's test
@@ -76,6 +79,9 @@ const ISOLATED_VARS = [
   'GOOGLE_API_KEY',
   'SQUAD_PLANNER_API_KEY',
   'JIRA_API_TOKEN',
+  // The rest of a Jira sign-in from the environment: a developer's own site would reach a real Jira from a test.
+  'JIRA_HOST',
+  'JIRA_EMAIL',
   'AZURE_DEVOPS_PAT',
   // GitHub's tool reads these before its own sign-in: a developer's own would reach GitHub from a test.
   'GH_TOKEN',

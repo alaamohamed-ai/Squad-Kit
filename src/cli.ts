@@ -55,7 +55,6 @@ import {
   runQuality,
   runNewTests,
   runPhoneChoice,
-  runBacklog,
   runUnstick,
   runRelease,
   runShow,
@@ -63,6 +62,7 @@ import {
   runStartTicket,
   runWatch,
 } from './commands/board.js';
+import { runBacklog } from './commands/backlog.js';
 import { runGuardAllow, runHosts, runNetwork } from './commands/sandbox.js';
 import { runEnvFile } from './commands/env-file.js';
 import { runConfigShow, runConfigSetPlanner, runConfigSetTracker, runConfigUnsetPlanner, runConfigUnsetTracker, runConfigRemoveCredential } from './commands/config/index.js';
@@ -306,7 +306,7 @@ program
 program
   .command('tools [action] [tool]')
   .description(
-    "What this project needs on this computer, the same as the Tools page. check: look again after installing something. get <tool>: squad-kit gets one of its own tools, like maestro, java or android. accept <tool>: read a tool maker's license and accept it (android needs it before get). update <tool>: squad-kit updates your own Flutter when it safely can, after a warning",
+    "What this project needs on this computer, the same as the Tools page. check: look again after installing something. get <tool>: squad-kit gets one of its own tools, like maestro, java or android. accept <tool>: read a tool maker's license and accept it (android needs it before get). update <tool>: squad-kit updates your own Flutter or FVM when it safely can, after a warning. skip android: the checks that build the Android app don't run on this computer (unskip android turns them back on)",
   )
   .option('-y, --yes', 'With accept or update: say yes without being asked')
   .action(wrapArgs(runTools));
@@ -631,8 +631,8 @@ program.command('bring-in <ticket>').description("Bring the latest main into a t
 program.command('check-merge <ticket>').description("Check again: ask the code host now whether a ticket's pull request, or the one it waits for, was merged there").action(wrapArgs(runCheckMerge));
 program.command('pr <ticket>').description("A story's pull request: where it went, where it stands, and the owner's notes").option('--fix', "Fix these: the Builder fixes the owner's notes, and the fix goes to the same pull request").option('--leave', "I answered them on the code host: the owner's notes are answered, and squad-kit waits for the owner again").option('--leave-closed', 'The owner closed it: leave it closed').action(wrapArgs(runPr));
 program.command('contribute').description("squad-kit's own code: where you are, and the checklist before your first pull request").option('--fork', 'Make your own copy (a fork) of the main repo (with --sync: do both)').option('--sync', 'Bring your copy up to date with the main repo').option('--idea <title>', 'A big idea: print the new issue page that tells the maintainers first, filled in').option('--text <words>', 'With --idea: the idea in a few lines').action(wrap(runContribute));
-program.command('connect [tool]').description("Outside tools: each one's state, or sign in to one with its own sign-in (a code you type on its page)").option('--status', 'Every outside tool and its state on this computer').action(wrapArgs(runConnect));
-program.command('disconnect <tool>').description("Sign an outside tool out on this computer, for every app that uses it").option('-y, --yes', 'Do not ask first').action(wrapArgs(runDisconnect));
+program.command('connect [tool]').description("Outside tools: each one's state, or sign in to one with its own sign-in (a code you type on its page, or a page you approve on)").option('--status', 'Every outside tool and its state on this computer').option('--site <site>', 'The place to use: a Jira site, or an Azure DevOps project (its address, or organization/project)').action(wrapArgs(runConnect));
+program.command('disconnect <tool>').description("Sign an outside tool out on this computer: its own tool's sign-in, or squad-kit's own").option('-y, --yes', 'Do not ask first').action(wrapArgs(runDisconnect));
 program
   .command('branches')
   .description('Show the old branches of released tickets')
@@ -685,11 +685,10 @@ program
   .command('pull <ref>')
   .description('Start a ticket from an Azure DevOps work item, for example 35 or AB#35')
   .action(wrapArgs(runPull));
-program
-  .command('backlog')
-  .description("Show the sprint's stories and bugs from Azure DevOps")
+program.command('backlog').description("Show the sprint's stories and bugs from the tracker, under their epics and features when it has them")
   .option('--sprint <name>', 'Which sprint, for example "Sprint 1" (default: the current one)')
   .option('--all', 'Everything open, in every sprint')
+  .option('--flat', 'A plain list, without the epics and features above the items')
   .action(wrapArgs(runBacklog));
 program.addCommand(requirementsCommand()).addCommand(studioCommand());
 program

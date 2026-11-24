@@ -99,6 +99,315 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whom ("Edited 10 minutes ago by AI Designer for Sara"). Cards are sorted by last edit, newest first, and a click
   opens the sketch. A picture that is not ready yet shows a plain placeholder. The sample board has three sketches.
 
+## [1.3.36] — 2026-11-24
+
+### Fixed
+
+- **A check that builds the Android app passes.** Flutter's Android build compiles Flutter's own Gradle plugin in
+  Flutter's folder, which squad-kit's guard keeps read only, so the build check stopped with "The settings are not yet
+  available for build" on every Flutter app. A check that only builds the Android app (`flutter build apk`,
+  `./gradlew assembleDebug`, with nothing else in it) now runs outside the guard, as Xcode's builds and squad-kit's own
+  Android phone builds already do: in the story's copy only, after squad-kit's own downloads, in squad-kit's shared
+  Gradle home and with no Gradle helper left running. The tests, the code check, the setup and the agents stay inside
+  the guard. The Harness page says so.
+
+## [1.3.35] — 2026-11-24
+
+### Fixed
+
+- **An Android SDK that lacks what Flutter builds with is named, with the steps.** Flutter builds the Android app
+  against one Android platform and asks its Gradle plugin for one NDK (Android 16 and the NDK 28.2.13676358 for Flutter
+  3.47), and an SDK from Android Studio often has neither: the build check failed, and the Builder found it out over
+  its tries. squad-kit now reads what the project's Flutter needs (the version FVM pins, else the one on the PATH), and
+  a story whose build check would need a missing piece waits with a line that names it, with Android Studio's own steps
+  to add it; the Tools page's Android line and the Squad lead say the same. A build that still stops for a missing NDK
+  is a missing tool, with no try counted.
+
+## [1.3.34] — 2026-11-24
+
+### Fixed
+
+- **The first Android build check passes instead of being stopped as silent.** A check that builds the Android app
+  (`flutter build apk`) first downloads the Gradle its project asks for, a few hundred MB that print nothing, and
+  squad-kit stopped it after 5 quiet minutes, then sent the Builder to fix what no code change could. squad-kit now gets
+  that Gradle itself before the check, from Gradle's own site only, checked against the SHA-256 Gradle publishes, into
+  its shared Gradle home, where every story finds it. A check that builds the Android app also gets 40 minutes and 15
+  quiet minutes, as its first run downloads the app's libraries. A half Gradle that a stopped build left behind makes
+  way for the whole one.
+- **Skip Android builds is always there** on the Tools page's Android line for a project whose checks build the
+  Android app, also when Android's tools are ready and the build still can't run on this computer.
+
+### Changed
+
+- **squad-kit gets FVM itself.** A project whose commands run fvm no longer needs you to install or update FVM: the FVM
+  line on the Tools page has Get it, like Java and Maestro. squad-kit downloads FVM's official ready-made release
+  (4.3.2, a few MB, checked against the SHA-256 FVM publishes) into its own folder, with no password, and puts it first
+  on the PATH of the project's commands and the agents' shell only. An FVM of your own stays as it is and is never
+  updated by squad-kit: the Homebrew Update for FVM from 1.3.29 is gone. The Squad lead offers Get it for a story that
+  waits for FVM.
+
+## [1.3.33] — 2026-11-24
+
+### Added
+
+- **The Backlog shows each story under its feature and epic.** When the tracker keeps its work under epics and
+  features (Azure DevOps parent links, GitHub sub-issues, Jira parents), the Backlog's new Tree view puts every story
+  and bug under them, in the backlog's own order, with the items under no epic last. An epic or a feature folds to
+  hide what is under it and shows how many of its items are merged. List is the plain backlog, and a tracker with no
+  epics or features keeps it. In a terminal, `squad backlog` prints the tree and `squad backlog --flat` the list.
+- **The list never waits for the tree.** An epic in a project this account cannot see is left out and the rest of
+  the tree stays; a tree that takes over 5 seconds comes with the next look; each tree is read again at most once a
+  minute.
+
+## [1.3.32] — 2026-11-24
+
+### Fixed
+
+- **`fvm flutter` works in the project's checks.** A project that pins its Flutter with FVM failed every check: inside
+  squad-kit's guard FVM could not download the pinned Flutter, as its folder is outside the story's copy and stays
+  read only. Before a check that runs fvm, squad-kit now gets that version itself, outside the guard, with
+  `fvm install <version>` (the version read from the project's .fvmrc, run from the home folder), then the checks find
+  it installed, and only that Flutter's own version stamps open in the guard, as for the Flutter on the PATH. The
+  Builder's shell gets the same stamps. When FVM still can't get it, the check says so as a missing tool, with no try
+  counted, instead of sending the Builder to fix it.
+
+## [1.3.31] — 2026-11-24
+
+### Fixed
+
+- **An update that takes longer than usual says so.** Past its usual time, Update said "about 10 s left" for as long as
+  it ran. It now says it takes longer than usual and is still working. When Homebrew has no ready-made FVM for the
+  computer and builds it from its source, the line says that too, and the warning before Update says it downloads a
+  few GB and takes about half an hour.
+- **No Update offer that would take hours.** Homebrew for Intel Macs, in /usr/local, on a Mac with an Apple chip has no
+  ready-made builds, so `brew upgrade fvm` compiled Dart, LLVM and Rust from source. squad-kit no longer offers Update
+  there: the FVM line says why and gives FVM's own Homebrew steps (`brew uninstall fvm`, then
+  `brew install leoafarias/fvm/fvm`), which take a few minutes.
+
+## [1.3.30] — 2026-11-24
+
+### Fixed
+
+- **Connecting Azure DevOps happens in one place, and says Connected only when it really is.** After Sign in with
+  Microsoft, the Azure DevOps card said Connected even when squad-kit did not know which organization and project the
+  stories come from (a project whose code is on GitHub, say), so nothing could be pulled until both were typed in
+  Settings, which also asked for a token that was not needed. The card now lists the projects the Microsoft account
+  reaches, to pick with one click (`squad connect azure --site <organization/project>` in a terminal), or takes the
+  board's address pasted from the browser. It says Connected only once squad-kit reaches that project, and says so
+  when a saved project is not there any more.
+- **The token way is on the same card**, with plain steps and a link to the organization's own tokens page. The token
+  is checked before it is saved, and the card opens it at once for an organization of personal Microsoft accounts.
+  A token that may not read the project list still connects.
+- **Settings no longer says "Needs a token" while squad-kit is signed in with Microsoft**, and the empty Backlog points
+  to Connections.
+
+## [1.3.29] — 2026-11-24
+
+### Fixed
+
+- **A story that waits for a tool says so, everywhere.** A story whose build check builds the Android app waited for
+  Android's tools while its card showed it still testing, with a clock running and no reason. Its card now says what
+  it waits for, with the link to the tool's line, and the board shows it as waiting, never as working. squad-kit also
+  looks again by itself every 10 minutes, so it goes on once the tools are there.
+- **Android Studio's own SDK is enough for a check that builds the Android app.** squad-kit wanted the full phone kit
+  (command-line tools and a phone system) even for a plain build. An SDK that builds apps is used as it is for those
+  checks; the phone pieces are only for phone pictures and Try it yourself. While Android Studio is on the computer,
+  the Android line also shows the steps to add what its SDK lacks. A version the project's Gradle asks for and the SDK
+  lacks is a missing tool, never the Builder's to fix.
+- **Android 17 phones are recognised.** Android Studio keeps their phone system in a folder named android-37.0, which
+  squad-kit did not read, so an SDK with one still counted as having no phone.
+- **The Tools page knows a new project before it has files.** A project whose app lives in a folder of its own (a
+  Flutter repo with only its README) listed only Git, Claude Code and gh. Each repo with no app in its files yet now
+  takes what its saved commands run: Flutter, FVM, and Android's build tools for a check that builds the Android app.
+- **"Used for" on the GitHub tool's line said nothing.** It says Pull requests.
+
+### Added
+
+- **Skip Android builds.** A person who doesn't build for Android on this computer can skip the Android builds in the
+  project's checks, from the story's card, the Tools page, the Squad lead, or `squad tools skip android`. Only the build
+  is taken out (`flutter build apk` alone, or the end of `flutter test && flutter build apk`): the tests and the code
+  check still run, and a check that runs on Android itself (`./gradlew test`) is never skipped. The story says each time
+  what did not run, and `squad tools unskip android` turns it back on. The choice is kept on this computer only.
+- **FVM on the Tools page.** A project whose commands run fvm needs FVM 3 or newer: FVM 2 doesn't read the .fvmrc file
+  that pins the Flutter version, and runs another Flutter. squad-kit finds FVM and its version, a story waits with a
+  plain line while it is missing or too old, and a copy from Homebrew is updated with `brew upgrade fvm` when you press
+  Update (or `squad tools update fvm`), after the same warning as Flutter's; squad-kit checks the version after. A pin
+  beside plain `flutter` commands only recommends FVM.
+- **The Squad lead knows when a story waits for a tool.** It lists it in Needs you by itself, explains what is missing
+  and why when asked, gives the real steps (Android Studio's own included), and offers the buttons that move it on:
+  Get it, Update, or Skip Android builds. Each needs your press.
+
+## [1.3.28] — 2026-11-24
+
+### Fixed
+
+- **The Overview shows where a new project really is when its stories come from your tracker.** On a project with no
+  code yet, the Overview kept asking "What do you want to build?", with a badge of 1, even after a story was pulled from
+  Azure DevOps (or another tracker, or written by hand) and the squad was working on it. Once a story is on the board
+  that question is over: the Overview shows "Your stories", each with where it is and a way to it, says the first code
+  comes with the first one, and nothing waits for you there. The board's "One question for you" card and the badge go
+  too. Once the first code is merged, the question stays over. `squad overview` shows the same.
+
+## [1.3.27] — 2026-11-24
+
+### Fixed
+
+- **An open story no longer breaks while you scroll it.** On a narrower window, where the story's top row takes two
+  lines, scrolling just past the title could show "This page ran into a problem". The top row shows the title once it
+  scrolls away and got shorter; the browser moved the page to keep your place, the title came back into view, and the
+  row flipped back and forth until the page gave up. The row now keeps its height with the title, so nothing under it
+  moves, and it decides with that full height, so one scroll gives one answer. Slow trackpad scrolling no longer
+  bounces back to the top there either.
+
+## [1.3.26] — 2026-11-23
+
+### Fixed
+
+- **A ticket's copy is never reused when git has lost it** (#34). When a project was set up again in the same folder,
+  the copy of an earlier ticket with the same key was kept and reused: its link to git pointed at nothing, so nothing
+  could be saved, Looks right failed every time, and the Builder worked on old code. A copy that is not this repo's is
+  now moved aside (its files are kept, never deleted) and a new one is made, and an open ticket whose copy git lost
+  for good gets a new copy the next time it runs, with a line on the ticket that says where the old files went.
+- **squad-kit no longer stops your editor** (#36). After a step, squad-kit stops programs left running in its copies,
+  and it took VS Code's extension hosts and language servers for leftovers when a copy was open in it, about 20 times
+  an hour. What an editor runs (VS Code and its forks, JetBrains IDEs, Zed, Sublime Text) is now left alone.
+- **A project's problem report holds only that project's log** (#40). It also held the lines of every other project,
+  with their errors, commands and folders. The report for the whole app still holds them all.
+- **The Squad lead's and the Tester's near misses still work** (#38). The Squad lead often asked for a story with
+  `story` instead of `id` and for its notes with `kind` instead of `what`, and got less to answer from. Those names are
+  now read as meant. A Tester's step that names its action as a field (`{ "click": { … } }`, `{ "press": "enter" }`)
+  is taken when it can only mean one thing, and key names like "enter" or "esc" are understood. The step's description
+  now says the 500-character limit and every key it takes.
+- **Why Run app failed is in squad-kit's log.** It was kept only in the board's memory, so the Squad lead answered
+  "squad-kit has no error saved for it" and a problem report had nothing. The reason and what the app printed are now
+  logged as an error.
+- **The Squad lead's Start the app works with one app.** The lead named the app "app" where the project's one app is
+  called by the project's name, and the button said "There is no app called app". With one app, it starts that app.
+- **Stops once when this computer is missing something** (#37). When Docker is not running, PHP has no database
+  driver for the tests, or a check's own program is not installed, the ticket now stops once and says what to install
+  or start, with Try again, Continue anyway and Send it back to the plan. Before, the Builder was sent back to "fix" it,
+  try after try. No try is counted.
+- **The Builder's shell works on Ubuntu** (#35). Ubuntu's AppArmor lets bubblewrap start but refuses the user
+  namespace Claude Code's sandbox makes inside it, so every shell command failed while setup said the tool works.
+  squad-kit now checks for that at start, and if a run still meets it, the next runs go without that sandbox (behind
+  squad-kit's own guard). The Harness page and `squad doctor` say why, with the one setting that brings it back.
+- **The chat panel leaves room to type beside an attachment** (#30). The attachment takes its own row above the text.
+- **An attachment you have not sent stays when you open the chat full size** (#31).
+- **A question card stays where it came in the talk** (#32). New messages show below it, and while it is out of view a
+  slim bar under the talk says the story waits for your answer and takes you to it. The "new messages" button no
+  longer covers it.
+- **/healthz keeps answering during an update** (#39). While "Update now" replaced squad-kit's files, the running app
+  failed to read its own version and logged an error. It now answers with the version that runs.
+
+## [1.3.25] — 2026-11-18
+
+### Fixed
+
+- **A project's tests can push to a throwaway repo in a temp folder** (#28). A story's commands push nowhere, and that
+  also refused a test's push to a bare repo it made in a temp folder, so on squad-kit's own code every story failed its
+  checks and the Builder spent 3 tries "fixing" tests that were not broken. A push into a temp folder now goes through,
+  never into the project itself. A test that pushes anywhere else stops the checks with one plain sentence ("A test
+  tried to push code outside a temp folder, and squad-kit blocked it"), counts no failed try and does not send the
+  Builder; Continue anyway and Fix it yourself are on the card. The agents are told a refused push is squad-kit's, not
+  a bug to work around.
+
+### Changed
+
+- **A pulled story's link shows its tracker's mark** (#29). At the top of an open ticket, the link to the story on its
+  tracker started with a download icon, which read as "download a file". It now starts with the tracker's own small
+  mark (Azure DevOps, Jira or GitHub, a plain link for any other), and pointing at it says where the story came from:
+  "Pulled from Azure DevOps. Opens it there."
+
+## [1.3.24] — 2026-11-16
+
+### Fixed
+
+- **An open ticket scrolls as one page** (#25). Its tabs no longer show in a small box: the title and the steps
+  scroll away, the top row and the tabs stay in place, and the action bar stays at the bottom, on one row. In a
+  narrower panel, Bring in the newest work, Ask the Analyst and Propose a change are under **More**; Stop and Take
+  over always show. Scrolled down, the top row shows the ticket's title and step. On a short window, the step line
+  shows only the current step's note (point at a step for its whole note). On a 13-inch laptop, what you can read goes
+  from about 38% of the window to 70%.
+- **The Contributing banner is one line at any size** (#25). Its second line shows when you point at the title. Short
+  of room, finished steps keep only their tick and the next ones a circle, and the step it is at keeps its name; point
+  at a step for its name.
+- **The "things need you" bar steps aside while a ticket is open** (#26). It listed other tickets above the one you
+  were working on, or a "need you" chip in a narrow window. The sidebar's Waiting for you and the lead button keep the
+  count, and the bar comes back when you close the ticket.
+- **The Contributing banner says Merged only when squad-kit's main repo does.** A merge in your own copy or on your
+  computer now stops at Pull request, since the owner has not seen it yet. Before, such a story could show Owner's
+  review and Merged done while its pull request was still open.
+
+### Changed
+
+- **Commands no longer look like buttons** (#27). A button's terminal command is now a small **>_** beside it: point
+  at it to see the command, press it to copy it, and the note says which command was copied. A command that is a step
+  itself shows in full, light, with a small copy button. Only real buttons are dark now.
+
+## [1.3.23] — 2026-11-15
+
+### Added
+
+- **Sign in with Atlassian for Jira.** On the Connections page, Jira now signs in with a button: squad-kit gives you
+  the link to Atlassian's page, you pick your Jira site and press Accept, and that is all. No token to make or paste. A
+  token still works: **Use a token instead** opens the same form in Settings, and a token saved there is used first.
+  When Atlassian gives squad-kit several Jira sites and the project has none yet, you pick one from a short list on the
+  Jira row. Terminal: `squad connect jira` (`--site <site>` to pick), `squad disconnect jira`.
+- **squad-kit keeps its own Atlassian sign-in** on your computer only, in its own folder that the agents cannot read.
+  The short-lived token stays in memory. Atlassian asks every app for a secret during sign-in, so a small helper at
+  `auth.squad-kit.com` adds squad-kit's secret and passes the sign-in straight to your computer; it stores nothing and
+  its code is public in the repository (`auth-helper/`).
+- **Plain words for each case:** Cancel on Atlassian's page, a project whose Jira site you did not pick on Atlassian's
+  page, a sign-in Atlassian ended (unused for 90 days, or removed), and a network that cannot reach Atlassian just now
+  (never taken as a sign-out). Disconnect works offline and tells you where to remove squad-kit on your Atlassian
+  account too (Connected apps).
+- **A privacy page** at squad-kit.com/privacy: what squad-kit keeps on your computer, what the sign-in helper does,
+  and how to remove it.
+- **The guide covers Jira and the Connections page** (`docs/console.md`): Jira's settings, what squad-kit does in
+  Jira, and signing in to GitHub, Azure DevOps and Jira.
+
+## [1.3.22] — 2026-11-14
+
+### Added
+
+- **Sign in with Microsoft for Azure DevOps.** On the Connections page, Azure DevOps now signs in with a button, the way
+  GitHub does: squad-kit runs Microsoft's own Azure tool and shows its short code to type on Microsoft's page, then you
+  pick your work account. No token to make or paste. A token still works: **Use a token instead** opens the same form in
+  Settings, and a token saved there is used first. Terminal: `squad connect azure`, `squad disconnect azure`.
+- **squad-kit keeps its own Microsoft sign-in,** apart from yours: it never reads or changes your other Azure sign-ins
+  on this computer, and Disconnect signs out squad-kit only. The token stays in memory and is never written down.
+- **Plain words for each case:** Microsoft's tool not installed (with the steps, and a line on the Tools page), an
+  account that cannot reach the organization ("Sign in with the Microsoft account that owns it"), an organization that
+  uses personal Microsoft accounts, which needs a token, and a network that cannot reach Microsoft just now (never taken
+  as a sign-in problem). Disconnect works even with Microsoft's tool gone, and leaves nothing of the sign-in behind.
+- **Jira Cloud as a tracker.** Choose Jira in Settings, type your site (or paste any Jira link), your email and an
+  API token you make on your Atlassian account, then press Save and check. squad-kit checks them with Jira first, picks
+  the project and its Scrum board when there is only one, and keeps the token on this computer. The Backlog shows the
+  project's stories, tasks and bugs in Jira's own order, on the running sprint (else the next, else the newest).
+  Pulling a story brings its text, acceptance criteria, epic, the stories it is blocked by and its files. squad-kit
+  moves it along the project's own workflow (In Review once its work is merged when the workflow has one, and Done
+  once released; without In Review, Done once merged), writes the squad's questions, plans and pull request links on
+  it, adds the release as a label and files bugs. Your token only ever goes to the site it was saved for. A breakdown
+  goes to Jira with every story a real Story, ready for a sprint: epics and features as Epics, a feature linked to its
+  epic and labelled with its name (Jira puts no Epic under an Epic), or, where the site has Initiative above Epic,
+  epics as Initiatives with the features' Epics under them. "Is blocked by" links keep the order. Terminal: `squad
+  config set tracker --type jira`.
+- **Jira on the Connections page** is a token you paste, with the steps to make one and a link to Atlassian's token
+  page. Sign in with Atlassian is shown as coming next.
+
+### Changed
+
+- A Jira setup from squad-kit 0.x (site, email and token) works as it is: squad-kit reads Jira with it and asks for
+  nothing again. It only writes to Jira once you press Save and check in Settings, after picking the project if it had
+  none.
+- `squad config set tracker` and `squad init --tracker jira` set Jira up from the same fields as Settings, with its
+  project and board, checked with Jira first. `squad doctor` checks Jira as the board does.
+- A Jira token in `JIRA_API_TOKEN` (or `SQUAD_TRACKER_API_KEY`) is used only with `JIRA_HOST` set to its site, and
+  squad-kit 0.x's Jira fetch (`squad new-story --id`) never sends a token to a site it was not saved for.
+- A work item's files are downloaded with the sign-in only from the tracker's own site: Azure DevOps' own hosts, or
+  the saved Jira site. A file linked from anywhere else is left out.
+- When a tracker will not move an item, the comment and release label still go, and the ticket says so once.
+
 ## [1.3.21] — 2026-11-13
 
 ### Added

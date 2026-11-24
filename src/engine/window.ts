@@ -33,7 +33,7 @@ import {
 } from './shots.js';
 import { readWorkbook, sheetsText, type Sheet } from './spreadsheet.js';
 import { READ_ROWS_DEF, readRowsCall, type RowsReader } from './proof-kinds/rows.js';
-import { commandField, extraFields, gotoPaths, hugeValue, outsideApp } from './window-calls.js';
+import { commandField, extraFields, fixStep, gotoPaths, hugeValue, outsideApp } from './window-calls.js';
 import type { PhoneSize } from '../modules/phone/types.js';
 import type { PhoneAsk, PhoneRun, PhoneShot } from './phone/session.js';
 
@@ -278,7 +278,7 @@ const TARGET = {
 const STEPS = {
   type: 'array',
   maxItems: MAX_STEPS,
-  description: `What to do on the page first, in order. Each step has an "action" and names its part of the page inside "target". goto (path), click, fill (value), select (value), check, uncheck, press (key, like "Enter"), hover, wait (target, or ms up to 5000). Example: [${EXAMPLES.step}, { "action": "click", "target": ${EXAMPLES.target} }].`,
+  description: `What to do on the page first, in order. Each step has an "action" and names its part of the page inside "target". goto (path), click, fill (value, at most 500 characters), select (value), check, uncheck, press (key: one letter or digit, or Enter, Tab, Escape, Backspace, Delete, Space, an arrow like ArrowDown, Home, End, PageUp, PageDown; Shift+ before it for shift), hover, wait (target, or ms up to 5000). Example: [${EXAMPLES.step}, { "action": "click", "target": ${EXAMPLES.target} }].`,
   items: {
     type: 'object',
     properties: {
@@ -522,8 +522,8 @@ export function pageCall(raw: Record<string, unknown>, tool: string, more: strin
 /** One step as squad-kit takes it: its part of the page moved into "target" when it was named on the step itself. */
 function stepCall(raw: unknown, n: number): { step: Record<string, unknown> } | WrongShape {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { wrong: `step ${n} is not an object`, help: `A step looks like ${EXAMPLES.step}.` };
-  const s = { ...(raw as Record<string, unknown>) };
-  // { "fill": { … } }: the action named as a field, which squad-kit does not guess.
+  const s = fixStep(raw as Record<string, unknown>);
+  // { "fill": "…" }: the action named as a field, where what it holds could mean more than one thing.
   const named = s.action === undefined ? Object.keys(s).find((k) => ACTION_KEYS.includes(k)) : undefined;
   if (named) {
     const value = named === 'fill' || named === 'select' ? ', "value": "Sprint review"' : '';

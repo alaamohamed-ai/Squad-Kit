@@ -11,6 +11,7 @@ import type { AgentRole } from './agents.js';
 import { BRD_READ_MS, BRD_WRITE_MS, LONGEST_READ_MS } from './breakdown-job.js';
 import { MAX_QUESTIONS } from './breakdown-prompts.js';
 import { CHECK_MS, CHECK_SILENT_MS, MAX_ALONE, OUTSIDE_THE_GUARD_WORDS } from './checks.js';
+import { ANDROID_CHECK_MS, ANDROID_SILENT_MS } from './gradle-dist.js';
 import { TURN_WAIT_MS } from './copy-turn.js';
 import { MAX_OLD, MAX_RUNS_ON_MAIN, ON_MAIN_MS } from './old-tests.js';
 import { SEEN_DAYS, WEEK_DAYS, harnessSeen, type Need, type Seen, type StoryLink } from './harness-seen.js';
@@ -19,6 +20,7 @@ import { guardSupport } from './project-guard.js';
 import { FLUTTER_STAMPS, flutterOnPath } from './flutter-sdk.js';
 import { envFilesOf } from './env-file.js';
 import { reposOf, rulesFiles } from './repos.js';
+import { usesAndroid } from './android-env.js';
 import { HOOK_MS, NETWORK_GIT_MS } from './git.js';
 import { DEFAULT_QUALITY, QUALITIES, QUALITY_NOTE, QUALITY_PRESETS } from './levels.js';
 import { BEFORE_SHOTS_MS, BLIP_WAITS_MIN, BUILD_STEP_MS, KEPT_APP_MS, MAX_CHECK_TRIES, MAX_REVIEW_ROUNDS, PROOF_STEP_MS, REVIEW_STEP_MS, WORDS_STEP_MS } from './live.js';
@@ -137,9 +139,10 @@ function lineStages(): HarnessStage[] {
     stage('build', 'Build', 'The Builder writes the code in small steps, in a locked room.', on(squad('Builder')), [
       g('sandbox', 'The guard', "Each story has its own copy. No agent can read your keys or sign-ins. The Builder and Tester can't read .env files either, and reach only the websites the project's network level allows.", 'Blocked, with a line on the story. A website it may not reach stops nothing: the work goes on without it.'),
       g('guard', 'A second guard for your project', 'Your tests, app, setup and release run locked in too, with keys hidden and Docker closed.', 'A card: an engineer allows the file, or the plan changes.'),
-      g('flutter-stamps', "Flutter's own version stamps", "Flutter writes its version in a few small files of its own folder on every run. Those files, and nothing else of Flutter, are open to the squad's commands."),
+      g('flutter-stamps', "Flutter's own version stamps", "Flutter writes its version in a few small files of its own folder on every run. Those files, and nothing else of Flutter, are open to the squad's commands. For a project that pins its Flutter with FVM, squad-kit gets that Flutter with FVM first, outside the guard, and the same few files of it open."),
       g('xcode', 'iPhone builds', OUTSIDE_THE_GUARD_WORDS),
       g('phone-builds', "squad-kit's own phone builds", "For the pictures, Start and Try it yourself, squad-kit builds the app for its phone itself, outside the guard: Xcode for the iPhone, Gradle or Flutter for Android, in one shared Gradle home of its own. What the build changes in the story's files goes back, so the story's changes stay the Builder's. An Expo app gets its phone folder made for the build, and no commit ever takes it.", 'An app that does not build: a card, and you decide.'),
+      g('push', 'No push from a story', "The agents and the story's own commands push only into a temp folder, where tests keep their throwaway repos: never into the project, never to your code host. squad-kit's own push works.", 'A test that pushes elsewhere: a card, with no failed try. Continue anyway, fix it yourself, or the plan changes.'),
       g('lane', 'Files no agent can change', "squad-kit's folder, AI instruction files, commit hooks, files an engineer locked. No commit or branch change, and a push is refused.", 'A file goes back, with a line. A moved branch stops the step.'),
       g('local-files', 'Test values, not your own', 'A file marked local gets values kept for stories. No agent can read it.'),
       g('env-file', "A part's env file", "squad-kit gives the app the story's values from it, then its own database, Redis and the app's address on top."),
@@ -153,6 +156,8 @@ function lineStages(): HarnessStage[] {
       g('no-tests', 'No tests, no green', 'No tests never means a green pass. Lint, build and the app starting must still pass.', 'Asked once per project: add tests, or go on without.'),
       g('test-change', 'Test commands stay strong', 'A new test command stays only if it passes and runs at least as many tests.', "If squad-kit can't tell, you choose."),
       g('tool-missing', "A missing tool is not the Builder's", "A check that fails only because a tool is missing (the Android SDK, Java, Xcode, a program the command runs) says nothing about the code. squad-kit looks at this computer's tools again and runs the checks once more: no try counts, and the Builder is never asked.", "Still missing: the story waits for it with the Tools page's line and goes on by itself once it is there, or a card says what to install."),
+      g('android-builds', 'A check that builds the Android app', "It needs Android's build tools on this computer, whatever kind of app the project is: the story waits for them with the Tools page's line, and the Squad lead says so. An Android SDK of yours that builds apps, like Android Studio's, is enough. You may skip Android builds on this computer instead: those checks don't run, the tests and the code check still do, and the story says so each time.", 'It goes on by itself once the tools are there, or as soon as you skip. Turn it back on from the Tools page.'),
+      g('environment', 'Something outside the code', "A check that fails because Docker is not running, a driver is missing or a program is not installed says nothing about the code. The story stops once and says what to install or start: no try counts, and the Builder is never sent to fix it.", 'A card: try again once it is there, continue anyway with a reason, or the plan changes.'),
       g('gate-cant-run', "A check that can't run", "One of your team's gates that can't run, or a file of additions that can't be read, says nothing about the code. It never counts against the story, and it is never dropped without a word.", "It retries by itself, then a card: try again, let an engineer look, or go on with a reason. On Builds by itself it waits for a person."),
     ]),
     stage('review', 'Review', "A Reviewer that never saw the build reads the Builder's work.", on(squad('Reviewer')), [
@@ -259,6 +264,8 @@ function limitRows(meta?: BoardMeta): HarnessLimit[] {
     time({ BRD_WRITE_MS }, 'Writing a breakdown'),
     time({ CHECK_MS }, 'One check'),
     time({ CHECK_SILENT_MS }, 'A silent check', 'It prints nothing for this long.'),
+    time({ ANDROID_CHECK_MS }, 'A check that builds the Android app', 'Its first run downloads the libraries the app needs.'),
+    time({ ANDROID_SILENT_MS }, 'A silent Android build', 'Gradle prints nothing while it downloads.'),
     time({ APP_WAIT_MS }, 'Waiting for your app'),
     time({ TURN_WAIT_MS }, 'Tests and your app in one copy', 'One waits for the other, then it stops and says so.'),
     time({ KEPT_APP_MS }, 'Your app kept for the proof', 'After the review, while nothing uses it. Then it stops.'),
@@ -375,6 +382,8 @@ function rowDetails(meta: BoardMeta | undefined, root: string | undefined): Reco
     'first-run': code('engine/onboard.ts', ['Runs', run('setup', 'test', 'start')], ['See it in', 'The Overview page']),
     overview: code('board/first-run.ts', ['See it in', 'The Overview page']),
     'gate-cant-run': code('engine/gate-run.ts', ['File', '.squad/harness.yaml']),
+    environment: code('engine/env-blockers.ts', ['Reads', 'Docker is not running, a missing PHP driver or extension, a program not installed'], ['Stops', 'Once, with no try counted']),
+    'android-builds': code('engine/tools/android-builds.ts', ['Checks that build it', repos.flatMap((r) => [r.commands.test, r.commands.lint, r.commands.build].filter(usesAndroid)).join('; ') || 'None'], ['Skip it', 'The Tools page, or squad tools skip android'], ['Kept', 'On this computer only']),
     'tool-missing': code('engine/tool-missing.ts', ['Reads', 'No Android SDK found, JAVA_HOME is not set, xcrun: error, command not found'], ['Runs again', 'Once, with no try counted']),
     'project-rules': code('engine/repos.ts', ['Reads', (root ? rulesFiles(root).map((f) => f.slice(root.length + 1)) : []).join(', ') || 'None found yet']),
     'brd-questions': code('engine/breakdown-job.ts', ['Limit', `${MAX_QUESTIONS} questions`]),
@@ -391,9 +400,10 @@ function rowDetails(meta: BoardMeta | undefined, root: string | undefined): Reco
     depends: code('board/depends.ts'),
     change: code('board/actions/change.ts'),
     sandbox: code('engine/sandbox.ts', ['On this computer', tools.map((t) => state(t.available, t.why)).join(', ') || 'Off'], ['Network level', NETWORK_NAME[level]], ['Also allowed', meta?.allowedHosts?.join(', ') || 'None yet'], ['Lists', 'src/engine/network-lists.ts']),
-    'flutter-stamps': code('engine/flutter-sdk.ts', ...FLUTTER_STAMPS.map((f): [string, string] => [f.file, f.why]), ['In', flutterOnPath()?.root ?? 'No Flutter on this computer'], ['On Linux', "Each command writes them in a throwaway bin/cache that goes when it ends, so Flutter's own folder stays as it was"]),
+    'flutter-stamps': code('engine/flutter-sdk.ts', ...FLUTTER_STAMPS.map((f): [string, string] => [f.file, f.why]), ['In', flutterOnPath()?.root ?? 'No Flutter on this computer'], ['With FVM', "fvm install <the pinned version>, outside the guard, then that Flutter's own stamps (engine/fvm-sdk.ts)"], ['On Linux', "Each command writes them in a throwaway bin/cache that goes when it ends, so Flutter's own folder stays as it was"]),
     xcode: code('engine/checks.ts', ['Runs outside the guard', 'xcodebuild build and test, only as squad-kit writes them for a native iPhone app (outsideTheGuard)'], ['Keeps', "Xcode's own sandboxes: for a package's manifest and plugins, and for build scripts when the project turns that on"], ['Builds in', "build/squad-kit-ios in the story's copy, with the guard's caches"]),
     guard: code('engine/project-guard.ts', ['On this computer', state(guard.on, guard.why)], ['Network', networkPolicy(level).commands === 'this-computer' ? 'Only this computer (Off)' : 'Open'], ['Also allowed', [...(meta?.guard?.allowRead ?? []), ...(meta?.guard?.allowWrite ?? [])].join(', ') || 'None yet']),
+    push: code('engine/sandbox.ts', ['Takes a push', 'Temp folders only, never the project itself'], ['Reads', 'remote-squad-kit-no-push']),
     lane: code('engine/lane.ts', ['Locked here', names(meta?.lockedFiles)]),
     'local-files': code('engine/local-files.ts', ['Local here', names(meta?.localFiles)]),
     'env-file': code('engine/env-file.ts', ['Here', repos.flatMap((r) => envFilesOf(r.commands).map((f) => `${repos.length > 1 ? `${r.path}: ` : ''}${f}`)).join(', ') || 'None yet'], ['Set in', 'Settings, beside the commands'], ['Order', "The file's values first, then squad-kit's own: a Docker service reached through the port it publishes here, the story's own database and Redis number, and the port it picked"], ['In the log', 'The names only, never a value']),
@@ -534,7 +544,7 @@ export function harnessView(meta?: BoardMeta, bp?: BoardPaths) {
     },
     safety: {
       hidden: [...PRIVATE.map((p) => HARNESS_PRIVATE_NAME[p] ?? p), "Your AI tools' sign-ins", 'Browser sign-ins', 'Keys in package settings', '.env files', "squad-kit's own folder and keys"],
-      locked: ["squad-kit's own folder", 'AI instruction files', 'Commit hooks and their settings', 'Code history: commit and branches. A push is refused, and agents have no keys to push with'],
+      locked: ["squad-kit's own folder", 'AI instruction files', 'Commit hooks and their settings', 'Code history: commit and branches. A push is refused (only a temp folder takes one), and agents have no keys to push with'],
       sites: levelSites(level),
       // The project's network level, the three to pick from, and what stays closed on all of them.
       network: { level, levels: NETWORK_LEVELS.map((id) => ({ id, name: NETWORK_NAME[id], words: NETWORK_WORDS[id] })), closed: KNOWN_BAD_GROUPS.map((g) => g.name), commands: networkPolicy(level).commands },

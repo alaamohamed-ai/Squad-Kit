@@ -11,10 +11,15 @@ import type {
   TrackerItemChange,
   TrackerItemRow,
   TrackerLevels,
+  TrackerTree,
   TrackerModule,
 } from '../tracker/types.js';
-import { Azure, AzureError, azureForProject, parseAzureRemote, PROCESS_TYPES, processOf, type PatchOp, type StateCategory, type WorkItemRow } from './client.js';
+import { Azure, AzureError, PROCESS_TYPES, processOf, type PatchOp, type StateCategory, type WorkItemRow } from './client.js';
+import { parseAzureRemote } from './hosts.js';
+import { azureForProject } from './sign-in.js';
+import { signedInWithMicrosoft } from './token.js';
 import { markdownToHtml } from './markdown.js';
+import { azureTree } from './tree.js';
 
 /** Azure Boards as a squad-kit tracker. */
 
@@ -46,7 +51,7 @@ export class AzureTracker implements Tracker {
 
   get identity(): string {
     const t = this.az.target;
-    return `${t.organization}/${t.project}/${t.pat.slice(-6)}`;
+    return `${t.organization}/${t.project}/${t.pat ? t.pat.slice(-6) : 'microsoft'}`;
   }
 
   parseRef(text: string): string | null {
@@ -68,6 +73,11 @@ export class AzureTracker implements Tracker {
 
   async list(opts: { sprint?: string; includeDone?: boolean } = {}): Promise<TrackerItemRow[]> {
     return (await this.az.listWorkItems({ ...(opts.sprint ? { sprintPath: opts.sprint } : {}), ...(opts.includeDone ? { includeDone: true } : {}) })).map(row);
+  }
+
+  /** Each item's parent link, up to the epics: Azure's own Epic › Feature › Story. */
+  tree(rows: TrackerItemRow[]): Promise<TrackerTree> {
+    return azureTree(this.az, rows, row);
   }
 
   async get(id: string): Promise<TrackerItem> {
@@ -222,7 +232,7 @@ export const azureTracker: TrackerModule = {
   name: 'azure',
   label: 'Azure DevOps',
   about:
-    'Stories and bugs come from Azure Boards. squad-kit moves them along as the squad works, opens a pull request for each finished ticket, and merges it when you release. Your token stays on this computer.',
+    'Stories and bugs come from Azure Boards. squad-kit moves them along as the squad works, opens a pull request for each finished ticket, and merges it when you release. Sign in with Microsoft on the Connections page, or paste a token here: a saved token is used first, and stays on this computer.',
   hint: 'Token scopes: Work Items and Code (read, write and manage).',
   fields: [
     { key: 'organization', label: 'Organization', placeholder: 'e.g. momenysr' },
@@ -237,10 +247,16 @@ export const azureTracker: TrackerModule = {
     const paths = buildPaths(root);
     const config = loadConfig(paths.configFile);
     const values: Record<string, string> = config.tracker.type === 'azure' ? { organization: config.tracker.workspace ?? '', project: config.tracker.project ?? '' } : {};
-    return {
-      values,
-      hasSecret: Boolean(loadSecrets(paths.secretsFile).tracker?.azure?.pat || process.env.AZURE_DEVOPS_PAT),
-    };
+    const hasSecret = Boolean(loadSecrets(paths.secretsFile).tracker?.azure?.pat || process.env.AZURE_DEVOPS_PAT);
+    // Both here: the token is used (ADR-011), and Settings says so. Signed in alone: no token is needed, and Settings
+    // never says one is: the project is picked on the Connections page.
+    const microsoft = signedInWithMicrosoft();
+    if (hasSecret && microsoft) return { values, hasSecret, note: 'The token saved here is used, not your Microsoft sign-in.' };
+    if (microsoft) {
+      const picked = Boolean(values.organization && values.project);
+      return { values, hasSecret, signedIn: true, note: `You are signed in with Microsoft, so no token is needed.${picked ? '' : ' Pick your project on the Connections page.'}` };
+    }
+    return { values, hasSecret };
   },
   save(root, values) {
     const organization = values.organization?.trim().replace(/^https:\/\/dev\.azure\.com\//, '').replace(/\/.*$/, '');

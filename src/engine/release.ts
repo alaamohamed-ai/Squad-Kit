@@ -151,7 +151,7 @@ export async function liveRelease(bp: BoardPaths, release: Release, tickets: Tic
     const remote = repo.remote || remotes(repoRoot)[0];
     const url = remote ? git(repoRoot, ['config', '--get', `remote.${remote}.url`], { allowFail: true }) : '';
     const host = url ? repoHostFor(bp, url) : null;
-    return { repo, repoRoot, list, host, env: host?.gitEnv() ?? {}, leave: leaving.filter((t) => repoFor(meta, t).path === repo.path) };
+    return { repo, repoRoot, list, host, leave: leaving.filter((t) => repoFor(meta, t).path === repo.path) };
   });
   // One pull request the host cannot merge would stop the release halfway: look for those first, before anything changes.
   for (const { repo, repoRoot, list, host, leave } of plans) {
@@ -177,14 +177,14 @@ export async function liveRelease(bp: BoardPaths, release: Release, tickets: Tic
   // From here on the release writes down each step, so a restart half-way can finish it or undo it (release-resume.ts).
   startJournal(bp, release.version, tickets.map((t) => t.id));
   const named = (r: string) => repoLabel(meta, r) ?? r;
-  for (const { repo, repoRoot, list, host, env, leave } of plans) {
+  for (const { repo, repoRoot, list, host, leave } of plans) {
     // A part whose push failed: what relies on it does not go out before it does.
     const waitsFor = unpushed.find((u) => repoReliesOn(meta, repo.path, u.repo))?.repo;
     // The project's shared files go out with the release when `.squad/` sits in this repo (ADR-001).
     const docs = docsInGit(bp) && path.resolve(docsRepo(bp)!) === path.resolve(repoRoot) ? (dir: string) => stageReleaseDocs(bp, dir, release, list, repo.base || currentBranch(repoRoot)) : undefined;
     const keep = path.relative(repoRoot, bp.squadDir);
     const note = (patch: Partial<RepoJournal> & { base: string }) => noteRepo(bp, repo.path, patch);
-    const done = await releaseRepo(repoRoot, repo, release, list, meta.commands?.deploy, host, env, docs, keep && !keep.startsWith('..') ? keep : undefined, {
+    const done = await releaseRepo(repoRoot, repo, release, list, meta.commands?.deploy, host, docs, keep && !keep.startsWith('..') ? keep : undefined, {
       leave,
       note,
       ...(from.get(repo.path) ? { startAt: from.get(repo.path)! } : {}),
@@ -210,7 +210,6 @@ async function releaseRepo(
   tickets: Ticket[],
   deployFallback: string | undefined,
   host: RepoHost | null,
-  env: Record<string, string>,
   docs?: (dir: string) => string[],
   keep?: string,
   extra: { startAt?: string; holdPush?: { plain: string }; leave?: Ticket[]; note?: (patch: Partial<RepoJournal> & { base: string }) => void; merged?: (id: string) => void; guardFor?: (dir: string) => ReturnType<typeof projectGuardFor> | undefined } = {},
@@ -222,6 +221,8 @@ async function releaseRepo(
   const dir = path.join(worktreeRoot(root), `release-${version}`);
   const log: ReleaseLog = [];
   let unpushed: UnpushedRelease | undefined;
+  // The code host's sign-in for git, asked right before each call: a short-lived token stays fresh in a long release.
+  const env = async () => (await host?.gitEnv()) ?? {};
 
   // Accepted work is normally merged already. A pull request still waiting on the host is merged now.
   for (const t of tickets.filter((x) => x.mergedAt)) log.push({ ok: true, text: `Already in the code: ${t.id} ${t.title}` });
@@ -234,7 +235,7 @@ async function releaseRepo(
   }
   let start = extra.startAt ?? base;
   if ((viaPr.length || tickets.some((t) => t.pr && t.mergedAt)) && remote) {
-    start = await fetchedTip(root, remote, base, { env });
+    start = await fetchedTip(root, remote, base, { env: await env() });
   }
 
   await removeWorktree(root, dir);
@@ -275,7 +276,7 @@ async function releaseRepo(
       }
     }
     // What the base holds now, so the shared settings are put together with the newest copy.
-    if (docs && remote) await netGitLater(dir, ['fetch', '--quiet', remote, base], { env, allowFail: true });
+    if (docs && remote) await netGitLater(dir, ['fetch', '--quiet', remote, base], { env: await env(), allowFail: true });
     for (const text of docs?.(dir) ?? []) log.push({ ok: true, text });
     await stageAllLater(dir);
     if (somethingToSave(dir)) await commitRelease(dir, version, log, extra.guardFor?.(dir) ? { guard: extra.guardFor(dir)! } : {});
@@ -299,10 +300,10 @@ async function releaseRepo(
       log.push({ ok: false, text: extra.holdPush.plain });
     } else if (remote) {
       try {
-        sent = await pushRelease(dir, remote, base, version, release.notes, host, env, log);
+        sent = await pushRelease(dir, remote, base, version, release.notes, host, await env(), log);
         note({ base, head: sent, pushed: true });
         // Never forced: a version number on the remote is never moved.
-        if (release.addons.tag) await netGitLater(dir, ['push', remote, `refs/tags/${version}`], { env });
+        if (release.addons.tag) await netGitLater(dir, ['push', remote, `refs/tags/${version}`], { env: await env() });
         log.push({ ok: true, text: "Sent to your team's shared copy of the code" });
       } catch (err) {
         const error = (err as Error).message;
@@ -425,7 +426,7 @@ export async function pushAgain(bp: BoardPaths, release: Release): Promise<Relea
     const repoRoot = path.join(root, u.repo);
     const url = git(repoRoot, ['config', '--get', `remote.${u.remote}.url`], { allowFail: true });
     const host = url ? repoHostFor(bp, url) : null;
-    const env = host?.gitEnv() ?? {};
+    const env = (await host?.gitEnv()) ?? {};
     const lines: ReleaseLog = [];
     try {
       // A later release may have taken this commit to the remote already: then only the tag is left to send.
@@ -496,7 +497,7 @@ export async function versionOnRemote(bp: BoardPaths, release: Pick<Release, 've
     const remote = repo.remote || remotes(repoRoot)[0];
     if (!remote) continue;
     const url = git(repoRoot, ['config', '--get', `remote.${remote}.url`], { allowFail: true });
-    const env = url ? (repoHostFor(bp, url)?.gitEnv() ?? {}) : {};
+    const env = url ? ((await repoHostFor(bp, url)?.gitEnv()) ?? {}) : {};
     if ((await netGitLater(repoRoot, ['ls-remote', '--tags', remote, `refs/tags/${release.version}`], { env, allowFail: true })).trim()) return true;
   }
   return false;
@@ -515,7 +516,7 @@ export function pushDetail(message: string, at: { remote: string; base: string; 
 export async function onTheRemote(bp: BoardPaths, u: UnpushedRelease): Promise<{ there: 'yes' | 'no' | 'no-answer'; why?: string }> {
   const repoRoot = path.join(projectRoot(bp), u.repo);
   const url = git(repoRoot, ['config', '--get', `remote.${u.remote}.url`], { allowFail: true });
-  const env = url ? (repoHostFor(bp, url)?.gitEnv() ?? {}) : {};
+  const env = url ? ((await repoHostFor(bp, url)?.gitEnv()) ?? {}) : {};
   let tip: string;
   try {
     tip = await fetchedTip(repoRoot, u.remote, u.base, { env, timeoutMs: 30_000 });

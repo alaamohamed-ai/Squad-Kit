@@ -1,12 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildPaths } from '../../core/paths.js';
-import { loadConfig } from '../../core/config.js';
-import { loadSecrets } from '../../core/secrets.js';
-import { overlayTrackerEnv } from '../../tracker/env-overlay.js';
 import { ModuleError, kindOfStatus, type ModuleErrorKind } from '../errors.js';
 import { withoutTags } from '../../utils/text.js';
 import { writeLog } from '../../core/app-log.js';
+import { azureHost } from './hosts.js';
 
 /**
  * Azure Boards and Azure Repos for the live squad: the backlog, work item states and comments, bugs, and pull
@@ -16,7 +13,11 @@ import { writeLog } from '../../core/app-log.js';
 export interface AzureTarget {
   organization: string;
   project: string;
-  pat: string;
+  /** The person's own token, pasted in Settings. It wins over the Microsoft sign-in (ADR-011). */
+  pat?: string;
+  /** squad-kit's own Microsoft sign-in, in memory only. `refused`: true when the token was dropped, so try once more. */
+  bearer?: () => Promise<string>;
+  refused?: (token: string) => Promise<boolean>;
 }
 
 export interface WorkItemRow {
@@ -76,7 +77,7 @@ const seconds = (ms: number) => {
 };
 
 export class Azure {
-  private readonly auth: string;
+  private readonly basic: string | null;
   private readonly orgUrl: string;
   private readonly projUrl: string;
   private stateCache = new Map<string, { name: string; category: string }[]>();
@@ -88,7 +89,7 @@ export class Azure {
     private readonly http: FetchLike = fetch,
     private readonly timeoutMs = CALL_MS,
   ) {
-    this.auth = 'Basic ' + Buffer.from(`:${target.pat}`).toString('base64');
+    this.basic = target.pat ? 'Basic ' + Buffer.from(`:${target.pat}`).toString('base64') : null;
     this.orgUrl = `https://dev.azure.com/${encodeURIComponent(target.organization)}`;
     this.projUrl = `${this.orgUrl}/${encodeURIComponent(target.project)}`;
   }
@@ -102,8 +103,14 @@ export class Azure {
     return `${this.orgUrl}/_apis/wit/workItems/${id}`;
   }
 
-  async call<T>(method: string, url: string, body?: unknown, contentType = 'application/json'): Promise<T> {
+  /** The sign-in for one call: the token's, else a Microsoft token that a refused sign-in says plainly. */
+  private async auth(): Promise<string> {
+    return this.basic ?? `Bearer ${await this.target.bearer!()}`;
+  }
+
+  async call<T>(method: string, url: string, body?: unknown, contentType = 'application/json', again = false): Promise<T> {
     const full = url.startsWith('http') ? url : `${this.projUrl}/${url}`;
+    const authorization = await this.auth();
     const sep = full.includes('?') ? '&' : '?';
     let res: Response;
     const tooLong = () => new AzureError(`Azure DevOps did not answer within ${seconds(this.timeoutMs)}. Check the network, then try again.`, undefined, 'offline');
@@ -111,7 +118,7 @@ export class Azure {
       res = await this.http(`${full}${full.includes('api-version=') ? '' : `${sep}api-version=7.1`}`, {
         method,
         headers: {
-          authorization: this.auth,
+          authorization,
           accept: 'application/json',
           'X-TFS-FedAuthRedirect': 'Suppress',
           ...(body !== undefined ? { 'content-type': contentType } : {}),
@@ -130,21 +137,21 @@ export class Azure {
       // The exact answer is for engineers: which scope is missing, which rule said no.
       writeLog({ level: 'warn', text: `Azure DevOps said HTTP ${res.status}. ${detail}`.trim() });
       if (res.status === 401 || res.status === 403 || res.status === 302 || res.status === 203) {
+        if (!this.basic && res.status === 401 && !again && (await this.target.refused?.(authorization.slice(7)))) return this.call<T>(method, url, body, contentType, true);
+        if (!this.basic) throw new AzureError(res.status === 403 ? 'Azure DevOps did not allow this for your Microsoft account. An engineer can see why in the log.' : `Your Microsoft account has no access to ${this.target.organization}. Sign in with the Microsoft account that owns it on the Connections page, or paste a token in Settings.`, res.status);
         throw new AzureError('Azure DevOps did not accept the sign-in. Check it in Settings. An engineer can see why in the log.', res.status);
       }
       throw new AzureError('Azure DevOps said no to this. An engineer can see why in the log.', res.status);
     }
-    const text = await res.text().catch((err: unknown) => {
-      throw late(err) ? tooLong() : err;
-    });
+    const text = await res.text().catch((err: unknown) => Promise.reject(late(err) ? tooLong() : err));
     return (text ? JSON.parse(text) : null) as T;
   }
 
-  /** Who the token belongs to, as a connection check. */
+  /** Who the sign-in belongs to, as a connection check. Anonymous means it did not count: a sign-in problem (401). */
   async whoAmI(): Promise<string> {
     const data = await this.call<{ authenticatedUser?: { providerDisplayName?: string } }>('GET', `${this.orgUrl}/_apis/connectionData?api-version=7.1-preview`);
     const name = data?.authenticatedUser?.providerDisplayName;
-    if (!name || name === 'Anonymous') throw new AzureError('Azure DevOps did not accept the token.');
+    if (!name || name === 'Anonymous') throw new AzureError(this.basic ? 'Azure DevOps did not accept the token.' : `Your Microsoft account has no access to ${this.target.organization}.`, 401);
     return name;
   }
 
@@ -262,10 +269,11 @@ export class Azure {
     return pages;
   }
 
-  /** Saves an attachment to a file and returns its path. */
+  /** Saves an attachment to a file and returns its path. Only a file on Azure DevOps itself gets the sign-in. */
   async download(url: string, file: string): Promise<string> {
+    if (!azureHost(url)) throw new AzureError('squad-kit only downloads files kept on Azure DevOps itself.', undefined, 'not-found');
     // A file may be big: it gets more time than a call, but never forever.
-    const res = await this.http(url, { headers: { authorization: this.auth, 'X-TFS-FedAuthRedirect': 'Suppress' }, signal: AbortSignal.timeout(this.timeoutMs * 5) });
+    const res = await this.http(url, { headers: { authorization: await this.auth(), 'X-TFS-FedAuthRedirect': 'Suppress' }, signal: AbortSignal.timeout(this.timeoutMs * 5) });
     if (!res.ok) throw new AzureError(`Could not download ${path.basename(file)} (HTTP ${res.status}).`, res.status);
     fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     return file;
@@ -458,7 +466,7 @@ export class Azure {
     return { id: raw.pullRequestId, status: raw.status, url: `${this.projUrl}/_git/${encodeURIComponent(repo)}/pullrequest/${raw.pullRequestId}` };
   }
 
-  private row(w: RawItem): WorkItemRow {
+  row(w: RawItem): WorkItemRow {
     const f = w.fields ?? {};
     const points = f['Microsoft.VSTS.Scheduling.StoryPoints'] ?? f['Microsoft.VSTS.Scheduling.Effort'];
     return {
@@ -476,7 +484,7 @@ export class Azure {
   }
 }
 
-const ROW_FIELDS = [
+export const ROW_FIELDS = [
   'System.Id',
   'System.WorkItemType',
   'System.Title',
@@ -531,7 +539,7 @@ export function processOf(types: string[]): AzureProcess | null {
   return null;
 }
 
-interface RawItem {
+export interface RawItem {
   id: number;
   fields?: Record<string, unknown>;
   relations?: { rel: string; url: string; attributes?: { name?: string; resourceSize?: number } }[];
@@ -588,48 +596,4 @@ export function htmlToText(html: string): string {
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** Where a git remote lives on Azure Repos, or null for any other host. */
-export function parseAzureRemote(url: string): { organization: string; project: string; repo: string } | null {
-  const clean = url.trim().replace(/\.git$/, '');
-  const patterns = [
-    /^https:\/\/(?:[^@/]+@)?dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/?#]+)/i,
-    /^https:\/\/(?:[^@/]+@)?([^.]+)\.visualstudio\.com\/(?:DefaultCollection\/)?([^/]+)\/_git\/([^/?#]+)/i,
-    /^(?:ssh:\/\/)?git@ssh\.dev\.azure\.com:(?:22\/)?v3\/([^/]+)\/([^/]+)\/([^/]+)$/i,
-  ];
-  for (const p of patterns) {
-    const m = clean.match(p);
-    if (m?.[1] && m[2] && m[3]) return { organization: decodeURIComponent(m[1]), project: decodeURIComponent(m[2]), repo: decodeURIComponent(m[3]) };
-  }
-  return null;
-}
-
-/** The Azure client for a project folder, when its tracker is Azure and a token is saved. */
-export function azureForProject(root: string): Azure | null {
-  const paths = buildPaths(root);
-  if (!fs.existsSync(paths.configFile)) return null;
-  const config = loadConfig(paths.configFile);
-  if (config.tracker.type !== 'azure') return null;
-  const secrets = overlayTrackerEnv(loadSecrets(paths.secretsFile));
-  const az = secrets.tracker?.azure;
-  const organization = az?.organization ?? config.tracker.workspace;
-  const project = az?.project ?? config.tracker.project;
-  if (!organization || !project || !az?.pat) return null;
-  return new Azure({ organization, project, pat: az.pat });
-}
-
-/**
- * Env vars that let `git push` sign in to Azure Repos with the saved token, without writing it to any git config
- * file or putting it in the command line.
- */
-export function gitAuthEnv(pat: string | undefined, remoteUrl: string): Record<string, string> {
-  if (!pat || !/^https:\/\//i.test(remoteUrl) || !parseAzureRemote(remoteUrl)) return {};
-  const host = new URL(remoteUrl).host;
-  return {
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: `http.https://${host}/.extraheader`,
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: Basic ${Buffer.from(`:${pat}`).toString('base64')}`,
-    GIT_TERMINAL_PROMPT: '0',
-  };
 }

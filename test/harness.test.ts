@@ -135,6 +135,8 @@ const EXCUSED: Record<string, string> = {
   'apps.ts:NEW_FOR_MS': 'How long Your apps offers a new version.',
   'shots.ts:SETUP_MS': 'Getting the picture browser, the first time only. The story says so while it happens.',
   'flutter-downloads.ts:PRECACHE_MS': "Flutter's own downloads before a Flutter command, once. Past it, the command runs anyway and says what it misses.",
+  'gradle-dist.ts:GRADLE_GET_MS': "Getting the Gradle an Android build's wrapper asks for, before the check, once. Past it, the build downloads it itself.",
+  'fvm-sdk.ts:FVM_INSTALL_MS': 'FVM getting the pinned Flutter before a command that runs fvm, once. Past it, the command runs anyway and says what it misses.',
   // What is kept or read, not what the squad may do.
   'conversations.ts:MAX_IMAGE': 'What the conversation log keeps.',
   'conversations.ts:MAX_RESULT': 'What the conversation log keeps.',
@@ -205,7 +207,7 @@ const STOPS_PER_FILE: Record<string, number> = {
   'live/review.ts': 1,
   'live/screens.ts': 6,
   'live/shoot.ts': 3,
-  'live/stops.ts': 4,
+  'live/stops.ts': 6,
   'live/workspace.ts': 1,
   'publish.ts': 4,
   'sync.ts': 1,

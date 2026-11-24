@@ -110,15 +110,24 @@ export interface GuideStep {
   command?: string;
   done?: Words;
   page?: string;
+  link?: string;
 }
 
 export interface SignInFlow {
   state: 'waiting' | 'done' | 'failed' | 'cancelled' | 'none';
+  /** The one-time code to type on the tool's page; none when the page only asks the person to approve squad-kit. */
   code?: string;
   url?: string;
   startedAt?: string;
   line?: string;
   account?: string;
+}
+
+/** The page the code is typed on, when it is not the tool's own. */
+export interface CodePage {
+  name: string;
+  then: Words;
+  foot: Words;
 }
 
 export interface ConnectionRow {
@@ -128,10 +137,27 @@ export interface ConnectionRow {
   how: 'sign-in' | 'token' | 'soon';
   can: Words[];
   next?: Words;
+  /** A sign-in that also takes a token instead: that token goes in Settings. */
   tracker?: string;
+  codePage?: CodePage;
+  /** squad-kit's own sign-in: Disconnect signs only squad-kit out. */
+  ownSignIn?: boolean;
   state: 'connected' | 'not-connected' | 'missing' | 'unknown' | 'soon';
   account?: string;
   steps: GuideStep[];
+  /** 'token': the token in Settings is the way here. */
+  by?: 'token';
+  line?: Words;
+  /** A sign-in of squad-kit's own left here, which Disconnect ends; `as` when its name is known. */
+  signedIn?: { as?: string };
+  /** Where on the tool's own site squad-kit's access can be taken away too, said with Disconnect. */
+  revokeAt?: { link: string; words: Words };
+  /** The sign-in reaches several places (Jira sites, Azure DevOps projects) and this project has none yet: pick one. */
+  pick?: { site: string; name: string; where?: string }[];
+  /** The place's address, pasted from the browser: when the list does not have it, or to change the one in use (`now`). */
+  address?: { now?: string; example: string; where: Words };
+  /** A token pasted on this row: its steps with real links, the address it starts with, open at once when it is the only way. */
+  token?: { steps: GuideStep[]; address?: string; open?: boolean; why: Words; command: string };
   for?: { repo: string; into?: string; self: boolean };
   flow?: SignInFlow;
   actions: { id: 'sign-in' | 'disconnect' | 'check'; name: string; command: string }[];

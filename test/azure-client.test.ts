@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Azure, gitAuthEnv, htmlToText, parseAzureRemote, pickState } from '../src/modules/azure/client.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Azure, htmlToText, pickState } from '../src/modules/azure/client.js';
+import { parseAzureRemote } from '../src/modules/azure/hosts.js';
+import { gitAuthEnv } from '../src/modules/azure/sign-in.js';
 
 type Route = { method: string; match: RegExp; reply: unknown | ((body: unknown) => unknown); status?: number };
 
@@ -157,12 +162,30 @@ describe('Azure helpers', () => {
     expect(parseAzureRemote('https://github.com/a/b.git')).toBeNull();
   });
 
-  it('gives git the token through env vars only for Azure https remotes', () => {
-    const env = gitAuthEnv('secret', 'https://dev.azure.com/momenysr/Mawid/_git/Mawid');
+  it('never takes another host for Azure: a name with a port, a path or more after it is not Azure, and gets no sign-in', async () => {
+    const lookalikes = ['https://intranet-box:8443/x.visualstudio.com/p/_git/r', 'https://contoso.visualstudio.com.evil.example/p/_git/r', 'https://dev.azure.com.evil.example/o/p/_git/r', 'https://dev.azure.com:8443/o/p/_git/r'];
+    let asked = 0;
+    const bearer = async () => {
+      asked++;
+      return 'made-up';
+    };
+    for (const url of lookalikes) {
+      expect(parseAzureRemote(url), url).toBeNull();
+      expect(await gitAuthEnv({ pat: 'secret' }, url), url).toEqual({});
+      expect(await gitAuthEnv({ bearer }, url), url).toEqual({});
+    }
+    expect(asked).toBe(0);
+    // The real ones still sign in, each on its own host.
+    expect((await gitAuthEnv({ pat: 'secret' }, 'https://contoso.visualstudio.com/Shop/_git/orders')).GIT_CONFIG_KEY_0).toBe('http.https://contoso.visualstudio.com/.extraheader');
+    expect((await gitAuthEnv({ bearer }, 'https://sara@dev.azure.com/o/p/_git/r')).GIT_CONFIG_KEY_1).toBe('http.https://dev.azure.com/.extraheader');
+  });
+
+  it('gives git the token through env vars only for Azure https remotes', async () => {
+    const env = await gitAuthEnv({ pat: 'secret' }, 'https://dev.azure.com/momenysr/Mawid/_git/Mawid');
     expect(env.GIT_CONFIG_KEY_0).toBe('http.https://dev.azure.com/.extraheader');
     expect(env.GIT_CONFIG_VALUE_0).toBe('AUTHORIZATION: Basic ' + Buffer.from(':secret').toString('base64'));
-    expect(gitAuthEnv('secret', 'https://github.com/a/b.git')).toEqual({});
-    expect(gitAuthEnv(undefined, 'https://dev.azure.com/momenysr/Mawid/_git/Mawid')).toEqual({});
+    expect(await gitAuthEnv({ pat: 'secret' }, 'https://github.com/a/b.git')).toEqual({});
+    expect(await gitAuthEnv({}, 'https://dev.azure.com/momenysr/Mawid/_git/Mawid')).toEqual({});
   });
 
   it('turns Azure HTML into plain text', () => {
@@ -170,5 +193,24 @@ describe('Azure helpers', () => {
     // No tag is left, however tags nest; a written &lt; stays as text.
     expect(htmlToText('<p>a<<b>>b <scr<i>ipt>c</p>')).toBe('a>b ipt>c');
     expect(htmlToText('<p>&amp;lt;b&amp;gt; is &lt;b&gt;</p>')).toBe('&lt;b&gt; is <b>');
+  });
+});
+
+describe('Azure DevOps attachments', () => {
+  it('a file elsewhere than Azure DevOps is never asked for with the sign-in', async () => {
+    const seen: string[] = [];
+    const http = (async (url: string) => {
+      seen.push(url);
+      return new Response('PNG!', { status: 200 });
+    }) as unknown as typeof fetch;
+    const az = new Azure({ organization: 'momenysr', project: 'Mawid', pat: 'secret' }, http);
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'squad-az-files-')), 'a.png');
+    for (const url of ['https://evil.example/f', 'https://dev.azure.com.evil.example/f', 'https://dev.azure.com:8443/f', 'http://dev.azure.com/f']) {
+      await expect(az.download(url, file), url).rejects.toThrow('squad-kit only downloads files kept on Azure DevOps itself.');
+    }
+    expect(seen).toEqual([]);
+    await az.download('https://dev.azure.com/momenysr/_apis/wit/attachments/a1', file);
+    await az.download('https://momenysr.visualstudio.com/_apis/wit/attachments/a2', file);
+    expect(seen).toHaveLength(2);
   });
 });

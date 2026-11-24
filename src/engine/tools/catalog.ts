@@ -10,7 +10,7 @@ import type { Platform, ProjectKind } from './kinds.js';
 export type ToolAction = 'build' | 'checks' | 'pictures' | 'start-app' | 'try-it' | 'pull-request';
 export type Priority = 'required' | 'recommended' | 'optional';
 export type System = 'mac' | 'windows' | 'linux';
-export type ToolId = 'git' | 'ai-tool' | 'flutter' | 'xcode' | 'simulator' | 'cocoapods' | 'android' | 'maestro' | 'java' | 'android-studio' | 'docker' | 'gh';
+export type ToolId = 'git' | 'ai-tool' | 'flutter' | 'fvm' | 'xcode' | 'simulator' | 'cocoapods' | 'android' | 'maestro' | 'java' | 'android-studio' | 'docker' | 'gh' | 'az';
 /** Another tool that looks after a copy you installed, and updates it itself. */
 export type ManagedBy = 'homebrew' | 'fvm' | 'snap';
 
@@ -62,6 +62,11 @@ export interface ToolEntry {
   size?: string;
   /** A line to read before the steps: "Android pictures and Start come in the next update". */
   note?: string;
+  /**
+   * Android: the steps that make the person's own Android Studio enough instead of Get it, shown while Android Studio is
+   * on this computer and its SDK lacks something.
+   */
+  studioSteps?: string[];
   /**
    * You installed it, and squad-kit can update your copy when that is safe, after you OK it: whose work it changes
    * beyond this project, how much it downloads, and how long it usually takes in seconds, until squad-kit measured it here.
@@ -130,6 +135,25 @@ export const CATALOG: ToolEntry[] = [
       homebrew: ['Open a terminal.', 'Run: brew upgrade --cask flutter', CHECK_AGAIN],
       fvm: ['Open a terminal.', 'Run: fvm install stable', 'Run: fvm global stable', CHECK_AGAIN],
     },
+  },
+  {
+    id: 'fvm',
+    name: 'FVM',
+    gives: 'runs the Flutter version this project pins, the same one for everyone on the team',
+    // Commands that run fvm need it: the Builder's, the checks' and the app's start. A pin with no command that runs fvm
+    // (.fvmrc beside plain `flutter` commands) only recommends it.
+    needs: [
+      { kinds: ['fvm'], priority: 'required', for: ['build', 'checks', 'start-app'] },
+      { kinds: ['fvm-pin'], priority: 'recommended', for: ['build', 'checks', 'start-app'] },
+    ],
+    // FVM 3 brought the .fvmrc file a project pins its Flutter in. FVM 2 doesn't read it and runs another Flutter, so the
+    // squad would build and test with a Flutter the project didn't pin. Seen on this team's own Mac with FVM 2.4.1.
+    min: '3',
+    // squad-kit gets its own FVM, FVM's official ready-made release, in seconds and with no password: only squad-kit's
+    // commands use it, and an FVM of the person's own stays as it is.
+    installer: 'squad-kit',
+    link: 'https://fvm.app/documentation/getting-started/installation',
+    getSeconds: 15,
   },
   {
     id: 'xcode',
@@ -208,6 +232,13 @@ export const CATALOG: ToolEntry[] = [
     size: 'about 20 GB',
     before: ['java'],
     with: ['maestro'],
+    // Android Studio's own menu names, the same on a Mac, Windows and Linux.
+    studioSteps: [
+      'Open Android Studio. Open the SDK Manager: Tools, then SDK Manager (on its welcome screen: More Actions, then SDK Manager).',
+      'On the SDK Tools tab, tick Android SDK Command-line Tools (latest), then press Apply.',
+      'Open the Device Manager (Tools, then Device Manager; on the welcome screen: More Actions, then Virtual Device Manager) and create a phone with Android 13 (API 33) or newer. That downloads its phone system.',
+      CHECK_AGAIN,
+    ],
   },
   {
     id: 'java',
@@ -261,6 +292,20 @@ export const CATALOG: ToolEntry[] = [
     },
     link: 'https://cli.github.com',
   },
+  {
+    id: 'az',
+    name: "Microsoft's Azure tool (az)",
+    gives: 'signs in to Azure DevOps with your Microsoft account, instead of a token you paste. squad-kit keeps its own sign-in, apart from yours',
+    needs: [{ kinds: ['azure'], priority: 'optional', for: ['pull-request'] }],
+    installer: 'you',
+    why: 'it signs in to Microsoft as you, which only you can do',
+    steps: {
+      mac: ['Open a terminal.', "Run: brew install azure-cli. Without Homebrew, follow Microsoft's install page.", 'Open Connections and press Sign in with Microsoft.', CHECK_AGAIN],
+      windows: ['Open a terminal.', 'Run: winget install --exact --id Microsoft.AzureCLI', OPEN_AGAIN, 'Open Connections and press Sign in with Microsoft.'],
+      linux: ["Open Microsoft's install page and follow the steps for your Linux.", 'Open Connections and press Sign in with Microsoft.', CHECK_AGAIN],
+    },
+    link: 'https://learn.microsoft.com/cli/azure/install-azure-cli',
+  },
 ];
 
 export function toolEntry(id: string): ToolEntry | undefined {
@@ -275,7 +320,10 @@ export const KIND_WORDS: Record<ProjectKind, string> = {
   ios: 'an iPhone app',
   android: 'an Android app',
   docker: 'Docker files',
+  fvm: 'a Flutter version pinned with FVM',
+  'fvm-pin': 'a Flutter version pinned with FVM',
   github: 'code kept on GitHub',
+  azure: 'code kept on Azure Repos',
 };
 
 export const PLATFORM_WORDS: Record<Platform, string> = { ios: 'iPhone', android: 'Android', web: 'web' };
@@ -315,6 +363,22 @@ export const OWN_SOURCES = {
     size: 349_832_427,
     /** Its usage numbers stay off, on every run. */
     env: { MAESTRO_CLI_NO_ANALYTICS: '1' },
+  },
+  /**
+   * FVM's own ready-made release from GitHub, pinned to one version by the SHA-256 GitHub publishes for each file
+   * (checked 2026-11-24). Each holds one program, fvm/fvm (fvm.exe on Windows).
+   */
+  fvm: {
+    version: '4.3.2',
+    base: 'https://github.com/btwld/fvm/releases/download/4.3.2/',
+    files: {
+      'mac-arm64': { file: 'fvm-4.3.2-macos-arm64.tar.gz', size: 3_513_655, sha256: 'c9b1e67e5ff4ddae4710669ff9aa312f750947f68fac5b15fc5d248fb4419342' },
+      'mac-x64': { file: 'fvm-4.3.2-macos-x64.tar.gz', size: 20_239_917, sha256: '66a4e7c8907ba6141eea13168af54be01f07258162ee1d0ed82299b37302e7d2' },
+      'linux-x64': { file: 'fvm-4.3.2-linux-x64.tar.gz', size: 3_955_775, sha256: '17dfced05f5b0cb32398dadd0691acc2bc458e8c4b0045a781cd5aa6c85f6ecb' },
+      'linux-arm64': { file: 'fvm-4.3.2-linux-arm64.tar.gz', size: 20_134_662, sha256: 'df05c7682eeac21b08939e7be131687dc3d54fd5575b5e4bca931717ddeb0a01' },
+      'windows-x64': { file: 'fvm-4.3.2-windows-x64.zip', size: 4_212_035, sha256: '97696d118ad35bf25dc91fd28c70bb3d77b6d1fee6658fbd744e838b5f81da4a' },
+      'windows-arm64': { file: 'fvm-4.3.2-windows-arm64.zip', size: 22_289_315, sha256: 'ea10b12a756d0b66476f303f47a1169c662c84b9a98a6debd7529ee564ec6869' },
+    },
   },
   java: {
     feature: 21,

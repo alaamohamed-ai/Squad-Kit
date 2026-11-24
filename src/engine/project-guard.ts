@@ -1,13 +1,13 @@
-import { androidCommandEnv, androidReads, usesAndroid } from './android-env.js';
+import { androidCommandEnv, ownToolReads, usesAndroid } from './android-env.js';
 import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { BoardPaths } from '../board/store.js';
 import type { ProjectGuard } from '../board/types.js';
-import { AI_TOOLS, BROWSERS } from '../modules/registry.js';
-import { squadHome, squadHomes } from '../core/home.js';
-import { childEnv, noGithubSignIn } from './agent-env.js';
+import { AI_TOOLS, BROWSERS, privateFolders } from '../modules/registry.js';
+import { privateFolder, squadHome, squadHomes } from '../core/home.js';
+import { childEnv, noToolSignIn } from './agent-env.js';
 import { copyDbEnv } from './db-env.js';
 import { partEnv } from './part-env.js';
 import { ownHomeEnv } from './own-home.js';
@@ -15,7 +15,7 @@ import { OWN_GROUP, track } from './process-group.js';
 import { PACKAGE_CACHES, PRIVATE, gitPlaces, networkPolicy, noPushEnv, packageCacheEnv, projectCacheDir, projectNetwork, ticketCacheDir } from './sandbox.js';
 import type { NetworkLevel } from '../board/types.js';
 import { cacheHomeEnv, homeCachePlace, ownFolder, storiesCacheDir } from './cache-home.js';
-import { flutterOnPath, flutterStampFolders, flutterStampRegexes } from './flutter-sdk.js';
+import { flutterOnPath, guardStamps, stampRoots } from './flutter-sdk.js';
 
 /**
  * squad-kit's own guard for the project's own commands: the checks (test, lint, build), the app's start, the setup
@@ -232,10 +232,10 @@ export function privatePlaces(home: string, platform: NodeJS.Platform): string[]
 /**
  * What no agent may read or change, wherever it works. The sandbox covers a step's shell commands only, and read-only
  * agents have none, so their file tools need this too. squad-kit's own folder holds what agents must read, so only its
- * secrets are named: the sign-ins and link tokens of the app and of every project.
+ * secrets are named: the sign-ins and link tokens of the app and of every project, and the connections' own sign-ins.
  */
 export function agentPrivatePlaces(home: string = os.homedir(), platform: NodeJS.Platform = process.platform): string[] {
-  return [...privatePlaces(home, platform), ...squadHomes(home).flatMap((own) => [...['secrets.yaml', 'app.json', 'console.json'].map((f) => path.join(own, f)), ...['secrets.yaml', 'console.json'].map((f) => path.join(own, 'projects', '*', f))])];
+  return [...privatePlaces(home, platform), ...squadHomes(home).flatMap((own) => [...['secrets.yaml', 'app.json', 'console.json'].map((f) => path.join(own, f)), ...['secrets.yaml', 'console.json'].map((f) => path.join(own, 'projects', '*', f)), ...privateFolders().map((f) => privateFolder(f, own))])];
 }
 
 /**
@@ -261,13 +261,13 @@ export function buildGuard(o: { cwd: string; root: string; cache?: string; extra
     cwd: real(o.cwd),
     root: o.root,
     write: [...new Set(withReal([...(o.extraWrite ?? []), ...temp, ...writableCaches(home)]))],
-    // squad-kit's Android SDK, its Java and its shared Gradle home: read only, so an Android build finds them.
-    read: [...new Set(withReal([...(o.extraRead ?? []), ...androidReads()]))],
+    // squad-kit's Android SDK, its Java, its shared Gradle home and its own FVM: read only, so a command finds them.
+    read: [...new Set(withReal([...(o.extraRead ?? []), ...ownToolReads()]))],
     noRead: [...new Set(noRead)],
     noWrite: [...new Set(withReal([...squadOwnFiles(), ...gitPlaces(real(o.cwd))]))],
     noConnect: [...new Set(withReal(runtimeSockets(home, o.platform)))],
     ...(o.cache ? { cache: real(o.cache) } : {}),
-    ...(flutter ? { writeExactly: flutterStampRegexes(real(flutter)), writeExactlyIn: flutterStampFolders(real(flutter)) } : {}),
+    ...guardStamps(stampRoots(flutter, real(o.cwd))),
     ...(o.allow ? { allow: { ...(o.allow.allowRead ? { allowRead: withReal(o.allow.allowRead.map((p) => allowPath(p, home))) } : {}), ...(o.allow.allowWrite ? { allowWrite: withReal(o.allow.allowWrite.map((p) => allowPath(p, home))) } : {}) } } : {}),
     ...(networkPolicy(o.network ?? projectNetwork(o.root), [], o.platform).commands === 'this-computer' ? { offline: true } : {}),
   };
@@ -557,14 +557,14 @@ export function isSecretEnv(name: string, names = secretEnvNames()): boolean {
 /**
  * The environment the project's own commands run with: every agent's environment (childEnv, which already drops the
  * subscription and engine keys) minus squad-kit's own variables, the AI tools' keys and the common cloud and
- * code-host tokens, with GitHub's tool given no sign-in again (agent-env.ts noGithubSignIn). Everything an app commonly needs (PATH, HOME, LANG, NODE_OPTIONS, DATABASE_URL and the like) is
+ * code-host tokens, with GitHub's and Microsoft's tools given no sign-in again (agent-env.ts noToolSignIn). Everything an app commonly needs (PATH, HOME, LANG, NODE_OPTIONS, DATABASE_URL and the like) is
  * kept, so only secrets are removed, never the ordinary settings a build or a test reads.
  */
 export function projectEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const names = secretEnvNames();
   const env = childEnv();
   for (const key of Object.keys(env)) if (isSecretEnv(key, names)) delete env[key];
-  return { ...env, ...noGithubSignIn(), ...extra };
+  return { ...env, ...noToolSignIn(), ...extra };
 }
 
 /* ── the single gate: every project command spawns here ──── */
@@ -580,11 +580,11 @@ export interface SpawnProjectOptions {
 
 /**
  * What a guarded command gets on top of the scrubbed base: every tool keeps its downloads in the project's cache home,
- * never the person's own caches, as in the agent's shell, and a story's command pushes nowhere. A command squad-kit runs
- * outside the guard by its one rule (outsideTheGuard in engine/checks.ts) gets the same.
+ * never the person's own caches, and a story's command pushes only into a temp folder, never the project (noPushEnv).
+ * A command squad-kit runs outside the guard by its one rule (outsideTheGuard in engine/checks.ts) gets the same.
  */
 export function guardEnv(guard: GuardSpec | undefined, cwd: string): Record<string, string> {
-  return { ...(guard?.cache ? cacheHomeEnv(guard.cache, { wall: 'project', cwd }) : {}), ...(guard?.noPush ? noPushEnv() : {}) };
+  return { ...(guard?.cache ? cacheHomeEnv(guard.cache, { wall: 'project', cwd }) : {}), ...(guard?.noPush ? noPushEnv(process.env, { keep: [guard.root, guard.cwd] }) : {}) };
 }
 
 /**

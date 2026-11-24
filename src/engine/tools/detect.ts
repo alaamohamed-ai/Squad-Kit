@@ -6,7 +6,7 @@ import { squadHome } from '../../core/home.js';
 import { CATALOG, OWN_SOURCES, type ManagedBy, type System, type ToolId } from './catalog.js';
 import { compareVersions } from './fit.js';
 import { mergePath, readLoginPath } from './login-path.js';
-import { androidPick, imageLevel, sdkLacks, sdkPlaces } from './android.js';
+import { androidPick, imageLevel, sdkBuilds, sdkLacks, sdkPlaces } from './android.js';
 
 /**
  * Finds each tool and its version with short, safe commands: `--version` style, a few seconds each, never interactive,
@@ -30,6 +30,11 @@ export interface Found {
    * why squad-kit can't, when it can't. Nothing in it: squad-kit can, after you OK it.
    */
   update?: { managedBy?: ManagedBy; cant?: string };
+  /**
+   * Android only: a person's own SDK that builds apps (Android Studio's), though it lacks what the phone needs. A check
+   * that builds the Android app runs with it; pictures and Try it yourself still need the rest.
+   */
+  builds?: string;
 }
 
 export interface FoundBook {
@@ -173,6 +178,11 @@ export function iosRuntimesOf(text: string): string[] {
   }
 }
 
+/** `fvm --version`: "2.4.1" for FVM 2, "3.2.1" or "4.0.0" after, maybe below a line about a newer FVM. */
+export function fvmVersionOf(text: string): string | null {
+  return /^\s*v?(\d+\.\d+\.\d+)\S*\s*$/m.exec(text)?.[1] ?? null;
+}
+
 /** `docker --version`: "Docker version 27.3.1, build ce12230". */
 export function dockerVersionOf(text: string): string | null {
   return /Docker version\s+(\d+\.\d+(?:\.\d+)?)/.exec(text)?.[1] ?? null;
@@ -297,6 +307,18 @@ async function cocoapods(h: DetectHost): Promise<Found> {
   return { state: 'found', where: bin, ...(version ? { version } : {}), ...(brew ? { managedBy: 'homebrew' as const } : {}) };
 }
 
+/** FVM, which runs the Flutter version a project pins: squad-kit's own, once got; else the person's, from the PATH. */
+async function fvm(h: DetectHost, home: string): Promise<Found> {
+  const own = ownTool('fvm', home);
+  if (own) return { state: 'found', version: own.version, where: own.binary, own: true };
+  const bin = onPath(h, 'fvm');
+  if (!bin) return missing();
+  const r = await h.run(bin, ['--version'], { timeoutMs: 20_000, env: { CI: 'true' } });
+  const version = fvmVersionOf(r.out) ?? fvmVersionOf(r.err);
+  const brew = /\/Cellar\/fvm\//.test(h.real(bin));
+  return { state: 'found', where: bin, ...(version ? { version } : {}), ...(brew ? { managedBy: 'homebrew' as const } : {}) };
+}
+
 /** A Java of the person's own, from JAVA_HOME or the PATH. The Mac's own /usr/bin/java is only a stand-in when no Java is installed. */
 async function java(h: DetectHost, home: string): Promise<Found> {
   const own = ownTool('java', home);
@@ -361,14 +383,19 @@ function android(h: DetectHost, home: string): Found {
   const own = ownTool('android', home);
   if (own) return { state: 'found', version: androidWords(Number(own.version) || 0), where: path.join(own.dir, 'sdk'), own: true };
   let short: { sdk: string; lacks: string[] } | null = null;
+  let builds: string | undefined;
   for (const sdk of sdkPlaces(h.env, h.home, h.system)) {
     if (!h.exists(sdk)) continue;
     const lacks = sdkLacks(h, sdk, h.system, arch);
     if (!lacks.length) return { state: 'found', version: androidWords(imageLevel(h.list, sdk, arch)), where: sdk, note: `Your own Android SDK in ${sdk}: squad-kit uses it as it is, and never changes it.` };
     short ??= { sdk, lacks };
+    if (!builds && sdkBuilds(h, sdk, h.system)) builds = sdk;
   }
   const list = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-  return missing(short ? `Your Android SDK in ${short.sdk} lacks ${list(short.lacks)}. squad-kit gets its own instead, and leaves yours as it is.` : undefined);
+  // Android Studio's own SDK builds apps: the checks that build the Android app run with it, as it is.
+  const can = builds ? ` It builds the Android app, so the checks that build it run with it.` : '';
+  const note = short ? `Your Android SDK in ${short.sdk} lacks ${list(short.lacks)}.${can} For phone pictures and Try it yourself, squad-kit gets its own, and leaves yours as it is.` : undefined;
+  return { ...missing(note), ...(builds ? { builds } : {}) };
 }
 
 async function docker(h: DetectHost): Promise<Found> {
@@ -392,6 +419,31 @@ async function gh(h: DetectHost): Promise<Found> {
   const signedIn = (await h.run(bin, ['auth', 'token', '--hostname', 'github.com'], { timeoutMs: 10_000 })).ok;
   if (signedIn) return { state: 'found', where: bin, ...(version ? { version } : {}) };
   return { state: 'missing', where: bin, ...(version ? { version } : {}), note: "GitHub's tool is here, but not signed in. Sign in once: open a terminal and run gh auth login." };
+}
+
+/** `az version --output json`: { "azure-cli": "2.88.0", … }. */
+export function azVersionOf(text: string): string | null {
+  return /"azure-cli"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"/.exec(text)?.[1] ?? null;
+}
+
+/**
+ * Microsoft's Azure tool. Its version is asked with a settings folder of its own for that one call, removed after: never
+ * the person's ~/.azure, nor squad-kit's own sign-in (ADR-011). Whether squad-kit is signed in is the Connections page's.
+ */
+async function az(h: DetectHost): Promise<Found> {
+  const bin = onPath(h, 'az');
+  if (!bin) return missing();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-az-version-'));
+  try {
+    const version = azVersionOf((await h.run(bin, ['version', '--output', 'json'], { timeoutMs: 20_000, env: { AZURE_CONFIG_DIR: dir, AZURE_CORE_COLLECT_TELEMETRY: 'false' } })).out);
+    return { state: 'found', where: bin, ...(version ? { version } : {}) };
+  } finally {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Windows may still hold a file of it for a moment (EBUSY): the system clears its temp folder later.
+    }
+  }
 }
 
 /**
@@ -418,6 +470,7 @@ export async function detectAll(h: DetectHost = realHost(), home = squadHome()):
   const x = await safe('xcode', () => xcode(h));
   const found = await Promise.all([
     safe('flutter', () => flutter(h)),
+    safe('fvm', () => fvm(h, home)),
     safe('simulator', () => simulator(h, x[1].state === 'found')),
     safe('cocoapods', () => cocoapods(h)),
     safe('java', () => java(h, home)),
@@ -426,6 +479,7 @@ export async function detectAll(h: DetectHost = realHost(), home = squadHome()):
     safe('android-studio', () => androidStudio(h)),
     safe('docker', () => docker(h)),
     safe('gh', () => gh(h)),
+    safe('az', () => az(h)),
   ]);
   return { at: new Date().toISOString(), system: h.system, tools: Object.fromEntries([x, ...found]) };
 }

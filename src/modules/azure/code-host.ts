@@ -1,22 +1,33 @@
 import type { CodeHostModule, MergeState, PullRequest, PullRequestReview, RepoHost } from '../code-host/types.js';
-import { Azure, azureForProject, gitAuthEnv, parseAzureRemote } from './client.js';
+import { Azure } from './client.js';
+import { parseAzureRemote } from './hosts.js';
 import { postReviewThreads } from './review-threads.js';
+import { azurePlace, gitAuthEnv, signInFor } from './sign-in.js';
 
-/** Azure Repos as a squad-kit code host. The project's Azure token signs in, for any org it can reach. */
+/**
+ * Azure Repos as a squad-kit code host. The project's Azure token signs in, for any org it can reach; without one,
+ * squad-kit's own Microsoft sign-in does, for the remote's own organization (ADR-011).
+ */
 
 export class AzureRepo implements RepoHost {
   readonly host = 'azure';
   readonly label = 'Azure Repos';
   readonly abilities = { attachImages: true };
+  /** What to do when Azure DevOps refuses the sign-in: the token in Settings, or Microsoft's sign-in on Connections. */
+  readonly signInHelp: string;
 
   constructor(
     private readonly az: Azure,
     readonly repo: string,
     private readonly remoteUrl: string,
-  ) {}
+  ) {
+    this.signInHelp = az.target.pat
+      ? 'Check the sign-in in Settings.'
+      : 'Sign in with Microsoft again on the Connections page (squad connect azure), or paste a token in Settings.';
+  }
 
-  gitEnv(): Record<string, string> {
-    return gitAuthEnv(this.az.target.pat, this.remoteUrl);
+  gitEnv(): Promise<Record<string, string>> {
+    return gitAuthEnv(this.az.target, this.remoteUrl);
   }
 
   findPullRequest(source: string): Promise<PullRequest | null> {
@@ -70,8 +81,10 @@ export const azureCodeHost: CodeHostModule = {
   label: 'Azure Repos',
   repoFor(root, remoteUrl) {
     const where = parseAzureRemote(remoteUrl);
-    const pat = where && azureForProject(root)?.target.pat;
-    if (!where || !pat) return null;
-    return new AzureRepo(new Azure({ organization: where.organization, project: where.project, pat }), where.repo, remoteUrl);
+    const auth = where && signInFor(where.organization, azurePlace(root)?.pat);
+    if (!where || !auth) return null;
+    return new AzureRepo(new Azure({ organization: where.organization, project: where.project, ...auth }), where.repo, remoteUrl);
   },
+  // A project kept on Azure Repos: the Tools page offers Microsoft's tool, for the sign-in without a token.
+  kindOf: (remoteUrl) => (parseAzureRemote(remoteUrl) ? 'azure' : null),
 };

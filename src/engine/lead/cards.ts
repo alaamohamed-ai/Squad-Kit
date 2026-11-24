@@ -1,16 +1,17 @@
 import { plainArabic } from '../../board/ask.js';
 import { addNote, answerAgent, BoardActionError, createTicket, decideStuckBeside, keepWaiting, restartStep, startTicket, stopTicket } from '../../board/actions.js';
-import { findApp } from '../../board/apps.js';
+import { findApp, projectApps, type ProjectApp } from '../../board/apps.js';
 import { addActivity, now, readMeta, readTicket, requireTicket, updateTicket, type BoardPaths } from '../../board/store.js';
 import { AS_ONE_ANYWAY, createParts, sendToRequirements } from '../../board/split.js';
 import { andWords } from '../../board/requirements.js';
 import { checkSize } from '../story-size.js';
 import { cleanSplit } from '../split-prompts.js';
 import { saveSettings, type SettingsInput } from '../../board/settings.js';
-import type { Ticket } from '../../board/types.js';
+import type { BoardMeta, Ticket } from '../../board/types.js';
 import { waitKey } from '../../board/wait-key.js';
 import { appRunner } from '../run-app.js';
 import { getToolNow, updateToolNow } from '../tools/index.js';
+import { setSkipAndroid } from '../tools/android-builds.js';
 import { ACTIONS, ENGINEERS_ONLY, SETTINGS, isAllowable, isEngineer, neverAction, type Never } from './can.js';
 import { MAX_LEAD_CARDS } from './limits.js';
 import { engineerReport } from './report.js';
@@ -443,7 +444,7 @@ async function doAction(bp: BoardPaths, action: LeadAction, card: { story?: stri
       startTicket(bp, t!.id);
       return `${t!.id} started: the Analyst reads it first.`;
     case 'start_app': {
-      const app = findApp(readMeta(bp), card.app);
+      const app = appForCard(readMeta(bp), card.app);
       const s = await appRunner(bp).startAs(app.name);
       return `${app.name} is ${s.state === 'running' ? `running at ${s.url}` : 'starting'}.`;
     }
@@ -453,9 +454,27 @@ async function doAction(bp: BoardPaths, action: LeadAction, card: { story?: stri
     case 'update_tool':
       await updateToolNow(bp, card.tool ?? '', { ok: true });
       return `squad-kit is updating ${card.tool}. The Tools page shows how it goes.`;
+    case 'skip_android':
+      setSkipAndroid(bp, true);
+      return "Android builds are skipped on this computer: the checks that build the Android app don't run, and a story waiting for them goes on in a moment. The tests and the code check still run. Turn it back on from the Tools page.";
     case 'morning_brief':
       saveLeadRules(bp, { brief: true });
       return 'The morning brief is on: it shows under "This morning" each day.';
+  }
+}
+
+/**
+ * The app a start_app card names. The lead often writes a plain word ("app", "the app", "web") where the project has one
+ * app under its own name ("project"): with one app, that is the one, so the button never answers "There is no app
+ * called app" (the Nov 17 demo).
+ */
+export function appForCard(meta: BoardMeta, ref?: string): ProjectApp {
+  try {
+    return findApp(meta, ref);
+  } catch (err) {
+    const apps = projectApps(meta);
+    if (apps.length === 1 && ref?.trim()) return apps[0]!;
+    throw err;
   }
 }
 

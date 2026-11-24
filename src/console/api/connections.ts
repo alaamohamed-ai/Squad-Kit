@@ -1,9 +1,9 @@
 import type { Hono } from 'hono';
 import type { SquadPaths } from '../../core/paths.js';
 import { boardPaths } from '../../board/store.js';
-import { cancelSignIn, connectionsOf, disconnect, signInNow, startSignIn } from '../../engine/connections.js';
+import { cancelSignIn, connectionsOf, disconnect, pickSite, saveToken, signInNow, startSignIn } from '../../engine/connections.js';
 import type { SignInFlow } from '../../modules/connection/types.js';
-import { act } from './app.js';
+import { act, body } from './app.js';
 
 /** The board never gets the tool's process id: Cancel names the sign-in, and the engine stops the process it started. */
 const plain = ({ pid: _pid, ...f }: SignInFlow) => f;
@@ -38,6 +38,21 @@ export function mountConnectionsApi(app: Hono, opts: { paths: SquadPaths }): voi
 
   // Cancel: stops the tool's sign-in process this board started. In the terminal, Ctrl-C stops `squad connect`.
   app.post('/api/v1/connections/:name/sign-in/cancel', (c) => act(c, () => plain(cancelSignIn(c.req.param('name')))));
+
+  // `squad connect jira --site <site>`: the place this sign-in uses for projects that have none of their own.
+  app.post('/api/v1/connections/:name/site', async (c) => {
+    const b = await body<{ site?: unknown } | null>(c);
+    return act(c, () => pickSite(bp, c.req.param('name'), typeof b?.site === 'string' ? b.site : ''));
+  });
+
+  // A token pasted on the row, with the place's address: checked, then saved on this computer. Never in the address bar or
+  // a log; in a terminal, `squad config set tracker`.
+  app.post('/api/v1/connections/:name/token', async (c) => {
+    const b = await body<{ address?: unknown; token?: unknown } | null>(c);
+    return act(c, () =>
+      saveToken(bp, c.req.param('name'), { ...(typeof b?.address === 'string' ? { address: b.address } : {}), ...(typeof b?.token === 'string' ? { token: b.token } : {}) }),
+    );
+  });
 
   // `squad disconnect github`: signs the tool out on this computer, for every app that uses it.
   app.post('/api/v1/connections/:name/disconnect', (c) => act(c, () => disconnect(bp, c.req.param('name'))));

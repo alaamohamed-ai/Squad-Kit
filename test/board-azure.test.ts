@@ -104,7 +104,8 @@ beforeEach(() => {
   sh(`git init -q --bare -b main ${remote}`, tmp);
   sh(`git init -q -b main && git remote add origin ${AZURE_URL}`, project);
   // The repo says Azure; git really talks to the local bare repo.
-  sh(`git config url.${remote}.insteadOf ${AZURE_URL}`, project);
+  // pushInsteadOf too: in squad-kit's guard (a story on squad-kit's own code) a push is checked by the address it was given.
+  sh(`git config url.${remote}.insteadOf ${AZURE_URL} && git config url.${remote}.pushInsteadOf ${AZURE_URL}`, project);
   fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: 'mawid', version: '0.0.0' }, null, 2));
   sh('git add -A && git -c user.name=t -c user.email=t@t commit -qm start', project);
   fs.mkdirSync(path.join(project, '.squad'), { recursive: true });
@@ -256,18 +257,55 @@ describe('a tracker that says no for good', () => {
     }).id;
   };
 
-  it.each([
-    ['a deleted item', new AzureError('Azure DevOps said HTTP 404. TF401232', 404)],
-    ['a rule of the tracker', new AzureError('Azure DevOps said HTTP 400. TF401320: Rule Error', 400)],
-  ])('%s: that update goes, one plain line says so, and the later updates still go', async (_what, refusal) => {
+  it('a rule of the tracker on a move: the move goes, its comment and the later updates still go, and one plain line says so, once', async () => {
     const id = queued();
     const az = tracker((what) => {
-      if (what.startsWith('move')) throw refusal;
+      if (what.startsWith('move')) throw new AzureError('Azure DevOps said HTTP 400. TF401320: Rule Error', 400);
     });
     await flushTracker(bp, id, az);
     const t = readTicket(bp, id)!;
     expect(t.trackerQueue).toBeUndefined();
     expect(t.trackerRetry).toBeUndefined();
+    expect(az.said.join('\n')).toContain('squad-kit started work on this');
+    expect(az.said.join('\n')).toContain('A later note');
+    const said = t.activity.map((a) => a.text);
+    expect(said.filter((l) => l.includes('would not move'))).toEqual(['Azure DevOps would not move AB#35, so squad-kit went on without the move. Move it in Azure DevOps if it should go on']);
+    expect(said.join('\n')).not.toMatch(/HTTP|TF40|refused this update/);
+  });
+
+  it('a deleted item on a move: the whole update is refused, said in one line only, and the later updates still go', async () => {
+    const id = queued();
+    const az = tracker((what) => {
+      if (what.startsWith('move')) throw new AzureError('Azure DevOps said HTTP 404. TF401232', 404);
+    });
+    await flushTracker(bp, id, az);
+    const t = readTicket(bp, id)!;
+    expect(t.trackerQueue).toBeUndefined();
+    expect(az.said.join('\n')).not.toContain('squad-kit started work on this');
+    expect(az.said.join('\n')).toContain('A later note');
+    const said = t.activity.map((a) => a.text).join('\n');
+    expect(said).toContain('Azure DevOps refused this update on AB#35, so squad-kit went on without it.');
+    expect(said).not.toMatch(/would not move|HTTP|TF40/);
+  });
+
+  it.each([
+    ['a deleted item', new AzureError('Azure DevOps said HTTP 404. TF401232', 404)],
+    ['a rule of the tracker', new AzureError('Azure DevOps said HTTP 400. TF401320: Rule Error', 400)],
+  ])('%s on a comment: that update goes, one plain line says so, and the later updates still go', async (_what, refusal) => {
+    const id = queued();
+    const az = tracker(() => undefined);
+    let first = true;
+    const comment = az.comment.bind(az);
+    az.comment = async (item: string, text: string) => {
+      if (first) {
+        first = false;
+        throw refusal;
+      }
+      return comment(item, text);
+    };
+    await flushTracker(bp, id, az);
+    const t = readTicket(bp, id)!;
+    expect(t.trackerQueue).toBeUndefined();
     expect(az.said.join('\n')).toContain('A later note');
     const said = t.activity.map((a) => a.text).join('\n');
     expect(said).toContain('Azure DevOps refused this update on AB#35, so squad-kit went on without it.');
