@@ -26,6 +26,7 @@ export {
   saveDesignDecision,
 } from './actions/approve.js';
 export type { AnswerInput } from './actions/approve.js';
+export { DESIGN_QUESTION, answerDesign, designAskDue, waitForDesign } from './design-ask.js';
 export { CHECKOUT_WAITS, acceptProof } from './actions/accept.js';
 export {
   HookStopped,

@@ -134,6 +134,8 @@ export function whereItStands(t: AskTicket): string {
       return `You have ${id}, and the squad waits until you give it back`;
     case 'split':
       return `${id} waits for you to decide on the Analyst's split`;
+    case 'design':
+      return `${id} waits for you to choose a design from the Studio`;
   }
   if (t.dependency?.way === 'wait' && !t.dependency.started && !t.squad) return `${id} waits for ${deps || 'another story'} to be merged`;
   if (inQueue(t)) return `${id} waits in the queue`;

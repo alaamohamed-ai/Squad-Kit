@@ -116,6 +116,7 @@ const YOUR_PART_AR: Record<WaitingKind, string> = {
   change: 'البت في تحديث التصميم',
   depends: 'اختيار طريقة البناء',
   split: 'البت في تقسيم القصة',
+  design: 'اختيار تصميم من الاستوديو',
 };
 
 /** The English "what it needs you for" of the live record, in Arabic. */

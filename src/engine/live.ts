@@ -16,5 +16,6 @@ export {
   KEPT_APP_MS,
   TURNS_BEFORE_BANNER,
 } from './live/limits.js';
-export { planStepOf, projectRoot, secretFiles, BLIP_WAITS_MIN } from './live/shared.js';
+export { planStepOf, projectRoot, secretFiles, BLIP_WAITS_MIN, attachmentDirs } from './live/shared.js';
+export { designProof, designPictureFile, designsAnswerProblem, designsWithoutAfter, drawDesigns, keepDesignShots, type DesignProofHost } from './live/design-proof.js';
 export { ticketsRunning, holdNewRuns, newRunsHeld, agentRuns, queuedText, LiveSquad } from './live/squad.js';

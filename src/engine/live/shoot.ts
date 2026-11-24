@@ -26,6 +26,8 @@ import type { LiveSquad } from './squad.js';
 import type { ShotProblem, ShotRound } from './proof.js';
 import { testerProves } from '../proof-kinds/lines.js';
 import { isSavedProof, savedWords } from '../proof-kinds/saved.js';
+import { proofSchemaFor } from '../prompts/designs.js';
+import { designsAnswerProblem, keepDesignShots } from './design-proof.js';
 
 /** The Tester's run in the browser, and its words for the proof. */
 export const shootPart = {
@@ -56,7 +58,9 @@ export const shootPart = {
       const over = [...new Set(named)].filter((n) => named.filter((m) => m === n).length > MAX_PICTURES_PER_DONE_WHEN);
       return over.length ? `one "done when" takes at most ${MAX_PICTURES_PER_DONE_WHEN} pictures, one per part or case, and ${over.map((n) => `"done when" ${n}`).join(', ')} ${over.length === 1 ? 'has' : 'have'} more` : null;
     };
-    const check = (answer: unknown): string | null => realFiles(answer) ?? notTooMany(answer) ?? (when === 'after' && !again.length && count ? complete(answer) : null);
+    // The design next to the build (US-55): one picture of each picked screen's page per frame, at that frame's size.
+    const designs = when === 'after' && !beside;
+    const check = (answer: unknown): string | null => realFiles(answer) ?? notTooMany(answer) ?? (when === 'after' && !again.length && count ? complete(answer) : null) ?? (designs ? designsAnswerProblem(t, answer, (f) => win.pictures.get(f), again.length > 0) : null);
     const r = await this.runAgent({
       role: 'tester',
       step: 'proof',
@@ -65,7 +69,7 @@ export const shootPart = {
       ...(beside ? { job: beside.job, cwd: beside.cwd, sessionId: randomUUID() } : { cwd: workFolder(t)!, sessionId: t.sessions!.tester }),
       prompt: again.length ? `${prompt}\n\n${P.proofAgainPrompt(again)}` : prompt,
       permissions: ['read'],
-      schema: P.PROOF_SCHEMA,
+      schema: designs ? proofSchemaFor(t, P.PROOF_SCHEMA) : P.PROOF_SCHEMA,
       check,
       checkHelp: () => win.pictureList(),
       // Up to 40 pictures, with a look at each.
@@ -152,6 +156,7 @@ export const shootPart = {
         }
       }
       x.proof = proof.map((p) => (p.before ? p : { ...p, before: p.after, ...(p.device ? { beforeDevice: p.device } : {}), beforeLabel: 'New screen', afterLabel: 'After' }));
+      if (designs) keepDesignShots(x, r.structured, (f) => (fs.existsSync(path.join(this.bp.proofDir, f)) ? win.pictures.get(f) : undefined), !again.length);
       if (when === 'after') {
         // A new round says again what shows on no screen; a retake adds to it. squad-kit's check judges them next (judge).
         const kept = again.length ? (x.offScreen ?? []) : [];

@@ -2,6 +2,7 @@ import yaml from 'js-yaml';
 import { parseReviewDoc, withReviewDoc } from './review-doc.js';
 import { TECH_ROLES, type AgentName, type Blueprint, type BoardMeta, type ChangePart, type ChangeStatus, type ChangeStep, type Criterion, type Decision, type DecisionDraft, type Lesson, type ProofPicture, type ProofShot, type Question, type Release, type SpecChange, type Step, type Ticket, type TicketNote } from './types.js';
 import { parseProof, proofDoc, proofLine, splitProofLine } from './proof-doc.js';
+export { designsOnDisk, designsRead, DESIGNS_HOME } from './ticket-designs-types.js';
 
 /**
  * The project's documents as Markdown (ADR-001). squad-kit writes each in a fixed shape and reads it back from that
@@ -126,6 +127,8 @@ const HEADER_KEYS = [
   'setsUp',
   'brief',
   'mockup',
+  'designs',
+  'designAsked',
   'changeOf',
   'dependsOn',
   'dependency',

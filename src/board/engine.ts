@@ -15,7 +15,7 @@ import {
   type BoardPaths,
 } from './store.js';
 import { scheduleSquad } from './schedule.js';
-import { applyPlanEdits, approveExpress, changeParts, changeSummary, needsSpec, openChange } from './actions.js';
+import { applyPlanEdits, approveExpress, changeParts, changeSummary, needsSpec, openChange, waitForDesign } from './actions.js';
 import { AMBIENT, scriptFor } from './scripts.js';
 import type { BoardMeta, Question, Ticket } from './types.js';
 import { ticketDir } from './store.js';
@@ -289,6 +289,7 @@ function advance(bp: BoardPaths, id: string, meta: BoardMeta): void {
       case 'plan-rewrite': {
         // Full track, step one: the Analyst writes the what, and you approve it before any design.
         if (state.phase === 'spec-rewrite' || (state.phase === 'plan-write' && needsSpec(t))) {
+          if (state.phase === 'plan-write' && i === 0 && waitForDesign(bp, t)) return;
           if (i === 0) {
             t.stage = 'specs';
             t.live = true;

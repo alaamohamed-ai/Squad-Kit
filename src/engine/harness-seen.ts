@@ -54,6 +54,7 @@ export const DID_LINES: Record<string, [RegExp, string]> = {
   'looks-right': [/^Checked the proof\. Looks right/, 'You accepted'],
   split: [/^Suggested splitting it into \d+ stories|^Found it too big for one story/, 'Suggested on'],
   ask: [/^Asked you: /, 'Asked on'],
+  design: [/^Asked whether it follows a design from the Studio/, 'Asked on'],
   chat: [/^Started talking it through/, 'You talked on'],
   decisions: [/\. Decision saved as /, 'Saved decisions on'],
   depends: [/so the build waits for you to choose/, 'Waited for you on'],
@@ -88,7 +89,7 @@ export const HIT_LINES: Record<string, RegExp> = {
 };
 
 /** The row for what a story waits for. A stop goes by the gate that raised it. */
-export const WAIT_ROW: Record<Exclude<WaitingKind, 'stuck'>, string> = { questions: 'questions', spec: 'spec', plan: 'plan', proof: 'looks-right', release: 'release', ask: 'ask', yours: 'take-over', chat: 'chat', change: 'change', depends: 'depends', split: 'split' };
+export const WAIT_ROW: Record<Exclude<WaitingKind, 'stuck'>, string> = { questions: 'questions', spec: 'spec', plan: 'plan', proof: 'looks-right', release: 'release', ask: 'ask', yours: 'take-over', chat: 'chat', change: 'change', depends: 'depends', split: 'split', design: 'design' };
 
 export interface StoryLink {
   id: string;

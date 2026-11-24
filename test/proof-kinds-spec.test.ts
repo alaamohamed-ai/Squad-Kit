@@ -46,7 +46,8 @@ beforeEach(() => {
   answers.length = 0;
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-kinds-spec-'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  // A project with no Studio screens: the design step before the spec is skipped (test/design-ask.test.ts has it).
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct', commands: { start: 'npm run dev', url: 'http://localhost:3000', test: 'npm test' } });
 });
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

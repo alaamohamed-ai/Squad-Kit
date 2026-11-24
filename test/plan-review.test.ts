@@ -39,7 +39,8 @@ beforeEach(() => {
   answers.length = 0;
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-review-'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  // A project with no Studio screens: the design step before the spec is skipped (test/design-ask.test.ts has it).
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct' });
 });
 

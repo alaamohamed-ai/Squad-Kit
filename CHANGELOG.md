@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Build a ticket from approved Studio screens.** Right after the questions, a ticket in a project with approved
+  screens waits with "Does this ticket follow a design from the Studio?": tick one or more ("Booking / Form") and press
+  "Use these designs", or "No design", and the spec is written after, with them. The ticket keeps a copy of each at its
+  approved version, saved with the ticket, so a later change in the Studio does not change what it builds; its Story
+  tab shows them as cards, with Remove until the build starts. The Analyst, the Architect and the Builder
+  get each frame's HTML as the design to follow, and the plan names the page each screen becomes. On the proof card,
+  "Design next to the build" shows each design beside the Tester's picture of the page, per frame, Arabic screens right
+  to left. A ticket with no design works as before.
 - **Link the approved screens into a clickable prototype.** A sketch's header has "Screens | Prototype" right after its
   name. Prototype shows every approved screen at the version it was approved at, with arrows for the links between
   them and the start screen marked ("Make start" moves it). Pick where any button or link leads (a screen, Back or no

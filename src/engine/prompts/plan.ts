@@ -22,6 +22,7 @@ import {
 } from './context.js';
 import { askRule, offLimitsText } from './rules.js';
 import { kindsAsk, proofsNow } from '../proof-kinds/prompts.js';
+import { designsPlanRule, designsSpecRule } from './designs.js';
 
 /** On a workspace, the Architect says which parts of the product a story changes. It is one story and one approval. */
 function partsRule(meta?: BoardMeta): string {
@@ -51,7 +52,7 @@ ${stepsAndTests(t)}
   asks: how many "done when" no page shows, but asking the running API would (0 when none).
 - releaseNote: one line for release notes, like "**Dark mode.** Switch the dashboard to dark."
 - commands: only if the project has no way yet to set up, test, build or start it, or this ticket changes that.
-  For a new project, choose simple, common tools and give every command, including start and url.${repo}${testLine(t, meta)}${openTicketsText(others, 'architect')}
+  For a new project, choose simple, common tools and give every command, including start and url.${repo}${testLine(t, meta)}${designsPlanRule(t)}${openTicketsText(others, 'architect')}
 ${PLAIN}${theirLanguage(t)}`;
 }
 
@@ -115,7 +116,7 @@ export function specPrompt(t: Ticket, change?: string, fromChat = false, others?
 - criteria: 2 to 5 "done when" checks in Given / When / Then form. Each must be testable, in the person's words.
   ${EXAMPLES_FIT}
 ${kindsAsk(meta)}${change || fromChat ? proofsNow(t) : ''}
-- releaseNote: one line for release notes, like "**Dark mode.** Switch the dashboard to dark."${openTicketsText(others, 'analyst')}
+- releaseNote: one line for release notes, like "**Dark mode.** Switch the dashboard to dark."${designsSpecRule(t)}${openTicketsText(others, 'analyst')}
 ${PLAIN}${theirLanguage(t)}`;
 }
 
@@ -141,7 +142,7 @@ ${DEPENDS_RULE}
 ${stepsAndTests(t)}
   asks: how many "done when" no page shows, but asking the running API would (0 when none).
 - commands: only if the project has no way yet to set up, test, build or start it, or this ticket changes that.
-  For a new project, choose simple, common tools and give every command, including start and url.${repo}${testLine(t, meta)}
+  For a new project, choose simple, common tools and give every command, including start and url.${repo}${testLine(t, meta)}${designsPlanRule(t)}
 ${MOCKUP_RULE}
 ${askRule(t)}${openTicketsText(others, 'architect')}
 ${PLAIN}${theirLanguage(t)}`;

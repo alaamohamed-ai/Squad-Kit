@@ -9,6 +9,7 @@ import { partsOf } from '../../board/parts.js';
 import { designCommands } from '../self-project.js';
 import { reposOfParts } from '../copies.js';
 import { dependsProblem } from '../answers.js';
+import { designsPlanProblem } from '../prompts/designs.js';
 import { designDepends } from '../../board/depends.js';
 import { openTicketsFor } from '../depends.js';
 import { APPROVING, addDecided } from '../../board/auto.js';
@@ -94,7 +95,7 @@ export const planPart = {
       prompt: resume ? ask : `${brief}\n\n${ask}`,
       permissions: ['read'],
       schema: design ? P.DESIGN_SCHEMA : P.PLAN_SCHEMA,
-      check: (a) => dependsProblem(a, others.map((o) => o.id), id),
+      check: (a) => dependsProblem(a, others.map((o) => o.id), id) ?? designsPlanProblem(t0, a),
       timeoutMs: WORDS_STEP_MS,
       addDirs: [...attachmentDirs(t0), ...(brd?.dirs ?? [])],
       onTool: this.watcher(id, 'architect', root),

@@ -10,6 +10,7 @@ import { QUEUED } from '../../board/now.js';
 import { waitsForFirst } from '../../board/first-story.js';
 import { waitsForTools } from '../tools/index.js';
 import { isLimitText } from '../usage-limit.js';
+import { designDirs } from '../../board/ticket-designs.js';
 import { StepError } from '../../board/problem.js';
 
 export const STOPPED = 'You stopped the squad.';
@@ -84,7 +85,7 @@ export function held(status: string | undefined): boolean {
 }
 
 export function attachmentDirs(t: Ticket): string[] {
-  return [...new Set((t.attachments ?? []).map((a) => path.dirname(a)))];
+  return [...new Set([...(t.attachments ?? []).map((a) => path.dirname(a)), ...designDirs(t)])];
 }
 
 /** Thrown when a step pauses to ask the person. The ticket already shows the question; nothing failed. */

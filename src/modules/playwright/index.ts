@@ -472,6 +472,32 @@ export function wrapBrowser(browser: PwBrowser): Browser {
         await context.close().catch(() => undefined);
       }
     },
+    async draw(job) {
+      // Sealed (US-55), like print: scripts off, offline, and every request stopped.
+      const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, javaScriptEnabled: false, offline: true, acceptDownloads: false, serviceWorkers: 'block' });
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Drawing took too long')), job.timeoutMs ?? 120_000);
+      });
+      const work = async () => {
+        await context.route('**/*', (route) => route.abort('blockedbyclient').catch(() => undefined));
+        const page = await context.newPage();
+        const out: Buffer[] = [];
+        for (const p of job.pages) {
+          await page.setViewportSize({ width: p.width, height: p.height });
+          await page.setContent(p.html, { timeout: 20_000, waitUntil: 'load' });
+          await page.evaluate('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => undefined);
+          out.push(await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 15_000 }));
+        }
+        return out;
+      };
+      try {
+        return await Promise.race([work(), late]);
+      } finally {
+        clearTimeout(timer);
+        await context.close().catch(() => undefined);
+      }
+    },
     async close() {
       await browser.close().catch(() => undefined);
     },

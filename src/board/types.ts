@@ -4,19 +4,12 @@ import type { CriterionProof } from './proof-kind.js';
 import type { OffScreen, ProofShot } from './proof-rows.js';
 import type { TicketReview } from './review-types.js';
 import type { TicketContribution } from './contribution-types.js';
+import type { TicketDesigns } from './ticket-designs-types.js';
 
 /** The 7 stages a ticket moves through. `done` means released and off the board. */
 export type Stage = 'tickets' | 'specs' | 'implement' | 'test' | 'review' | 'release' | 'bugs' | 'done';
 
-export const BOARD_STAGES: Exclude<Stage, 'done'>[] = [
-  'tickets',
-  'specs',
-  'implement',
-  'test',
-  'review',
-  'release',
-  'bugs',
-];
+export const BOARD_STAGES: Exclude<Stage, 'done'>[] = ['tickets', 'specs', 'implement', 'test', 'review', 'release', 'bugs'];
 
 export type Role = 'analyst' | 'architect' | 'spec' | 'builder' | 'tester' | 'reviewer' | 'release' | 'triage';
 
@@ -27,9 +20,10 @@ export type Actor = Role | 'you' | 'squad';
  * 'spec' waits for you to approve the what (story, done when); 'plan' the how (decision, steps). 'change': the
  * Builder paused for a big change, and the Architect's design update waits for you. 'depends': the design needs a
  * ticket that is not merged yet, and you choose how to build. 'split': the Analyst found the story too big and
- * suggests splitting it, or sending it to Requirements; you decide (board/split.ts).
+ * suggests splitting it, or sending it to Requirements; you decide (board/split.ts). 'design': does it follow a
+ * design from the Studio? Asked before the spec when the project has approved screens (board/design-ask.ts).
  */
-export type WaitingKind = 'questions' | 'spec' | 'plan' | 'proof' | 'stuck' | 'release' | 'ask' | 'yours' | 'chat' | 'change' | 'depends' | 'split';
+export type WaitingKind = 'questions' | 'spec' | 'plan' | 'proof' | 'stuck' | 'release' | 'ask' | 'yours' | 'chat' | 'change' | 'depends' | 'split' | 'design';
 
 export interface Waiting {
   kind: WaitingKind;
@@ -504,7 +498,7 @@ export interface LocalSetup {
   output?: string;
 }
 
-export interface Ticket extends TicketReview, TicketContribution {
+export interface Ticket extends TicketReview, TicketContribution, TicketDesigns {
   id: string;
   title: string;
   ask: string;

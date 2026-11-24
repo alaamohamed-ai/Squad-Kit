@@ -209,6 +209,7 @@ export function noticeText(n: Notice): { title: string; body: string } {
     change: 'a change waits for you',
     depends: 'it needs a ticket that is not merged yet',
     split: 'the Analyst suggests a split',
+    design: 'does it follow a design from the Studio?',
     proof: 'the proof is ready to check',
     stuck: 'the squad stopped and needs you',
     quiet: 'a step looks stuck',

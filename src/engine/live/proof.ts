@@ -38,6 +38,7 @@ import { CHECK_SILENT_MS, runCommand, type CommandWatch } from '../checks.js';
 import { copiesOf, workFolder } from '../copies.js';
 import { PROOF_STEP_MS } from './limits.js';
 import { checkedLine } from '../proof-kinds/saved.js';
+import { designProof } from './design-proof.js';
 
 /** The proof step: the Tester's screenshots and squad-kit's check of them. */
 export const proofPart = {
@@ -102,6 +103,7 @@ export const proofPart = {
         this.update(id, (x) => addActivity(x, 'tester', 'Could not take the screenshots this time'));
       }
     }
+    if (canShow && round) await designProof(this, id);
     // The ticket has screens but nothing was shot, or a picture failed the check: the gate does not pass on its own. You
     // decide. A plan with screens needs at least one picture, even when the Tester says each "done when" shows on none.
     const now = readTicket(this.bp, id)!;

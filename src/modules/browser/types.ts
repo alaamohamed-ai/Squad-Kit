@@ -83,7 +83,18 @@ export interface PrintJob {
   timeoutMs?: number;
 }
 
+/**
+ * One sealed drawing (US-55): each page's HTML drawn to a PNG at its own size, the way the Studio draws a frame. Scripts
+ * are off and every request is stopped: nothing loads from the network or this computer.
+ */
+export interface DrawJob {
+  pages: { html: string; width: number; height: number }[];
+  timeoutMs?: number;
+}
+
 export interface Browser {
+  /** Draws sealed pages to PNG pictures, one per page, in order (US-55). Left out by a browser module that cannot. */
+  draw?(job: DrawJob): Promise<Buffer[]>;
   /**
    * Prints a document to PDF bytes in a fresh page with scripts off and every request stopped (US-46). Left out by a
    * browser module that cannot print.

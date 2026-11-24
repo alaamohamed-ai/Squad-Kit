@@ -1,5 +1,5 @@
 import { addActivity, readTicket } from '../../board/store.js';
-import { approveExpress, changeWork, needsSpec, openChange } from '../../board/actions.js';
+import { approveExpress, changeWork, designAskDue, needsSpec, openChange, waitForDesign } from '../../board/actions.js';
 import { scheduleSquad } from '../../board/schedule.js';
 import { releaseGoingOut } from '../../board/lock.js';
 import type { Ticket } from '../../board/types.js';
@@ -38,6 +38,8 @@ export const stepPart = {
       case 'triage':
         return this.triage(id);
       case 'plan-write':
+        // A project with approved Studio screens asks for the design first (board/design-ask.ts, US-55).
+        if (designAskDue(this.bp, readTicket(this.bp, id)!)) return void this.update(id, (t) => void waitForDesign(this.bp, t));
         return needsSpec(readTicket(this.bp, id)!) ? this.spec(id) : this.plan(id);
       case 'spec-rewrite':
         return this.spec(id, readTicket(this.bp, id)?.changeRequest);

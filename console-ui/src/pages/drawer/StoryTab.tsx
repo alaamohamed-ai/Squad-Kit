@@ -10,6 +10,7 @@ import { DecidedForYou } from '../../components/AutoTicket';
 import { useDraft } from '../../lib/drafts';
 import { langProps, typedDir } from '../../lib/lang';
 import { PlanBody } from './Plan';
+import { TicketDesigns } from './TicketDesigns';
 
 /* ── Other tabs ────────────────────────────────────────── */
 
@@ -22,6 +23,7 @@ export function StoryTab({ t }: { t: Ticket }) {
       <BriefList head="Business rules" items={t.brief?.rules} />
       <BriefList head="Edge cases" items={t.brief?.edgeCases} />
       <Attachments t={t} />
+      <TicketDesigns t={t} />
       <Notes t={t} />
       <ChangeHistory t={t} />
       <DecidedForYou t={t} />

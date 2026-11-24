@@ -5,15 +5,14 @@ import yaml from 'js-yaml';
 import { DEFAULT_CONFIG, loadConfig, saveConfig } from '../core/config.js';
 import { squadHome } from '../core/home.js';
 import { git } from '../engine/git.js';
-import { BOARD_STAGES } from './types.js';
 import { REVIEW_HOME } from './review-types.js';
-import type { Actor, BoardMeta, Decision, Question, Release, Step, Ticket } from './types.js';
+import { BOARD_STAGES, type Actor, type BoardMeta, type Decision, type Question, type Release, type Step, type Ticket } from './types.js';
 import { pauseClock, trackStage, waitsNow } from './clock.js';
 import { clearStaleStop, oldStop } from './stale-stop.js';
 import { dropOldChecked, showOutsideStep } from './outside-step.js';
 import { hasMergeMarks, isPlain, wrongField, type FieldShape } from './shape.js';
 import { cached } from './read-cache.js';
-import { decisionDoc, lessonsDoc, parseDecisionDoc, parseLessonsDoc, parseProjectDoc, parseReleaseDoc, parseStackDoc, projectDoc, readTicketDocs, releaseDoc, stackDoc, ticketDocs, type TicketDocInput } from './docs.js';
+import { decisionDoc, lessonsDoc, parseDecisionDoc, parseLessonsDoc, parseProjectDoc, parseReleaseDoc, parseStackDoc, projectDoc, readTicketDocs, releaseDoc, stackDoc, ticketDocs, designsOnDisk, designsRead, DESIGNS_HOME, type TicketDocInput } from './docs.js';
 
 /**
  * The board's files, in two homes (ADR-001). The project's `.squad/` holds its memory: settings, rules, knowledge,
@@ -289,6 +288,7 @@ export const TICKET_HOME = {
   // Which tools this computer has: another computer may take the pictures on the phone.
   picturesNote: 'local',
   mockup: 'project',
+  ...DESIGNS_HOME,
   changes: 'project',
   changeOf: 'project',
   dependsOn: 'project',
@@ -427,7 +427,7 @@ export function splitTicket(bp: BoardPaths, t: Ticket): { docs: Record<string, s
   if (localFiles.length) state.localFiles = localFiles;
   delete project.attachments;
   if (t.mockup) project.mockup = inside(folder, t.mockup) ? path.relative(folder, t.mockup) : t.mockup;
-  const input = { ...project, ...(files.length ? { files } : {}) } as TicketDocInput;
+  const input = { ...project, ...(t.designs?.length ? { designs: designsOnDisk(folder, t.designs) } : { designs: undefined }), ...(files.length ? { files } : {}) } as TicketDocInput;
   return { docs: ticketDocs(input), state };
 }
 
@@ -435,7 +435,7 @@ function joinTicket(bp: BoardPaths, id: string, docs: Record<string, string>, st
   const folder = ticketDir(bp, id);
   const p = readTicketDocs(docs) as TicketDocInput & { files?: string[] };
   const { stepState, questionState, localFiles, ...live } = state;
-  const t = { ...p, ...live } as Ticket & { files?: string[] };
+  const t = { ...p, designs: designsRead(folder, p.designs), ...live } as Ticket & { files?: string[] };
   if (p.steps) t.steps = p.steps.map((s, i) => ({ ...s, ...(stepState?.[i] ?? {}) }));
   if (p.questions) t.questions = p.questions.map((q) => ({ ...q, ...(questionState?.[q.id] ?? {}) }));
   const files = [...(p.files ?? []).map((f) => path.join(folder, f)), ...(localFiles ?? [])];

@@ -2,6 +2,7 @@ import type { BoardMeta, Decision, ProjectCommands, RepoInfo, Ticket, TicketNote
 import { reposOf } from '../repos.js';
 import { flutterWebStart } from '../find-commands.js';
 import { offLimitsText } from './rules.js';
+import { designsText } from './designs.js';
 
 export const PLAIN = 'Write for a project manager who may not be a developer: plain words, short sentences, no jargon.';
 
@@ -116,7 +117,7 @@ export function ticketContext(t: Ticket): string {
     : '';
   const keep = brief ? '\nKeep every acceptance criterion, follow every business rule and handle every edge case the person wrote there.' : '';
   const text = asData('The ticket as it was written', `Title: ${t.title}\nWhat was asked:\n${t.ask}${brief}`);
-  return `Ticket ${t.id}: ${t.kind === 'bug' ? 'a bug report.' : 'a feature request.'}\n${text}${keep}${files}${notesText(t.notes ?? [])}${theirLanguage(t)}`;
+  return `Ticket ${t.id}: ${t.kind === 'bug' ? 'a bug report.' : 'a feature request.'}\n${text}${keep}${files}${designsText(t)}${notesText(t.notes ?? [])}${theirLanguage(t)}`;
 }
 
 /** Another open ticket on the board, for the Analyst and the Architect: what it is, where it is, and what its branch changed. */

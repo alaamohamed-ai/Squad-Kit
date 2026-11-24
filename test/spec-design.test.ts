@@ -41,7 +41,8 @@ beforeEach(() => {
   answers.length = 0;
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-spec-'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  // A project with no Studio screens: the design step before the spec is skipped (test/design-ask.test.ts has it).
+  seedDemoBoard(bp, { speed: 50, studio: false });
   writeMeta(bp, { ...readMeta(bp), engine: 'live', runner: 'direct' });
 });
 
@@ -58,6 +59,29 @@ function answered(track?: 'express') {
     x.sessions = { intake: 'i1' };
   });
 }
+
+describe('the design step before the spec (US-55)', () => {
+  it('with approved Studio screens, the live squad waits for the design before the Analyst writes the spec', async () => {
+    const { seedDemoStudio } = await import('../src/board/demo-studio.js');
+    seedDemoStudio(bp);
+    const t0 = answered();
+    const squad = new LiveSquad(bp) as unknown as Steps;
+    await squad.step(t0.id, 'plan-write');
+    expect(calls).toEqual([]);
+    let t = readTicket(bp, t0.id)!;
+    expect(t.waiting).toEqual({ kind: 'design', summary: 'Does this ticket follow a design from the Studio?' });
+    expect(t.story).toBeUndefined();
+    // Answered: the next plan-write is the Analyst's spec, with the picked screen.
+    const { approvedScreens } = await import('../src/board/ticket-designs.js');
+    const first = approvedScreens(bp)[0]!;
+    t = actions.answerDesign(bp, t.id, { picks: [{ sketch: first.sketch, screen: first.screen }] });
+    answers.push(SPEC);
+    await squad.step(t.id, 'plan-write');
+    expect(calls.at(-1)!.prompt).toContain('Now write the spec, as the Analyst');
+    expect(calls.at(-1)!.prompt).toContain(`"${first.name}", version ${first.version}`);
+    expect(readTicket(bp, t.id)!.waiting?.kind).toBe('spec');
+  });
+});
 
 describe('spec and design as two steps', () => {
   it('the Analyst writes the spec, you approve it, then the Architect designs from it', async () => {

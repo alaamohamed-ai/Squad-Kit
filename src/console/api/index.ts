@@ -30,6 +30,7 @@ import { mountProveApi } from './prove.js';
 import { mountContributionApi } from './contribution.js';
 import { mountConnectionsApi } from './connections.js';
 import { mountStudioApi } from './studio.js';
+import { mountTicketDesignsApi } from './ticket-designs.js';
 
 export interface MountApiOptions {
   paths: SquadPaths;
@@ -63,6 +64,7 @@ export function mountApi(app: Hono, opts: MountApiOptions): void {
   mountOverviewApi(app, opts);
   mountRequirementsApi(app, opts);
   mountStudioApi(app, opts);
+  mountTicketDesignsApi(app, opts);
   mountTryApi(app, opts);
   mountToolsApi(app, opts);
   mountPhoneApi(app);

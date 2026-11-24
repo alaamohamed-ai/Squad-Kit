@@ -130,9 +130,7 @@ export const RESUMED = 'resumed after a restart';
 /** The queued card: "Next in line: starts when a slot is free (2 of 2 busy)". */
 export const QUEUED = 'Next in line';
 
-export function queuedLine(busy: number, limit: number): string {
-  return `${QUEUED}: starts when a slot is free (${busy} of ${limit} busy)`;
-}
+export const queuedLine = (busy: number, limit: number): string => `${QUEUED}: starts when a slot is free (${busy} of ${limit} busy)`;
 
 const TRACK: Stage[] = ['tickets', 'specs', 'implement', 'test', 'review', 'release'];
 
@@ -150,6 +148,7 @@ export const YOUR_PART: Record<WaitingKind, string> = {
   change: 'decide on the design update',
   depends: 'choose how to build it',
   split: "decide on the Analyst's split",
+  design: 'choose a design from the Studio',
 };
 
 function lowerFirst(s: string): string {

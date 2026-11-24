@@ -17,6 +17,7 @@ import { useDraft } from '../../lib/drafts';
 import { langProps, typedDir } from '../../lib/lang';
 import { KindBlocks } from '../../components/proof/KindBlocks';
 import { hasKinds, proofHead } from '../../lib/proof-kinds';
+import { DesignPairs } from './DesignPairs';
 
 /* ── Proof ─────────────────────────────────────────────── */
 
@@ -158,6 +159,7 @@ export function ProofPanel({ t }: { t: Ticket }) {
         <AlsoChanged t={t} />
         <div className="lbl">{proofHead(t, 'Before and after')}</div>
         <ProofShots t={t} />
+        <DesignPairs t={t} />
         <YourCheck t={t} />
       </div>
       <ProofDecision t={t} />

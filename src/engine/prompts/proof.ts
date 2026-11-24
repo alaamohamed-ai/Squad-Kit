@@ -1,4 +1,5 @@
 import type { BoardMeta, Ticket } from '../../board/types.js';
+import { designsForTester } from './designs.js';
 import { MAX_PICTURES, MAX_PICTURES_PER_DONE_WHEN, criterionText } from '../proof-verdict.js';
 import {
   doneWhen,
@@ -106,7 +107,7 @@ by the answer, and a note for a project manager like "Asked for the sale price o
 Never quote raw data in the note. A "done when" the API can show is never offScreen.
 ` : ''}${when === 'after' ? kindsForTester(t, apiParts) : beforeKinds(t)}Never wait for the clock. Do not sleep or pause to let a booking end, a day pass or a timer run out: when a part needs
 time to pass, it is one of those parts that cannot be shown.
-Never ask the person anything technical. Do not change project files: squad-kit puts back anything changed.${theirLanguage(t)}${notesText((t.notes ?? []).filter((n) => n.kind !== 'criterion'))}${rulesText(ctx)}
+Never ask the person anything technical. Do not change project files: squad-kit puts back anything changed.${when === 'after' ? designsForTester(t) : ''}${theirLanguage(t)}${notesText((t.notes ?? []).filter((n) => n.kind !== 'criterion'))}${rulesText(ctx)}
 ${LOOK}`;
 }
 

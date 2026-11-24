@@ -365,6 +365,8 @@ export function actionLabel(t: Ticket): string {
       return 'Choose';
     case 'split':
       return 'Decide the split';
+    case 'design':
+      return 'Choose a design';
     default:
       return 'Open';
   }

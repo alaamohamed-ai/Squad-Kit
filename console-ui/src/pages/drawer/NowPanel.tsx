@@ -13,6 +13,7 @@ import { QuestionsPanel } from './Questions';
 import { PlanPanel } from './Plan';
 import { ProofPanel, ProofShots } from './Proof';
 import { AskPanel } from './AskPanel';
+import { DesignAskCard } from './DesignAsk';
 import { proofHead } from '../../lib/proof-kinds';
 import { QuietPanel, RecentActivity, SavingPanel, WorkingPanel, YoursPanel } from './Working';
 import { PullRequestNow, showsPullRequest } from '../../components/pr/PullRequestNow';
@@ -60,6 +61,8 @@ export function NowPanel({ t }: { t: Ticket }) {
       );
     case 'ask':
       return <AskPanel t={t} />;
+    case 'design':
+      return <DesignAskCard t={t} />;
     case 'split':
       return (
         <div className="db">
