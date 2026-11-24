@@ -11,7 +11,7 @@ import { readSketch } from '../src/board/studio.js';
 
 /**
  * The sample board starts fresh each time (US-05, AB-130), with the same sample Studio (US-06, AB-131): the "Brand"
- * design system and eight sketches ("Feedback" follows none, for US-17; "Follow-up visit" has eight screens, for US-53), so the Sketches home shows its cards. A sketch made on the last run does not stay
+ * design system and nine sketches ("Feedback" follows none, for US-17; "الحجز" is a long right-to-left form, for US-46; "Follow-up visit" has eight screens, for US-53), so the Sketches home shows its cards. A sketch made on the last run does not stay
  * behind without its first message, which lived with its chat on this computer. Its first-run start has no Studio
  * work, so the Sketches tab opens on the start page there.
  */
@@ -28,7 +28,7 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const SAMPLE = ['checkout', 'booking', 'profile', 'patient-profile', 'onboarding', 'login', 'feedback', 'follow-up-visit'];
+const SAMPLE = ['checkout', 'booking', 'profile', 'patient-profile', 'onboarding', 'login', 'feedback', 'arabic-booking', 'follow-up-visit'];
 
 describe('a fresh sample board', () => {
   it('has the sample sketches, newest edit first, and the Brand design system', () => {

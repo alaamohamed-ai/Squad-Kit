@@ -216,6 +216,9 @@ interface PwPage {
   waitForLoadState(state: 'load' | 'domcontentloaded' | 'networkidle', o: { timeout: number }): Promise<void>;
   evaluate(expression: string): Promise<unknown>;
   screenshot(o: { animations: 'disabled'; caret: 'hide'; timeout: number }): Promise<Buffer>;
+  setContent(html: string, o: { timeout: number; waitUntil: 'load' }): Promise<void>;
+  setViewportSize(size: { width: number; height: number }): Promise<void>;
+  pdf(o: { printBackground: boolean; preferCSSPageSize: boolean; outline?: boolean; tagged?: boolean }): Promise<Buffer>;
   on(event: 'dialog', fn: (d: { accept(): Promise<void> }) => void): void;
   on(event: 'framenavigated', fn: (f: PwFrame) => void): void;
   on(event: 'filechooser', fn: (c: unknown) => void): void;
@@ -438,6 +441,36 @@ export function wrapBrowser(browser: PwBrowser): Browser {
         if (p !== page) void p.close().catch(() => undefined);
       });
       return wrapPage(page, context, o.origin, stopped);
+    },
+    async print(job) {
+      // Sealed (US-46): scripts off, offline, and every request stopped, so a drawing reaches nothing.
+      const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, javaScriptEnabled: false, offline: true, acceptDownloads: false, serviceWorkers: 'block' });
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Printing took too long')), job.timeoutMs ?? 120_000);
+      });
+      const work = async () => {
+        await context.route('**/*', (route) => route.abort('blockedbyclient').catch(() => undefined));
+        const page = await context.newPage();
+        const heights: number[] = [];
+        for (const m of job.measure) {
+          await page.setViewportSize({ width: m.width, height: m.height });
+          await page.setContent(m.html, { timeout: 20_000, waitUntil: 'load' });
+          // The browser's own measure, run by squad-kit: the page's scripts stay off.
+          const h = Number(await page.evaluate('Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)'));
+          heights.push(Number.isFinite(h) && h > 0 ? Math.ceil(h) : m.height);
+        }
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.setContent(job.document(heights), { timeout: 30_000, waitUntil: 'load' });
+        await page.evaluate('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => undefined);
+        return page.pdf({ printBackground: true, preferCSSPageSize: true, outline: false, tagged: true });
+      };
+      try {
+        return await Promise.race([work(), late]);
+      } finally {
+        clearTimeout(timer);
+        await context.close().catch(() => undefined);
+      }
     },
     async close() {
       await browser.close().catch(() => undefined);

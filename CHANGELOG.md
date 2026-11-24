@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Export a sketch to PDF.** A sketch's ⋯ menu, on its card and in its header, has an Export group: "Export sketch
+  to PDF" opens a small window to pick all screens or the approved ones only, the frames, the screens, and whether to
+  include every variant of a draft screen. squad-kit's own browser makes one PDF for clients: a plain cover with the
+  project, the sketch, the date and the screen list with page numbers, then one page per screen and frame, each as
+  tall as its screen and right to left when the screen is. It downloads as "<sketch name>.pdf" and changes no project
+  file. PNG, JPG, SVG and HTML are listed with a small "Future" label and come later.
 - **The Studio looks like the prototype.** In the sidebar, Studio now sits right after Conversations, with a small
   New badge until you first open it in a project on this computer (it never shows in a project that already has a
   sketch or a design system). The page header is the title and one switch with Sketches and Design systems, the

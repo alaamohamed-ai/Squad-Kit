@@ -24,7 +24,7 @@ import {
   type SketchRow,
   type StudioTab,
 } from '../lib/studio';
-import { SketchCardMenu } from './studio/SketchActions';
+import { SketchMenu } from './studio/SketchMenu';
 import { NewSketchButton, StartSketch } from './studio/StartSketch';
 import { useMarkStudioSeen } from '../lib/studio-seen';
 
@@ -141,7 +141,7 @@ function SketchCardView({ project, sketch, onProblem }: { project: string; sketc
           )}
         </span>
       </Link>
-      <SketchCardMenu project={project} sketch={{ id: sketch.id, name: sketch.name, stamp: sketch.stamp, screens }} onProblem={onProblem} />
+      <SketchMenu project={project} sketch={{ id: sketch.id, name: sketch.name, stamp: sketch.stamp, screens }} onProblem={onProblem} />
     </li>
   );
 }

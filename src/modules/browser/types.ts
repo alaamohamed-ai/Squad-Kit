@@ -70,7 +70,25 @@ export interface BrowserPage {
   close(): Promise<void>;
 }
 
+/**
+ * One sealed print (US-46): the screens are measured first, each at its own size, and then the print document, made
+ * from their full heights, is printed to one PDF whose pages each keep their own size. Scripts are off and every
+ * request is stopped: nothing loads from the network or this computer.
+ */
+export interface PrintJob {
+  /** Each screen's HTML, sealed, and the size it is drawn at. */
+  measure: { html: string; width: number; height: number }[];
+  /** The print document, from each screen's full height in the same order. */
+  document(heights: number[]): string;
+  timeoutMs?: number;
+}
+
 export interface Browser {
+  /**
+   * Prints a document to PDF bytes in a fresh page with scripts off and every request stopped (US-46). Left out by a
+   * browser module that cannot print.
+   */
+  print?(job: PrintJob): Promise<Buffer>;
   /**
    * A fresh page, with nothing kept from another one, where only `origin` may open at the top, and nothing on this
    * computer or a private network but `origin` and `also`, the other parts of the same product, may load at all

@@ -1569,3 +1569,29 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .sk-name-btn:hover { background: var(--surface-2); }
 .sk-name-edit { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .sk-name-input { font-size: 18px; font-weight: 650; height: 34px; width: min(360px, 60vw); }
+
+/* ── A sketch's ⋯ menu and its Export group, and the export window (US-46) ── */
+.sk-head-more { flex: none; align-items: center; gap: 8px; }
+.sk-menu { min-width: 230px; }
+.sk-menu-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.sk-menu-group { display: flex; flex-direction: column; }
+.sk-menu-label { padding: 4px 10px 3px; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.more-menu button:disabled { cursor: default; }
+.more-menu button:disabled:hover { background: transparent; }
+.sk-menu-future { color: var(--dim) !important; }
+.sk-future { margin-left: auto; font-size: 10.5px; font-weight: 650; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; line-height: 17px; }
+.sk-making { order: -1; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.sk-menu-problem { position: absolute; right: 0; top: calc(100% + 6px); white-space: nowrap; z-index: 29; background: var(--surface); padding: 6px 10px; border-radius: 8px; box-shadow: var(--pop-shadow); }
+.xp { display: flex; flex-direction: column; gap: 16px; min-width: min(440px, 80vw); }
+.xp-group { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.xp-group legend { padding: 0 0 6px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.xp-row { display: flex; align-items: center; gap: 9px; padding: 5px 2px; font-size: 14px; cursor: pointer; }
+.xp-row input { flex: none; accent-color: var(--accent); width: 15px; height: 15px; }
+.xp-row.off { color: var(--dim); cursor: default; }
+.xp-all { font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 7px; margin-bottom: 2px; }
+.xp-screens { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+.xp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-note { margin-left: auto; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.xp-draft { flex: none; font-size: 11px; font-weight: 650; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 1px 6px; }
+.xp-variants { border-top: 1px solid var(--line); padding-top: 12px; }
+.xp-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }

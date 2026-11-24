@@ -320,10 +320,10 @@ describe('the Studio page', () => {
     expect(changes).toEqual([]);
     expect(xhr).not.toHaveBeenCalled();
     // The page itself only reads: the start page's Send and the card menu's Rename, Duplicate and Delete (US-13) are the
-    // changes, each in its own file.
+    // changes, each in its own file. The card menu (SketchMenu.tsx, US-46) also holds Export, which saves nothing.
     for (const file of ['console-ui/src/pages/Studio.tsx', 'console-ui/src/lib/studio.ts'])
       expect(read(file)).not.toMatch(/lib\/data|useAct|apiFetch|fetch\(|useMutation|\bsend\b|method:/);
-    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchActions', './studio/StartSketch', '../lib/studio-seen']);
+    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchMenu', './studio/StartSketch', '../lib/studio-seen']);
   });
 });
 

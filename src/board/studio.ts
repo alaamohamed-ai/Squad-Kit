@@ -115,6 +115,7 @@ export { tokenWarnings } from './studio-tokens.js';
 export { CHANGED_ELSEWHERE, StudioChangedElsewhere, StudioScreenApproved, approvedWords, changeStudioItem, checkStudioStamp, type EditBy, type VariantInput } from './studio-write.js';
 export { approveScreen, deleteScreen, pickVariant, reopenScreen } from './studio-approval.js';
 export { stampOfFolder } from './studio-files.js';
+export { StudioExportRefused, exportPlan, type ExportChoice, type ExportOption, type ExportPage, type ExportPlan, type ExportScreen } from './studio-export.js';
 export { addNewScreen, nameNewScreen } from './studio-screens.js';
 export {
   NEW_SCREEN_NAME,

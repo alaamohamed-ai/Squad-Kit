@@ -131,7 +131,8 @@ const button = (inside: any, name: string) => [...inside.querySelectorAll('butto
 async function menu(name: string, item: string) {
   await press(cardOf(name).querySelector(`[aria-label="More actions for ${name}"]`));
   const items = all('[role="menuitem"]').map((b) => b.textContent.trim());
-  expect(items).toEqual(['Rename…', 'Duplicate', 'Delete…']);
+  // US-46 added the Export group between Duplicate and Delete (test/ui/studio-export.test.ts).
+  expect(items).toEqual(['Rename…', 'Duplicate', 'Export sketch to PDF', 'PNGFuture', 'JPGFuture', 'SVGFuture', 'HTMLFuture', 'Delete…']);
   await press(all('[role="menuitem"]').find((b) => b.textContent.trim() === item));
 }
 

@@ -33,6 +33,7 @@ import { appPictureOption, takeAppPicture } from '../../engine/studio-app-pictur
 import { ChatBusy, chatWorking, startChatJob } from '../../engine/studio-chat-runs.js';
 import { act } from './act.js';
 import { conversationRead, mountStudioChatApi } from './studio-chat.js';
+import { mountStudioExportApi } from './studio-export.js';
 
 /**
  * The Studio API (US-04, AB-129), under /api/v1/studio; the server serves it for each project at
@@ -319,4 +320,7 @@ export function mountStudioApi(app: Hono, opts: { paths: SquadPaths }): void {
 
   /* ── The chat with the AI Designer, for sketches and design systems (US-52, AB-177) ── */
   mountStudioChatApi(app, bp, { run, body });
+
+  /* ── Export sketch to PDF (US-46, AB-171.1): the PDF itself, made in memory ── */
+  mountStudioExportApi(app, opts.paths, bp, { run, body });
 }

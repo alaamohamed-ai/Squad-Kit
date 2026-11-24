@@ -1,15 +1,16 @@
 import type { BoardPaths } from './store.js';
 import { dumpYaml, writeNewVersion, writeShared } from './studio-files.js';
 import { designSystemFile, frameFile, screenFile, sketchFile, tokensFile, variantDir, variantMetaFile } from './studio-paths.js';
-import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantMetaFile } from './studio-read.js';
+import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type SketchFile, type SystemFile, type VariantAskMarks, type VariantMetaFile } from './studio-read.js';
 
 /**
- * The sample board's Studio (US-06, AB-131): one design system, "Brand", and eight sketches with edits by different
+ * The sample board's Studio (US-06, AB-131): one design system, "Brand", and nine sketches with edits by different
  * people, so the Sketches home shows its cards: "Checkout" drawn for desktop and mobile and redrawn by the AI Designer
  * for Sara, "Profile" just made by Omar with nothing drawn yet, and "Onboarding" drawn for desktop only, renamed by
- * Sara yesterday, with two of its five screens approved. For US-13 (rename, duplicate, delete), "Booking" has two drawn
+ * Sara yesterday, with two of its five screens approved. For US-13 (rename, duplicate, delete), "Booking" has drawn
  * screens with one Approved, "Patient profile" three, and "Login" is a name already used. For US-17 (variants),
- * "Feedback" follows no design system. For US-53, "Follow-up visit" has eight screens, one with a long name and
+ * "Feedback" follows no design system. For US-46 (export to PDF), Booking's Form is drawn as variants A, B and C and
+ * "الحجز" is a long right-to-left form. For US-53, "Follow-up visit" has eight screens, one with a long name and
  * "Confirm" approved, so its row of screen tabs scrolls. The files are the ones the Studio store writes, with times in the past, so the
  * sample board looks lived in.
  */
@@ -78,13 +79,42 @@ function clinic(title: string, line: string, rows: [string, string][], button: s
 
 const both = (f: (w: 'desktop' | 'mobile') => string) => ({ desktop: f('desktop'), mobile: f('mobile') });
 
+/** A long booking form in Arabic, right to left, that scrolls far below one screen's height (US-46). */
+function arabicForm(width: 'desktop' | 'mobile'): string {
+  const fields = [
+    ['الاسم الكامل', 'منى عادل'],
+    ['رقم الهاتف', '٠١٠٠ ٥٥٥ ٠١٠١'],
+    ['البريد الإلكتروني', 'mona@example.com'],
+    ['الطبيب', 'د. هناء صالح · أمراض القلب'],
+    ['اليوم', 'الثلاثاء ١٧ نوفمبر'],
+    ['الوقت', '١٠:٠٠ صباحًا'],
+    ['سبب الزيارة', 'متابعة بعد الفحص'],
+    ['الأدوية الحالية', 'لا يوجد'],
+    ['الحساسية', 'لا يوجد'],
+    ['شركة التأمين', 'مصر للتأمين'],
+    ['رقم البطاقة', '٤٤٨٢٠٠١٣'],
+    ['ملاحظات للطبيب', 'أفضّل موعدًا صباحيًا'],
+  ];
+  const rows = fields.map(([k, v]) => `<div class="card"><div class="muted">${k}</div><div style="font-size:18px;margin-top:6px">${v}</div></div>`).join('');
+  return page(
+    `<div dir="rtl" lang="ar" style="font-family:'Geeza Pro','Noto Sans Arabic',Tahoma,sans-serif">
+<header><span class="logo">عيادة النور</span><span class="muted">الزيارات · الأطباء · الملف</span></header>
+<main style="max-width:760px"><h1>نموذج الحجز</h1><p class="muted">املأ البيانات التالية لحجز زيارة المتابعة.</p>${rows}<span class="btn">احجز الزيارة</span><p class="muted" style="margin-top:24px">سنرسل لك تأكيد الحجز في رسالة نصية.</p></main></div>`,
+    width,
+  );
+}
+
 interface DemoScreen {
   id: string;
   name: string;
   status: ScreenStatus;
   edited: EditMark;
-  /** Each drawing, oldest first; the last one is chosen. */
-  drawings: { minutes: number; by: string; for?: string; frames: Record<string, string> }[];
+  /** Each drawing, oldest first; the last one is chosen unless `chosen` says another. */
+  drawings: { minutes: number; by: string; for?: string; frames: Record<string, string>; ask?: VariantAskMarks }[];
+  /** The version chosen, when it is not the last drawing. */
+  chosen?: number;
+  /** Not named yet (AB-136.1): an empty "New screen". */
+  unnamed?: boolean;
 }
 
 function writeSketch(bp: BoardPaths, id: string, sketch: SketchFile, screens: DemoScreen[]): void {
@@ -92,14 +122,14 @@ function writeSketch(bp: BoardPaths, id: string, sketch: SketchFile, screens: De
   screens.forEach((s, i) => {
     s.drawings.forEach((d, j) => {
       const version = j + 1;
-      const meta: VariantMetaFile = { madeAt: ago(d.minutes), madeBy: d.by, ...(d.for ? { madeFor: d.for } : {}) };
+      const meta: VariantMetaFile = { madeAt: ago(d.minutes), madeBy: d.by, ...(d.for ? { madeFor: d.for } : {}), ...(d.ask ?? {}) };
       const files: Record<string, string> = { [variantMetaFile(bp, id, s.id, version)]: dumpYaml(meta) };
       for (const [f, html] of Object.entries(d.frames)) files[frameFile(bp, id, s.id, version, f)] = html;
       writeNewVersion(variantDir(bp, id, s.id, version), files);
     });
     // An approved screen carries who approved it, when, and the version it froze (US-15).
     const approved = s.status === 'approved' && s.drawings.length ? { approved: { version: s.drawings.length, at: s.edited.at, ...(s.edited.by ? { by: s.edited.by } : {}) } } : {};
-    const file: ScreenFile = { name: s.name, order: i + 1, status: s.status, chosen: s.drawings.length || null, ...approved, edited: s.edited };
+    const file: ScreenFile = { name: s.name, order: i + 1, status: s.status, chosen: s.chosen ?? (s.drawings.length || null), ...(s.unnamed ? { unnamed: true } : {}), ...approved, edited: s.edited };
     writeShared(screenFile(bp, id, s.id), dumpYaml(file));
   });
 }
@@ -141,12 +171,29 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
     { id: 'profile', name: 'Profile', status: 'draft', edited: mark(60, 'Omar'), drawings: [] },
   ]);
 
-  // US-13's examples: "Booking" with 2 drawn screens, 1 Approved; "Patient profile" with 3; "Login", a used name.
+  // US-13's examples: "Booking" with drawn screens, one Approved; "Patient profile" with 3; "Login", a used name. For
+  // US-46 (export to PDF), Booking's Home is approved, its Form is drawn as variants A, B and C (B in use), and its
+  // "New screen" has no drawing yet; Login has no approved screen.
+  const home = (w: 'desktop' | 'mobile') => clinic('Welcome back, Mona', 'Your next visit and what to do next.', [['Next visit', 'Tue 17 Nov · 10:00'], ['Doctor', 'Dr. Hana Saleh · Cardiology']], 'Book a follow-up', w);
   const form = (w: 'desktop' | 'mobile') => clinic('Book a follow-up', 'Last visit: 2 Nov with Dr. Hana', [['Doctor', 'Dr. Hana Saleh · Cardiology'], ['Day', 'Tue 17 Nov'], ['Time', '10:00']], 'Book visit', w);
-  const booked = (w: 'desktop' | 'mobile') => clinic('Visit booked', 'We sent the details to your phone.', [['Doctor', 'Dr. Hana Saleh'], ['When', 'Tue 17 Nov · 10:00'], ['Where', 'Floor 2, Room 14']], 'Add to calendar', w);
+  const stepByStep = (w: 'desktop' | 'mobile') => clinic('Step 1 of 3 · Pick a doctor', 'One question at a time.', [['Dr. Hana Saleh', 'Cardiology'], ['Dr. Karim Nour', 'Family medicine']], 'Next', w);
+  const calendar = (w: 'desktop' | 'mobile') => clinic('Pick a day', 'Free times this week, the soonest first.', [['Tue 17 Nov', '10:00 · 11:30'], ['Wed 18 Nov', '09:00 · 14:00'], ['Thu 19 Nov', '12:30']], 'Book visit', w);
+  const ask = (letter: string, name: string, idea: string): VariantAskMarks => ({ ask: 'ask-demo-form', asked: 'Make the form feel calmer, less text.', letter, name, idea });
   writeSketch(bp, 'booking', { name: 'Booking', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24, 'Sara') }, [
-    { id: 'form', name: 'Form', status: 'approved', edited: mark(30, 'Sara'), drawings: [{ minutes: 60 * 5, by: AI_DESIGNER, for: 'Sara', frames: both(form) }] },
-    { id: 'confirmation', name: 'Confirmation', status: 'draft', edited: mark(60 * 5, 'Sara'), drawings: [{ minutes: 60 * 5, by: AI_DESIGNER, for: 'Sara', frames: both(booked) }] },
+    { id: 'home', name: 'Home', status: 'approved', edited: mark(30, 'Sara'), drawings: [{ minutes: 60 * 5, by: AI_DESIGNER, for: 'Sara', frames: both(home) }] },
+    {
+      id: 'form',
+      name: 'Form',
+      status: 'draft',
+      edited: mark(60 * 4, 'Sara'),
+      chosen: 2,
+      drawings: [
+        { minutes: 60 * 4, by: AI_DESIGNER, for: 'Sara', frames: both(form), ask: ask('A', 'One page', 'Every field on one calm page.') },
+        { minutes: 60 * 4, by: AI_DESIGNER, for: 'Sara', frames: both(stepByStep), ask: ask('B', 'Split steps', 'One question per step, with a clear Next.') },
+        { minutes: 60 * 4, by: AI_DESIGNER, for: 'Sara', frames: both(calendar), ask: ask('C', 'Calendar first', 'Start from the free days, then the doctor.') },
+      ],
+    },
+    { id: 'new-screen', name: 'New screen', status: 'draft', edited: mark(60 * 3, 'Sara'), unnamed: true, drawings: [] },
   ]);
   writeSketch(bp, 'patient-profile', { name: 'Patient profile', designSystem: brand, frames: ['desktop'], edited: mark(60 * 24 * 2, 'Omar') }, [
     ['overview', 'Overview', 'Mona Adel', [['Born', '12 Mar 1958'], ['Phone', '+20 100 555 0101']], 'Edit details'],
@@ -166,6 +213,11 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
   // US-17's example of a sketch with no design system selected: asking it for variants shows the alert first.
   writeSketch(bp, 'feedback', { name: 'Feedback', designSystem: null, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 5, 'Omar') }, [
     { id: 'rate', name: 'Rate your visit', status: 'draft', edited: mark(60 * 24 * 5, 'Omar'), drawings: [{ minutes: 60 * 24 * 5, by: 'Omar', frames: both((w) => clinic('How was your visit?', 'Tell us in a minute: it helps the clinic.', [['Doctor', 'Dr. Hana Saleh'], ['Your rating', '★★★★☆']], 'Send', w)) }] },
+  ]);
+
+  // US-46's right-to-left example: "الحجز" with a long Arabic form that scrolls far below one screen's height.
+  writeSketch(bp, 'arabic-booking', { name: 'الحجز', designSystem: brand, frames: ['desktop', 'mobile'], edited: mark(60 * 24 * 5 + 60, 'Omar') }, [
+    { id: 'booking-form', name: 'نموذج الحجز', status: 'approved', edited: mark(60 * 24 * 5 + 60, 'Omar'), drawings: [{ minutes: 60 * 24 * 5 + 60, by: 'Omar', frames: both(arabicForm) }] },
   ]);
 
   // US-53's row of screen tabs: eight screens, one with a long name, and "Confirm" approved with its drawing. The oldest

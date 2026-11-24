@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { askCards, chatsKey, emptyScreenText, frameName, isApproved, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type ConversationData, type SketchFull, type WorkspaceView } from '../../lib/studio';
@@ -8,6 +8,7 @@ import { ChatPanel } from './ChatPanel';
 import { ScreenApproval } from './ScreenApproval';
 import { ScreenTabs } from './ScreenTabs';
 import { SketchNameHeader } from './SketchActions';
+import { SketchMenu } from './SketchMenu';
 import { VariantCards } from './VariantCards';
 import { useMarkStudioSeen } from '../../lib/studio-seen';
 
@@ -19,7 +20,8 @@ import { useMarkStudioSeen } from '../../lib/studio-seen';
    The screen tabs always end with "+ Add screen" (US-11): a new tab, "New screen", selected at once, that the AI
    Designer draws and names from the chat; each tab has a Delete that asks first.
    The header's "Approve screen" (US-15) freezes the screen shown, with a lock, "Approved by Alaa · time" and Reopen;
-   while it is approved, its "Use this one" and its tab's Delete are off, and the chat says the Designer leaves it. */
+   while it is approved, its "Use this one" and its tab's Delete are off, and the chat says the Designer leaves it.
+   The header's ⋯ menu (SketchMenu.tsx) has Rename, Duplicate and Delete, and the Export group (US-46). */
 
 export function SketchWorkspacePage() {
   const { id } = useParams({ from: '/studio/sketches/$id' });
@@ -32,6 +34,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
   const base = `/api/v1/studio/sketches/${encodeURIComponent(id)}`;
   const key = sketchKey(project, id);
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const sketch = useQuery({ queryKey: key, queryFn: () => api<SketchFull>(base) });
   const [view, setView] = useState<WorkspaceView>(() => readWorkspaceView(project, id));
   const choose = (next: WorkspaceView) => {
@@ -90,6 +93,17 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
         {s ? <SketchNameHeader key={`${s.id}:${s.name}`} project={project} sketch={{ id: s.id, name: s.name, stamp: s.stamp, screens: s.screens.length }} /> : <h1 dir="auto">{sketch.isError ? 'Sketch' : '…'}</h1>}
         {s && <span className="note">{s.designSystem ? `Follows ${s.designSystem.name ?? s.designSystem.id}` : 'Follows no design system'}</span>}
         <span className="grow" />
+        {s && (
+          <SketchMenu
+            project={project}
+            place="header"
+            sketch={{ id: s.id, name: s.name, stamp: s.stamp, screens: s.screens.length }}
+            onDeleted={() => {
+              saveStudioTab(project, 'sketches');
+              void navigate({ to: '/studio' });
+            }}
+          />
+        )}
         {s && screen && <ScreenApproval key={screen.id} sketch={s} screen={screen} version={variant?.version ?? null} chat={chat} working={doing !== null} onDone={picked} onRefused={answered} />}
       </div>
       {sketch.isError ? (
