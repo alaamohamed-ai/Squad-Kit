@@ -1,5 +1,6 @@
 import type { BoardMeta, Decision, Question, Ticket } from '../../board/types.js';
 import { asData, LOOK, PLAIN, projectContext, type PromptContext, rulesText, ticketContext } from './context.js';
+import { designsQuestionsRule } from './designs.js';
 
 export function intakePrompt(meta: BoardMeta, decisions: Decision[], t: Ticket, ctx?: PromptContext): string {
   return `You are the Analyst and the Architect of a software squad. A person wrote the ticket below.
@@ -22,7 +23,7 @@ Your job now: ask the person only the questions whose answers change what gets b
 - Each question has a kind: "gap" (something the business has not said that changes what gets built) or "clash" (two
   requirements that disagree). Ask about the business only: never about files, settings, commands, ports, installs or
   other technical things. Decide those yourself; squad-kit turns technical questions back to you.
-- Ask at most 5 questions in total. If the ticket is already clear, ask none.
+- Ask at most 5 questions in total. If the ticket is already clear, ask none.${designsQuestionsRule(t)}
 - summary: one sentence on what you understood.
 ${PLAIN}
 ${LOOK}`;

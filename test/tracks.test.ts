@@ -15,7 +15,8 @@ let bp: BoardPaths;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-tracks-'));
   bp = boardPaths(path.join(tmp, '.squad'));
-  seedDemoBoard(bp, { speed: 50 });
+  // A project with no Studio screens: the design step before the questions is skipped (test/design-ask.test.ts has it).
+  seedDemoBoard(bp, { speed: 50, studio: false });
 });
 
 afterEach(() => {

@@ -10,21 +10,25 @@ import { ScreenTicks, screenKey } from './TicketDesigns';
 import '../../styles/ticket-designs.css';
 
 /**
- * The design step's card on the Now tab (US-55): right after the questions and before the spec, "Does this ticket
- * follow a design from the Studio?". It lists the project's approved screens to tick, with "Use these designs" and
- * "No design". This is the only place screens are picked; the Story tab shows them after. The Analyst writes the spec
- * once it is answered, with the screens ticked.
+ * The design step's card on the Now tab (US-55, US-56): before the Analyst's questions, "Does this ticket follow a
+ * design from the Studio?". It lists the project's approved screens to tick, with "Use these designs" and "No design".
+ * This is the only place screens are picked; the Story tab shows them after. Once it is answered, the Analyst reads
+ * the ticket with the screens ticked and asks only what they do not show. A ticket made before this, already past its
+ * questions, gets the card before the spec instead, and the Analyst writes the spec next.
  */
 export function DesignAskCard({ t }: { t: Ticket }) {
   const qc = useQueryClient();
   const { toast } = usePrefs();
   const [ticked, setTicked] = useState<string[]>([]);
+  // The card stopped before the Analyst's first read, or, on an older ticket past its questions, before the spec.
+  const first = (t.waiting as { before?: string } | null)?.before === 'read';
+  const next = first ? 'reads the ticket' : 'writes the spec';
   const q = useQuery({ queryKey: [...ticketDesignsKey(PROJECT, t.id), 'approved'], queryFn: () => getApprovedScreens(t.id) });
   const answer = useMutation({
     mutationFn: (a: { picks: ApprovedScreen[] } | { none: true }) => answerDesign(t.id, 'none' in a ? { none: true } : { picks: a.picks.map((p) => ({ sketch: p.sketch, screen: p.screen })) }),
     onSuccess: (_data, a) => {
       void qc.invalidateQueries();
-      toast('none' in a ? 'No design: the Analyst writes the spec now.' : 'The Analyst writes the spec now, with these designs.');
+      toast('none' in a ? `No design: the Analyst ${next} now.` : `The Analyst ${next} now, with these designs.`);
     },
     onError: (err, a) => toast(err instanceof Error ? err.message : String(err), 'err', worthRetrying(err) ? () => answer.mutate(a) : undefined),
   });
@@ -41,7 +45,11 @@ export function DesignAskCard({ t }: { t: Ticket }) {
           </span>
           <div>
             <b>Does this ticket follow a design from the Studio?</b>
-            <span>Tick the approved screens it builds. The Analyst writes the spec after you answer, with the screens you tick.</span>
+            <span>
+              {first
+                ? 'Tick the approved screens it builds. The Analyst reads the ticket after you answer, with the screens you tick, and asks only what they do not show.'
+                : 'Tick the approved screens it builds. The Analyst writes the spec after you answer, with the screens you tick.'}
+            </span>
           </div>
         </div>
         {q.isPending && <p className="note">Reading the Studio…</p>}

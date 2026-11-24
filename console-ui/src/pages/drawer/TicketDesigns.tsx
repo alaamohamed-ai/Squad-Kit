@@ -10,7 +10,7 @@ import '../../styles/ticket-designs.css';
 /**
  * "Designs from the Studio" on a ticket's Story tab (US-55): the approved screens the ticket follows, each a frozen copy
  * at its approved version, as cards with their picture, drawn from the ticket's own copy, their frames and Remove.
- * They are picked only in the design step before the spec (DesignAsk.tsx). Once the build has started, Remove is
+ * They are picked only in the design step before the questions (DesignAsk.tsx). Once the build has started, Remove is
  * gone. A ticket with no picked screen shows nothing here.
  */
 export function TicketDesigns({ t }: { t: Ticket }) {

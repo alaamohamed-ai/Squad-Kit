@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The design comes before the questions.** "Does this ticket follow a design from the Studio?" now shows before the
+  Analyst reads a new ticket. After "Use these designs" the Analyst reads the ticket with the picked screens and asks
+  only what they do not show, and asks which is right when the ticket's text and a screen disagree. A ticket already
+  past its questions still gets the card once, before the spec.
 - **Build a ticket from approved Studio screens.** Right after the questions, a ticket in a project with approved
   screens waits with "Does this ticket follow a design from the Studio?": tick one or more ("Booking / Form") and press
   "Use these designs", or "No design", and the spec is written after, with them. The ticket keeps a copy of each at its

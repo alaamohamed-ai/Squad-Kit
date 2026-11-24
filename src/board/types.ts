@@ -21,7 +21,7 @@ export type Actor = Role | 'you' | 'squad';
  * Builder paused for a big change, and the Architect's design update waits for you. 'depends': the design needs a
  * ticket that is not merged yet, and you choose how to build. 'split': the Analyst found the story too big and
  * suggests splitting it, or sending it to Requirements; you decide (board/split.ts). 'design': does it follow a
- * design from the Studio? Asked before the spec when the project has approved screens (board/design-ask.ts).
+ * design from the Studio? Asked before the questions when the project has approved screens (board/design-ask.ts).
  */
 export type WaitingKind = 'questions' | 'spec' | 'plan' | 'proof' | 'stuck' | 'release' | 'ask' | 'yours' | 'chat' | 'change' | 'depends' | 'split' | 'design';
 

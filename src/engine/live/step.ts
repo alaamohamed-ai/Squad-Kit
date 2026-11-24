@@ -32,13 +32,15 @@ export const stepPart = {
     this.log('info', `Step ${phase} started`, id);
     switch (phase) {
       case 'analyst-read':
+        // The design from the Studio comes before the Analyst reads anything (board/design-ask.ts, US-56).
+        if (designAskDue(this.bp, readTicket(this.bp, id)!)) return void this.update(id, (t) => void waitForDesign(this.bp, t, 'read'));
         return this.intake(id);
       case 'split-change':
         return this.splitAgain(id);
       case 'triage':
         return this.triage(id);
       case 'plan-write':
-        // A project with approved Studio screens asks for the design first (board/design-ask.ts, US-55).
+        // A ticket already past its questions, not asked yet, asks for the design here, once (board/design-ask.ts, US-55).
         if (designAskDue(this.bp, readTicket(this.bp, id)!)) return void this.update(id, (t) => void waitForDesign(this.bp, t));
         return needsSpec(readTicket(this.bp, id)!) ? this.spec(id) : this.plan(id);
       case 'spec-rewrite':

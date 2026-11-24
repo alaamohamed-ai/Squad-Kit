@@ -1,4 +1,4 @@
-import { questionWords } from './schedule.js';
+import { questionWords, scheduleSquad } from './schedule.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -14,7 +14,6 @@ import {
   writeMeta,
   type BoardPaths,
 } from './store.js';
-import { scheduleSquad } from './schedule.js';
 import { applyPlanEdits, approveExpress, changeParts, changeSummary, needsSpec, openChange, waitForDesign } from './actions.js';
 import { AMBIENT, scriptFor } from './scripts.js';
 import type { BoardMeta, Question, Ticket } from './types.js';
@@ -206,6 +205,7 @@ function advance(bp: BoardPaths, id: string, meta: BoardMeta): void {
     const script = scriptFor(t);
     switch (state.phase) {
       case 'analyst-read': {
+        if (i === 0 && waitForDesign(bp, t, 'read')) return; // The design from the Studio comes first (design-ask.ts, US-56).
         const line = script.analystLines[i];
         if (t.track === 'express' || t.track === 'auto') {
           t.questions = [];

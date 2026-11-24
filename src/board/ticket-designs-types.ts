@@ -35,7 +35,7 @@ export interface TicketDesign {
   proof?: DesignProof[];
 }
 
-/** The design step's answer (US-55): asked once, between the questions and the spec, and never again on the ticket. */
+/** The design step's answer (US-55, US-56): asked once, before the questions (or the spec), and never again on the ticket. */
 export interface DesignAsked {
   at: string;
   by?: string;

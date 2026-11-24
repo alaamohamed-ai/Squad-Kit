@@ -41,8 +41,22 @@ and never load them from the app.`;
 }
 
 /**
+ * The Analyst's questions on a ticket with picked screens (US-56): the person picked them before the first read, so it
+ * reads each screen's page first and asks only what the screens do not show, and a "clash" when the ticket's text and
+ * a screen disagree. A ticket with no picked screen gets none of this, and is asked as it always was.
+ */
+export function designsQuestionsRule(t: Pick<Ticket, 'designs'>): string {
+  if (!t.designs?.length) return '';
+  return `\n- The person picked ${t.designs.length === 1 ? 'an approved screen' : 'approved screens'} from the Studio as the design (listed with the ticket). Read each
+  frame's HTML file first: the screens are the design. Ask only about what the screens do not show (rules, data, what
+  happens after a press), never about what a screen already shows. When the ticket's text and a screen disagree (the
+  text asks for a field, a button or a word the screen does not have, or the other way round), ask a "clash" question
+  that names both, like "The ticket asks for a phone field, but ${t.designs[0]!.name} has none: which one is right?".`;
+}
+
+/**
  * What the spec must say about the designs the person picked: the Analyst writes it with them. It resumes its talk from
- * before the pick, so the screens and their files come with this ask.
+ * the questions, or from before the pick on an older ticket, so the screens and their files come with this ask.
  */
 export function designsSpecRule(t: Pick<Ticket, 'designs'>): string {
   if (!t.designs?.length) return '';
