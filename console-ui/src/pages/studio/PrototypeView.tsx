@@ -25,6 +25,7 @@ import {
 } from '../../lib/studio-prototype';
 import { PrototypeFrame } from './PrototypeFrame';
 import { PrototypePlay } from './PrototypePlay';
+import { PrototypeSkeleton } from './Skeletons';
 
 /* ── A sketch's Prototype view (US-54, AB-179.1) ──
    Every approved screen, at the version it was approved at, as a card in the screen order, with the links between them
@@ -122,7 +123,7 @@ export function PrototypeView({ project, sketch, frame, onChanged }: { project: 
   };
 
   if (q.isError) return <p className="note bad pt-note">{q.error.message}</p>;
-  if (!data) return <p className="note pt-note">Reading the prototype…</p>;
+  if (!data) return <PrototypeSkeleton />;
   const none = data.screens.length === 0;
   const shown = frame && data.sketch.frames.includes(frame) ? frame : data.sketch.frames[0];
 

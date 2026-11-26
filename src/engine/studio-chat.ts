@@ -62,6 +62,10 @@ import {
 } from './studio-chat-prompts.js';
 import { openDesigner, refusedWords, type DesignerOptions } from './studio-designer.js';
 import { chosenFiles, flowOf, relative, startOf, workOf, type Work } from './studio-chat-work.js';
+import { CHAT_WORDS as WORDS } from './studio-chat-words.js';
+import { ChatProgress, draftKey, planScreens, planVariants } from './studio-chat-progress.js';
+import { saveOrKeep } from './studio-chat-save.js';
+import { screenStampsOf } from '../board/studio-unsaved.js';
 
 export { flowOf } from './studio-chat-work.js';
 
@@ -118,86 +122,16 @@ export interface ChatTurn {
   plainStyles?: boolean;
   /** The picks made with "Use this one" since the Designer's last reply (US-18), as it is told about them. */
   picked?: string[];
+  /** A sketch's screens, each with its own stamp when the message was sent: the save at the end compares them (US-57). */
+  seen?: Record<string, string | null>;
 }
 
 export interface ChatOptions extends DesignerOptions {
   /** What the Designer is doing now, in a few words: "Changing screen 2 of 2: Confirmation". */
   onProgress?(words: string): void;
+  /** The steps and frames of the work so far (US-57), read by the board while it works. */
+  progress?: ChatProgress;
 }
-
-const WORDS: Record<
-  ChatLanguage,
-  {
-    changed: (list: string) => string;
-    stopped: (list: string) => string;
-    stoppedNothing: string;
-    systemChanged: (v: number) => string;
-    partly: (why: string) => string;
-    renamed: (from: string, to: string) => string;
-    duplicated: (copy: string, screens: number, from: string) => string;
-    deleteHere: string;
-    named: (sketch: string, screen: string) => string;
-    screenNamed: (screen: string) => string;
-    drewVariants: (n: number, screen: string | null, list: string) => string;
-    stoppedVariants: (list: string) => string;
-    offTokens: (variant: string, system: string, values: string) => string;
-    plainStyles: string;
-    needsDesignSystem: (sketch: string) => string;
-    picked: (screen: string, variant: string) => string;
-    noVariant: (screen: string, variant: string) => string;
-    noScreen: (screen: string) => string;
-    approved: (screens: string[]) => string;
-  }
-> = {
-  English: {
-    drewVariants: (n, screen, list) =>
-      screen
-        ? `Done. ${n === 1 ? `1 variant of ${screen} is drawn` : `${n} variants of ${screen} are drawn`}: ${list}. Variant A is in use; pick another with "Use this one".`
-        : `Done. ${n} variants are drawn: ${list}. Each screen uses its variant A; pick another with "Use this one".`,
-    stoppedVariants: (list) => `Stopped. The finished variants are kept: ${list}. Nothing half drawn was saved.`,
-    offTokens: (variant, system, values) => `${variant} uses what "${system}" does not have: ${values}.`,
-    plainStyles: 'Drawn in plain styles: the sketch has no design system.',
-    needsDesignSystem: (sketch) => `"${sketch}" has no design system selected, so I drew nothing. Select one, then ask again, so the variants use its colors, fonts and sizes. Or skip to draw them in plain styles this once.`,
-    picked: (screen, variant) => `Done. ${screen} now uses variant ${variant}. The other variants stay.`,
-    noVariant: (screen, variant) => `${screen} has no variant ${variant}. Nothing changed.`,
-    noScreen: (screen) => `The sketch has no screen "${screen}". Nothing changed.`,
-    approved: (s) => (s.length === 1 ? `${s[0]} is approved, so I did not change it. Reopen it first.` : `${s.slice(0, -1).join(', ')} and ${s[s.length - 1]} are approved, so I did not change them. Reopen them first.`),
-    named: (sketch, screen) => `I named the sketch "${sketch}" and its first screen "${screen}". You can rename both later.`,
-    screenNamed: (screen) => `I named the new screen "${screen}". You can rename it later.`,
-    renamed: (from, to) => `Done. "${from}" is now called "${to}".`,
-    duplicated: (copy, n, from) => `Done. I made "${copy}" with ${n === 1 ? '1 screen' : `${n} screens`}, all Draft, and no conversation. "${from}" is unchanged.`,
-    deleteHere: "To delete a sketch, use Delete in its ⋯ menu on the Sketches page: it asks first and says how many screens go with it.",
-    changed: (list) => `Done. New versions: ${list}.`,
-    stopped: (list) => `Stopped. The finished screens are kept as a new version: ${list}.`,
-    stoppedNothing: 'Stopped before anything was finished. Nothing changed.',
-    systemChanged: (v) => `Done. The design system is now version ${v}.`,
-    partly: (why) => `The rest did not get done: ${why}`,
-  },
-  Arabic: {
-    drewVariants: (n, screen, list) =>
-      screen
-        ? `تم. رسمت ${n} من نسخ "${screen}": ${list}. النسخة A هي المستخدمة؛ اختر غيرها بزر «Use this one».`
-        : `تم. رسمت ${n} من النسخ: ${list}. كل شاشة تستخدم نسختها A؛ اختر غيرها بزر «Use this one».`,
-    stoppedVariants: (list) => `توقفت. النسخ التي انتهت محفوظة: ${list}. لم يُحفظ شيء نصف مرسوم.`,
-    offTokens: (variant, system, values) => `النسخة ${variant} تستخدم ما ليس في "${system}": ${values}.`,
-    plainStyles: 'رسمتها بأنماط بسيطة: لا نظام تصميم لهذا المخطط.',
-    needsDesignSystem: (sketch) => `لم يُختر نظام تصميم للمخطط "${sketch}"، فلم أرسم شيئًا. اختر نظامًا ثم اطلب مرة أخرى لتستخدم النسخ ألوانه وخطوطه وأحجامه، أو تخطَّ لأرسمها بأنماط بسيطة هذه المرة.`,
-    picked: (screen, variant) => `تم. صارت "${screen}" تستخدم النسخة ${variant}. باقي النسخ محفوظة.`,
-    noVariant: (screen, variant) => `لا توجد في "${screen}" نسخة ${variant}. لم يتغير شيء.`,
-    noScreen: (screen) => `لا توجد في المخطط شاشة "${screen}". لم يتغير شيء.`,
-    approved: (s) => (s.length === 1 ? `الشاشة "${s[0]}" معتمدة، فلم أغيّرها. أعد فتحها أولًا.` : `الشاشات ${s.map((x) => `"${x}"`).join(' و')} معتمدة، فلم أغيّرها. أعد فتحها أولًا.`),
-    named: (sketch, screen) => `سمّيت المخطط "${sketch}" وشاشته الأولى "${screen}". يمكنك تغيير الاسمين لاحقًا.`,
-    screenNamed: (screen) => `سمّيت الشاشة الجديدة "${screen}". يمكنك تغيير اسمها لاحقًا.`,
-    renamed: (from, to) => `تم. صار اسم المخطط "${to}" بدل "${from}".`,
-    duplicated: (copy, n, from) => `تم. أنشأت "${copy}" وفيه ${n} من الشاشات، كلها مسودة، وبلا محادثة. لم يتغير "${from}".`,
-    deleteHere: 'لحذف مخطط، استخدم «حذف» من قائمة ⋯ في بطاقته في صفحة المخططات: يسألك أولًا ويذكر عدد الشاشات التي ستُحذف معه.',
-    changed: (list) => `تم. النسخ الجديدة: ${list}.`,
-    stopped: (list) => `توقفت. الشاشات التي انتهت محفوظة في نسخة جديدة: ${list}.`,
-    stoppedNothing: 'توقفت قبل أن ينتهي أي شيء. لم يتغير شيء.',
-    systemChanged: (v) => `تم. نظام التصميم الآن في النسخة ${v}.`,
-    partly: (why) => `لم يكتمل الباقي: ${why}`,
-  },
-};
 
 /**
  * Keeps the person's message at the end of the conversation (or finds the unanswered last one) and reads the stamp to
@@ -217,7 +151,7 @@ export function startChatTurn(bp: BoardPaths, a: ChatAsk): ChatTurn {
       .map((m) => ({ role: m.role, text: m.text.slice(0, 2000) }));
   const text = typeof a.text === 'string' ? a.text.trim() : '';
   const picked = picksSinceReply(before);
-  const plain = { ...(a.plainStyles === true ? { plainStyles: true } : {}), ...(picked.length ? { picked } : {}) };
+  const plain = { ...(a.plainStyles === true ? { plainStyles: true } : {}), ...(picked.length ? { picked } : {}), ...(a.owner.kind === 'sketch' ? { seen: screenStampsOf(bp, a.owner.id) } : {}) };
   if (!text && !a.pictures?.length) {
     // The last message, past any pick line after it (AB-143.1).
     let at = before.length - 1;
@@ -311,7 +245,7 @@ async function liveWorker(bp: BoardPaths, turn: ChatTurn, o: ChatOptions): Promi
   };
 }
 
-type Reply = Pick<StudioChatMessage, 'text' | 'kind' | 'saved'>;
+type Reply = Pick<StudioChatMessage, 'text' | 'kind' | 'saved' | 'unsaved'>;
 
 /**
  * The work without the sketch's approved screens (US-15, AB-140.1): they stay at their version until they are
@@ -333,28 +267,36 @@ async function changeSketch(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   // An approved screen is left out and said so; the other screens change as asked (US-15).
   const { work, locked } = withoutApproved(sketch, workOf(sketch, sort));
   if (!work.length) return { kind: 'answer', text: W.approved(locked) };
+  planScreens(o.progress, work.map((w) => ({ ...w, redraw: sketch.screens.some((s) => s.id === w.screen && s.chosen !== null) })));
   const done: DrawnScreen[] = [];
   const notes: string[] = [];
   let why: string | null = null;
   for (const [i, w] of work.entries()) {
     if (o.signal?.aborted) break;
     o.onProgress?.(`${w.screen ? 'Changing' : 'Drawing'} screen ${i + 1} of ${work.length}: ${w.name}`);
+    o.progress?.start(draftKey(w));
     const r = await worker.screen({ n: i + 1, of: work.length, work: w, frames: sketch.frames, files: w.screen ? chosenFiles(bp, sketch, w.screen) : {}, language: turn.language, ...startOf(bp, sketch, w), flow: flowOf(bp, sketch, w.screen) });
     if ('error' in r) {
       why = r.error;
       break;
     }
     done.push({ ...(w.screen ? { id: w.screen } : {}), name: w.name, frames: r.frames });
+    o.progress?.finish(draftKey(w), r.frames);
     if (r.note) notes.push(r.note);
   }
   const stopped = Boolean(o.signal?.aborted);
   if (!done.length) return stopped ? { kind: 'stopped', text: W.stoppedNothing } : { kind: 'failed', text: why ?? W.stoppedNothing };
   const lockedWords = locked.length ? [W.approved(locked)] : [];
   o.onProgress?.('Saving the new version');
+  o.progress?.saving();
   // One new version for the finished screens, with the stamp read when the message was sent (AB-129.1).
   // Marked as the AI Designer's work for the person who asked (AB-131.1).
   const asker = readMeta(bp).user?.name?.trim();
-  const saved = saveDrawnScreens(bp, sketch.id, done, turn.stamp ?? '', { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) });
+  const by = { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) };
+  // A refused save goes through anyway when only other things changed; else the drawings are kept "Not saved" (US-57).
+  const out = saveOrKeep(bp, turn, { sketch: sketch.id, kind: 'screens', screens: done, by }, (stamp) => saveDrawnScreens(bp, sketch.id, done, stamp, by));
+  if ('kept' in out) return { kind: 'not-saved', text: [W.notSaved(out.changed), ...lockedWords].join('\n\n'), unsaved: out.kept };
+  const saved = out.saved;
   const rows = saved.saved.map((s) => ({ screen: s.screen, name: saved.sketch.screens.find((x) => x.id === s.screen)?.name ?? s.screen, version: s.version }));
   const list = rows.map((s) => `${s.name} v${s.version}`).join(', ');
   if (stopped) return { kind: 'stopped', text: [W.stopped(list), ...lockedWords].join('\n\n'), saved: rows };
@@ -379,6 +321,7 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   const total = work.length * each;
   const ds = sketch.designSystem;
   const tokensDir = ds ? relative(bp, designSystemVersionDir(bp, ds.id, ds.version)) : undefined;
+  planVariants(o.progress, work, VARIANT_LETTERS.slice(0, each), first && total === 1);
   const done: AskScreen[] = work.map((w) => ({ ...(w.screen ? { id: w.screen } : {}), name: w.name, variants: [] }));
   const notes: string[] = [];
   let why: string | null = null;
@@ -389,6 +332,7 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
       k += 1;
       const letter = VARIANT_LETTERS[j]!;
       o.onProgress?.(first && total === 1 ? `Drawing screen 1 of 1: ${w.name}` : `Drawing variant ${k} of ${total}: ${w.name}`);
+      o.progress?.start(draftKey(w, letter));
       const r = await worker.screen({
         n: i + 1,
         of: work.length,
@@ -407,6 +351,7 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
         break drawing;
       }
       done[i]!.variants.push({ letter, name: r.variantName || `Variant ${letter}`, idea: r.idea || r.note || `${w.name}, variant ${letter}.`, frames: r.frames });
+      o.progress?.finish(draftKey(w, letter), r.frames, r.variantName);
       if (r.note) notes.push(r.note);
     }
   }
@@ -414,10 +359,15 @@ async function drawVariants(bp: BoardPaths, turn: ChatTurn, sketch: Sketch, sort
   const finished = done.filter((s) => s.variants.length);
   if (!finished.length) return stopped ? { kind: 'stopped', text: W.stoppedNothing } : { kind: 'failed', text: why ?? W.stoppedNothing };
   o.onProgress?.('Saving the new version');
+  o.progress?.saving();
   // One change for every finished variant, with the stamp read when the message was sent (AB-129.1), marked as the AI
   // Designer's work for the person who asked (AB-131.1).
   const asker = readMeta(bp).user?.name?.trim();
-  const saved = saveAskVariants(bp, sketch.id, { id: newAskId(), words: turn.text }, finished, turn.stamp ?? '', { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) });
+  const by = { madeBy: AI_DESIGNER, ...(asker ? { madeFor: asker } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) };
+  const ask = { id: newAskId(), words: turn.text };
+  const out = saveOrKeep(bp, turn, { sketch: sketch.id, kind: 'variants', ask, screens: finished, by }, (stamp) => saveAskVariants(bp, sketch.id, ask, finished, stamp, by));
+  if ('kept' in out) return { kind: 'not-saved', text: [W.notSaved(out.changed), ...lockedWords].join('\n\n'), unsaved: out.kept };
+  const saved = out.saved;
   const nameOf = (screen: string) => saved.sketch.screens.find((x) => x.id === screen)?.name ?? screen;
   const oneScreen = new Set(saved.saved.map((s) => s.screen)).size === 1;
   const label = (s: { screen: string; letter: string; name: string }) => `${oneScreen ? '' : `${nameOf(s.screen)} `}${s.letter} · ${s.name}`;
@@ -509,10 +459,13 @@ async function changeSystem(bp: BoardPaths, turn: ChatTurn, sort: ChatSort, work
   const ds = readDesignSystem(bp, turn.owner.id)!;
   const current = ds.versions.find((v) => v.version === ds.version) ?? { tokens: {}, components: {} };
   o.onProgress?.('Changing the design system');
+  o.progress?.system();
   const r = await worker.system({ dir: relative(bp, designSystemVersionDir(bp, ds.id, ds.version)), language: turn.language, current: { tokens: current.tokens, components: current.components } });
   if (o.signal?.aborted) return { kind: 'stopped', text: W.stoppedNothing };
   if ('error' in r) return { kind: 'failed', text: r.error };
+  o.progress?.systemDone();
   o.onProgress?.('Saving the new version');
+  o.progress?.saving();
   // Components left out stay as they are; the tokens are handed in whole.
   const saved = saveDesignSystem(bp, { id: ds.id, name: ds.name, components: { ...current.components, ...r.components }, tokens: r.tokens ?? current.tokens }, turn.stamp);
   return { kind: 'changed', text: [sort.reply.trim(), r.note, W.systemChanged(saved.version)].filter(Boolean).join('\n\n'), saved: Object.keys(r.components).map((c) => ({ screen: c, version: saved.version })) };
@@ -522,7 +475,10 @@ async function changeSystem(bp: BoardPaths, turn: ChatTurn, sort: ChatSort, work
  * Answers one kept message and keeps the reply at the end of the conversation. Never throws: what went wrong is the
  * reply, in plain words. Only a change saves anything, and only with the stamp of the turn.
  */
-export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOptions = {}): Promise<StudioChatMessage> {
+export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, given: ChatOptions = {}): Promise<StudioChatMessage> {
+  // A wait for a free place is its own step (US-57).
+  const progress = given.progress ?? new ChatProgress(turn.language);
+  const o: ChatOptions = { ...given, progress, onWait: (words) => (progress.waiting(words), given.onWait?.(words)) };
   let worker: ChatWorker | null = null;
   let reply: Reply;
   // The sketch's name, as the Designer gave it on the first turn of a started sketch (US-08), said before the reply.
@@ -544,7 +500,9 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
     if ('error' in w) reply = { kind: 'failed', text: w.error };
     else {
       worker = w;
+      progress.placeTaken();
       const sort = await w.sort(brief);
+      if (!('error' in sort)) progress.read();
       if (!('error' in sort) && sketch && brief.naming && sort.sketchName?.trim() && sort.screenName?.trim()) {
         // One change under the turn's stamp, through the one free-name helper (AB-138.1): "Booking" becomes "Booking 2"
         // when another sketch has it. Marked as the AI Designer's work for the person who asked (AB-131.1).
@@ -552,7 +510,7 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
         const r = nameSketchAndFirstScreen(bp, sketch.id, { sketch: sort.sketchName, screen: sort.screenName }, turn.stamp ?? '', { by: AI_DESIGNER, ...(asker ? { for: asker } : {}) });
         markSketchNamed(bp, sketch.id);
         sketch = r.sketch;
-        turn = { ...turn, stamp: r.sketch.stamp };
+        turn = { ...turn, stamp: r.sketch.stamp, seen: screenStampsOf(bp, sketch.id) };
         named = WORDS[turn.language].named(r.sketch.name, r.sketch.screens.find((s) => s.id === r.screen)?.name ?? sort.screenName.trim());
       }
       if ('error' in sort) reply = o.signal?.aborted ? { kind: 'stopped', text: WORDS[turn.language].stoppedNothing } : { kind: 'failed', text: sort.error };
@@ -582,7 +540,10 @@ export async function answerChatTurn(bp: BoardPaths, turn: ChatTurn, o: ChatOpti
     worker?.release();
   }
   if (named) reply = { ...reply, text: [named, reply.text].filter(Boolean).join('\n\n') };
-  const message: StudioChatMessage = { role: 'designer', text: reply.text, at: new Date().toISOString(), ...(reply.kind ? { kind: reply.kind } : {}), ...(reply.saved?.length ? { saved: reply.saved } : {}) };
+  // The steps and the time stay on the reply (US-57), so its folded line stays after a reload.
+  progress.end(reply.saved?.length ? 'saved' : reply.unsaved ? 'kept' : 'other');
+  const kept = progress.kept();
+  const message: StudioChatMessage = { role: 'designer', text: reply.text, at: new Date().toISOString(), ...(reply.kind ? { kind: reply.kind } : {}), ...(reply.saved?.length ? { saved: reply.saved } : {}), ...(reply.unsaved ? { unsaved: reply.unsaved } : {}), ...(kept ?? {}) };
   addChatMessage(bp, turn.owner, turn.chat, message);
   return message;
 }

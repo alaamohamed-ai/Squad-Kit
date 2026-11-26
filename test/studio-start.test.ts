@@ -105,7 +105,7 @@ describe('POST /api/v1/studio/sketches/start', () => {
     const before = filesIn(project);
     const r = await call<{ id: string; name: string }>('POST', '/sketches/start', { message: 'A page where patients book a visit with their doctor' });
     expect(r.status).toBe(200);
-    expect(r.data).toEqual({ id: 'a-page-where-patients-book', name: 'A page where patients book', working: { doing: 'Reading your message', since: expect.any(String) } });
+    expect(r.data).toEqual({ id: 'a-page-where-patients-book', name: 'A page where patients book', working: expect.objectContaining({ doing: 'Reading your message', since: expect.any(String), steps: [expect.objectContaining({ id: 'read', words: 'Reading your message' })], drafts: [] }) });
     await stopDesigner();
 
     // The project gains the sketch's own file and nothing else: no message, no picture.

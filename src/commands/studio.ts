@@ -7,6 +7,7 @@ import { approvedWords, screenNameKey, sketchNameKey, studioIdFor, variantOfLett
 import { addScreen, approveSketchScreen, changeSketch, deleteScreen, deleteSketch, duplicateSketch, listDesignSystems, listSketches, pickScreenVariant, reopenSketchScreen, sketchList, type SketchView } from '../board/studio-actions.js';
 import { approvalWords, currentConversation, newConversation, pickWords, readConversation } from '../board/studio-chats.js';
 import { sendChatMessage } from '../engine/studio-chat.js';
+import { saveUnsaved } from '../engine/studio-chat-save.js';
 import { boardApi, type BoardApi } from './app.js';
 import { board } from './board.js';
 import { wrapArgs } from './wrap.js';
@@ -35,6 +36,12 @@ interface ChatOpts {
   designSystem?: boolean;
   new?: boolean;
   stop?: boolean;
+  saveAnyway?: boolean;
+}
+
+/** The newest reply in a conversation whose drawings were kept "Not saved" (US-57), or null. */
+function lastUnsaved(messages: StudioChatMessage[]): string | null {
+  return [...messages].reverse().find((m) => m.role === 'designer' && m.unsaved)?.unsaved?.id ?? null;
 }
 
 interface ConversationReply {
@@ -67,6 +74,7 @@ function printReply(m: StudioChatMessage): void {
   out();
   out(messageLines(m));
   if (m.kind === 'answer' || m.kind === 'ask' || m.kind === 'unavailable') out(kleur.gray('No version was made.'));
+  if (m.unsaved) out(kleur.gray('To save them anyway, as a new version on top: add --save-anyway to this command, with no message.'));
 }
 
 function pathOf(owner: ChatOwner, rest = ''): string {
@@ -75,6 +83,17 @@ function pathOf(owner: ChatOwner, rest = ''): string {
 
 /** The board's own calls, so the board shows the same conversation as it goes. */
 async function viaBoard(api: BoardApi, owner: ChatOwner, text: string, opts: ChatOpts): Promise<void> {
+  if (opts.saveAnyway) {
+    const { current } = await api.call<{ current: string }>('GET', pathOf(owner));
+    const id = lastUnsaved((await api.call<ConversationReply>('GET', pathOf(owner, `/${current}`))).messages);
+    if (!id) {
+      ui.info('Nothing is waiting to be saved in this conversation.');
+      return;
+    }
+    const c = await api.call<ConversationReply>('POST', pathOf(owner, `/${current}/unsaved/${encodeURIComponent(id)}/save`), {});
+    ui.success(c.messages[c.messages.length - 1]?.text ?? 'Saved.');
+    return;
+  }
   if (opts.stop) {
     const { current } = await api.call<{ current: string }>('GET', pathOf(owner));
     const r = await api.call<{ stopped: boolean }>('POST', pathOf(owner, `/${current}/stop`));
@@ -103,6 +122,13 @@ async function viaBoard(api: BoardApi, owner: ChatOwner, text: string, opts: Cha
 async function here(bp: BoardPaths, owner: ChatOwner, text: string, opts: ChatOpts): Promise<void> {
   if (opts.stop) {
     ui.info('Nothing to stop here: without the board, an answer runs in the terminal that asked for it. Press Ctrl-C there.');
+    return;
+  }
+  if (opts.saveAnyway) {
+    const current = currentConversation(bp, owner);
+    const id = lastUnsaved(readConversation(bp, owner, current).messages);
+    if (id) ui.success(saveUnsaved(bp, owner, current, id).text);
+    else ui.info('Nothing is waiting to be saved in this conversation.');
     return;
   }
   if (opts.new) {
@@ -451,6 +477,7 @@ export function studioCommand(): Command {
     .option('--design-system', 'Talk about a design system instead of a sketch')
     .option('--new', 'Start a new conversation; the old ones and every version stay')
     .option('--stop', 'Stop the answer the AI Designer is working on; the finished screens are kept')
+    .option('--save-anyway', 'Save the drawings the last reply kept "Not saved" as a new version on top; the other version stays in the history')
     .action(wrapArgs(runStudioChat));
   return s;
 }

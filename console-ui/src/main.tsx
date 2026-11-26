@@ -8,6 +8,7 @@ import '@fontsource/jetbrains-mono/latin-500.css';
 import '@fontsource/jetbrains-mono/latin-600.css';
 import './styles/app.css';
 import './styles/chat.css';
+import './styles/studio-work.css';
 import './styles/support.css';
 import './styles/onboard.css';
 import './styles/narrow.css';

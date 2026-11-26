@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Watch the AI Designer work.** While it draws, the chat lists its steps with the time so far ("Read your message",
+  "Planned 2 variants", "Drawing variant B: Form", "Saving"), in the language of the message, and folds them into one
+  line under the reply ("6 steps, 2 min"). Each variant gets its frame on the page at once, marked Waiting or Drawing,
+  and shows its drawing as soon as it is done; a screen being changed is marked Redrawing. A new drawing appears from
+  top to bottom once, for the person who asked. When a teammate renamed the sketch or changed another screen meanwhile,
+  the drawings are saved anyway; when they changed the same screen, the drawings stay "Not saved" with "Save them
+  anyway" (also `squad studio chat <sketch> --save-anyway`). The Studio's lists, an opening sketch and the prototype
+  show grey shapes while they load.
 - **The design comes before the questions.** "Does this ticket follow a design from the Studio?" now shows before the
   Analyst reads a new ticket. After "Use these designs" the Analyst reads the ticket with the picked screens and asks
   only what they do not show, and asks which is right when the ticket's text and a screen disagree. A ticket already

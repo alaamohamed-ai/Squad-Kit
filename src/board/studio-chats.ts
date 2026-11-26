@@ -81,11 +81,11 @@ function rowOf(id: string, chat: StudioChat | null): ConversationRow {
   };
 }
 
-/** A message, or a line a Studio button added (a pick, an approval, AB-143.1); anything else in the file is left out. */
+/** A message, or a line a Studio button added (a pick, an approval, a save anyway, AB-143.1); anything else is left out. */
 function isMessage(m: unknown): m is StudioChatMessage {
   if (!isPlain(m) || typeof m.text !== 'string') return false;
   if (m.role === 'person' || m.role === 'designer') return true;
-  return m.role === 'action' && (isPickMark(m.picked) || isApprovalLine(m.approval));
+  return m.role === 'action' && (isPickMark(m.picked) || isApprovalLine(m.approval) || (isPlain(m.savedAnyway) && Array.isArray(m.savedAnyway.saved)));
 }
 
 function isApprovalLine(a: unknown): a is ApprovalLine {
@@ -151,7 +151,7 @@ export function conversationSession(bp: BoardPaths, owner: ChatOwner, chat: stri
  * Reads, changes and saves a conversation under the project's Studio lock, so a pick's line (AB-143.1) and a reply
  * written by another process at the same moment never write over each other.
  */
-function update(bp: BoardPaths, owner: ChatOwner, chat: string, change: (c: StudioChat) => void): void {
+export function updateChat(bp: BoardPaths, owner: ChatOwner, chat: string, change: (c: StudioChat) => void): void {
   holdStudio(bp, () => {
     const saved = readChat(bp, owner, chat);
     const c: StudioChat = saved && Array.isArray(saved.messages) ? saved : { startedAt: new Date().toISOString(), messages: [] };
@@ -162,7 +162,7 @@ function update(bp: BoardPaths, owner: ChatOwner, chat: string, change: (c: Stud
 
 /** Adds one message at the end of a conversation, made when it has none yet. */
 export function addChatMessage(bp: BoardPaths, owner: ChatOwner, chat: string, message: StudioChatMessage): void {
-  update(bp, owner, chat, (c) => {
+  updateChat(bp, owner, chat, (c) => {
     c.messages.push({ ...message, at: message.at ?? new Date().toISOString() });
   });
 }
@@ -217,7 +217,7 @@ export function picksSinceReply(messages: StudioChatMessage[]): string[] {
 /** Keeps the AI tool's session, so the next message in this conversation resumes it. */
 export function saveConversationSession(bp: BoardPaths, owner: ChatOwner, chat: string, session: string): void {
   if (!session) return;
-  update(bp, owner, chat, (c) => {
+  updateChat(bp, owner, chat, (c) => {
     c.session = session;
   });
 }

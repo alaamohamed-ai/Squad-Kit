@@ -236,19 +236,20 @@ describe('done when 2: a change goes one screen at a time, and Stop keeps the fi
     expect(snapshot()).toEqual(before);
   });
 
-  it('a teammate changed the sketch while it worked: the save is refused with "Changed elsewhere, reload"', async () => {
+  it('a teammate renamed the sketch while it worked: the screens are saved anyway, since they did not change (US-57)', async () => {
     const s = booking();
-    // While the first screen is drawn, a teammate renames the sketch.
+    // While the first screen is drawn, a teammate renames the sketch: the one save is refused, then saved again quietly.
     answers.push(twoScreens(), async () => {
       changeSketch(bp, 'booking', { name: 'Booking (theirs)' }, studio.readSketch(bp, 'booking')!.stamp);
       return { ok: true, text: '', structured: drawn('Form'), sessionId: 'session-1' } as RunResult;
     });
     answers.push(drawn('Confirmation'));
     const r = await send('Make the buttons bigger', { stamp: s.stamp });
-    expect(r.reply).toMatchObject({ kind: 'failed', text: studio.CHANGED_ELSEWHERE });
+    expect(r.reply.kind).toBe('changed');
+    expect(r.reply.text).not.toContain(studio.CHANGED_ELSEWHERE);
     const after = studio.readSketch(bp, 'booking')!;
     expect(after.name).toBe('Booking (theirs)');
-    expect(after.screens.map((x) => x.variants.length)).toEqual([1, 1]);
+    expect(after.screens.map((x) => x.variants.length)).toEqual([2, 2]);
   });
 });
 

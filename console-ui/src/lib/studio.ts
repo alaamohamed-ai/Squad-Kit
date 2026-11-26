@@ -1,3 +1,4 @@
+import type { ChatDraftView, ChatStepView, ChatWorkingView, UnsavedView } from './studio-work';
 /**
  * The Studio's last tab, one per project, kept in this browser tab's own memory (sessionStorage, AB-127.1): it lasts
  * through a reload and ends when squad-kit's tab closes. Nothing goes to the board server or the project's files: those
@@ -319,7 +320,7 @@ export const sketchPath = (id: string) => `/studio/sketches/${encodeURIComponent
  * What the AI Designer did with a message: only "changed" and "stopped" saved a version. "needs-design-system":
  * variants were asked for on a sketch with no design system, and nothing was drawn (US-17).
  */
-export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system' | 'not-saved';
 
 /** A pick made with "Use this one" (US-18): the screen, the version now in use, its letter and name, who and when. */
 export interface PickMarkView {
@@ -349,6 +350,11 @@ export interface ChatMessageView {
   kind?: ChatReplyKind;
   /** The screens (or components) a change saved, each with its new version. */
   saved?: { screen: string; name?: string; version?: number }[];
+  /** A reply's steps and how long they took (US-57); its drawings kept "Not saved"; a "Save them anyway" line. */
+  steps?: ChatStepView[];
+  took?: number;
+  unsaved?: UnsavedView;
+  savedAnyway?: { saved: { screen: string; name?: string; version: number }[]; at: string };
 }
 
 /* ── The chat with the AI Designer (US-52, AB-177) ── */
@@ -380,7 +386,9 @@ export interface ConversationData {
   owner: { kind: ChatOwnerKind; id: string; name: string };
   startedAt: string | null;
   messages: ChatMessageView[];
-  working: { doing: string; since: string } | null;
+  working: ChatWorkingView | null;
+  /** The drawings an answer just finished, for a short while after it ended (US-57). */
+  justDrawn?: ChatDraftView[];
 }
 
 /** Arabic text reads right to left: the direction of a message, from most of its letters. */

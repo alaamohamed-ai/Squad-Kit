@@ -200,3 +200,11 @@ export function chatPictureFile(bp: BoardPaths, sketch: string, file: string): s
   if (typeof file !== 'string' || !CHAT_PICTURE.test(file)) throw new Error(`"${String(file).slice(0, 40)}" is not a picture of this sketch's messages.`);
   return path.join(chatPicturesDir(bp, sketch), file);
 }
+
+/**
+ * Drawings a chat reply could not save because their screens changed elsewhere (US-57, AB-182.1), kept with the chats
+ * on this computer like their pictures (AB-130.1), one file each, until "Save them anyway" saves them.
+ */
+export function ownerChatUnsavedFile(bp: BoardPaths, owner: ChatOwner, id: string): string {
+  return path.join(ownerChatsDir(bp, owner), 'unsaved', `${checkedStudioId(id)}.json`);
+}

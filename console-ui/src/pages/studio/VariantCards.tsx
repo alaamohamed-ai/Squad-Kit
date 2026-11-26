@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { AlertTriangle, Check } from 'lucide-react';
 import { send } from '../../api/client';
 import { VIEW_SIZES, frameLabel, isColorValue, pickPath, sealedHtml, warningText, type PickAnswer, type VariantCard } from '../../lib/studio';
+import { useRevealed } from '../../lib/studio-reveal';
 
 /* ── Variants side by side (US-17, US-18) ──
    When the screen's chosen variant came from an ask, that ask's variants show as cards side by side: A, B, C, each with
@@ -112,8 +113,12 @@ export function VariantCards({ sketch, screen, frame, cards, stamp, chat, workin
   );
 }
 
-/** A page drawn at its frame's real width, made small to fit its card, in a sealed frame: no scripts and no network. */
-function FittedFrame({ html, frame, title, empty }: { html: string | undefined; frame: string; title: string; empty: string }) {
+/**
+ * A page drawn at its frame's real width, made small to fit its card, in a sealed frame: no scripts and no network. A
+ * drawing this tab watched being made reveals the first time it shows (US-57).
+ */
+export function FittedFrame({ html: given, frame, title, empty }: { html: string | undefined; frame: string; title: string; empty: string }) {
+  const html = useRevealed(given);
   const size = VIEW_SIZES[frame] ?? VIEW_SIZES.desktop!;
   const watch = useRef<ResizeObserver | null>(null);
   const fit = useCallback(

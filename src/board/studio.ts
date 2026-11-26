@@ -583,4 +583,4 @@ export function duplicateSketch(bp: BoardPaths, source: string, stamp: string, w
 
 /* ── This computer's part: thumbnails and AI Designer chats (studio-local.ts) ── */
 
-export { readChat, readThumbnail, saveChat, saveThumbnail, type ApprovalLine, type ChatOwner, type ChatReplyKind, type PickMark, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';
+export { readChat, readThumbnail, saveChat, saveThumbnail, type ApprovalLine, type ChatOwner, type ChatReplyKind, type ChatStepMark, type UnsavedMark, type PickMark, type StartMark, type StudioChat, type StudioChatMessage } from './studio-local.js';

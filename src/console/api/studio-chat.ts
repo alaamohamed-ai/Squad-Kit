@@ -2,14 +2,18 @@ import type { Context, Hono } from 'hono';
 import type { BoardPaths } from '../../board/store.js';
 import type { ChatOwner } from '../../board/studio.js';
 import { chatOwnerName, conversationPicture, currentConversation, listConversations, newConversation, readConversation } from '../../board/studio-chats.js';
-import { chatWorking, startChatJob, stopChatJob } from '../../engine/studio-chat-runs.js';
+import { readUnsaved } from '../../board/studio-unsaved.js';
+import { chatJustDrawn, chatWorking, startChatJob, stopChatJob } from '../../engine/studio-chat-runs.js';
+import { saveUnsaved, unsavedDrafts } from '../../engine/studio-chat-save.js';
 
 /**
  * The chat with the AI Designer (US-52, AB-177), for a sketch and for a design system alike, under
  * /api/v1/studio/sketches/<id>/chats and /api/v1/studio/design-systems/<id>/chats. Conversations stay on this computer
  * (AB-128.2): list them, open one, start a new one, send a message with its pictures, follow what the Designer is
  * doing, and stop it. A message is answered in the background, one at a time per conversation; the board reads the
- * conversation again to follow it. `squad studio chat` calls these same routes while the board is open.
+ * conversation again to follow it, with the steps and each finished drawing so far (US-57). Drawings a reply could not
+ * save are kept on this computer, and "Save them anyway" saves them. `squad studio chat` calls these same routes while
+ * the board is open.
  */
 
 type Run = (c: Context, fn: () => unknown) => Promise<Response>;
@@ -28,12 +32,22 @@ export function conversationRead(bp: BoardPaths, o: ChatOwner, chat: string) {
   const segment = o.kind === 'sketch' ? 'sketches' : 'design-systems';
   const pictureUrl = (file: string) => `/api/v1/studio/${segment}/${encodeURIComponent(o.id)}/chats/${encodeURIComponent(chat)}/pictures/${encodeURIComponent(file)}`;
   const v = readConversation(bp, o, chat);
+  const working = chatWorking(bp, o, chat);
+  // The last reply that could not save (US-57) brings its kept drawings, for the page to show them "Not saved".
+  const last = v.messages.map((m) => m.role).lastIndexOf('designer');
+  const withDrafts = (m: (typeof v.messages)[number], i: number) => {
+    if (!m.unsaved || i !== last) return {};
+    const kept = readUnsaved(bp, o, m.unsaved.id);
+    return { unsaved: { ...m.unsaved, ...(kept ? { drafts: unsavedDrafts(kept) } : { gone: true }) } };
+  };
   return {
     id: v.id,
     owner: { ...o, name: chatOwnerName(bp, o) },
     startedAt: v.startedAt,
-    messages: v.messages.map((m) => ({ ...m, pictures: m.pictures.map(pictureUrl) })),
-    working: chatWorking(bp, o, chat),
+    messages: v.messages.map((m, i) => ({ ...m, pictures: m.pictures.map(pictureUrl), ...withDrafts(m, i) })),
+    working,
+    // The drawings an answer just finished (US-57): the tab that watched it reveals them the first time they show.
+    ...(working ? {} : { justDrawn: chatJustDrawn(bp, o, chat) }),
   };
 }
 
@@ -64,6 +78,14 @@ export function mountStudioChatApi(app: Hono, bp: BoardPaths, h: { run: Run; bod
           ...(b.plainStyles === true ? { plainStyles: true } : {}),
         });
         return view(c, started.chat);
+      });
+    });
+    // "Save them anyway" (US-57): the kept drawings as a new version on top, with the stamp the page read.
+    app.post(`${base}/:chat/unsaved/:unsaved/save`, async (c) => {
+      const b = await h.body(c);
+      return h.run(c, () => {
+        saveUnsaved(bp, owner(c), c.req.param('chat'), c.req.param('unsaved'), typeof b.stamp === 'string' ? b.stamp : undefined);
+        return view(c, c.req.param('chat'));
       });
     });
     // Stop: the finished screens are kept.

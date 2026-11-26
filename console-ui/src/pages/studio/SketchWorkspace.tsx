@@ -4,12 +4,15 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { askCards, chatsKey, emptyScreenText, frameName, isApproved, lookingAtText, readWorkspaceView, saveStudioTab, saveWorkspaceView, sketchKey, sketchesKey, type ConversationData, type SketchFull, type WorkspaceView } from '../../lib/studio';
+import { draftsFor, type DraftsView } from '../../lib/studio-work';
 import { ChatPanel } from './ChatPanel';
+import { DraftFrames, PageFrame } from './DraftFrames';
 import { PrototypeView } from './PrototypeView';
 import { ScreenApproval } from './ScreenApproval';
 import { ScreenTabs } from './ScreenTabs';
 import { SketchNameHeader } from './SketchActions';
 import { SketchMenu } from './SketchMenu';
+import { SketchSkeleton } from './Skeletons';
 import { VariantCards } from './VariantCards';
 import { useMarkStudioSeen } from '../../lib/studio-seen';
 
@@ -24,7 +27,9 @@ import { useMarkStudioSeen } from '../../lib/studio-seen';
    while it is approved, its "Use this one" and its tab's Delete are off, and the chat says the Designer leaves it.
    The header's ⋯ menu (SketchMenu.tsx) has Rename, Duplicate and Delete, and the Export group (US-46).
    "Screens | Prototype" in the header, right after the sketch's name (US-54): the sketch opens on Screens; on Prototype the chat is hidden
-   (it stays as it was, for coming back) and the approved screens' map takes the full width (PrototypeView.tsx). */
+   (it stays as it was, for coming back) and the approved screens' map takes the full width (PrototypeView.tsx).
+   While the AI Designer draws (US-57), the screen shows the work's frames, A, B, C, each drawing as soon as it is done,
+   or its current drawing marked "Redrawing"; drawings that could not save stay "Not saved" (DraftFrames.tsx). */
 
 /** What the workspace shows: the screens with the chat, or the prototype of the approved screens. */
 type WorkspaceMode = 'screens' | 'prototype';
@@ -68,6 +73,9 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
     [qc, project, id],
   );
 
+  // The frames of the AI Designer's work going on, or its drawings kept "Not saved" (US-57).
+  const [drafts, setDrafts] = useState<DraftsView | null>(null);
+
   // The conversation open in the chat: "Use this one", Approve and Reopen add their line there (US-18, US-15, AB-143.1).
   const [chat, setChat] = useState<string | null>(null);
   const picked = useCallback(
@@ -91,6 +99,43 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
   const cards = screen ? askCards(screen) : null;
   // Approved (US-15): locked until Reopen.
   const locked = isApproved(screen);
+  const shown = draftsFor(drafts, screen?.id, screens.map((x) => x.id));
+  const savedAnyway = (data: ConversationData) => {
+    const chats = chatsKey(project, 'sketch', id);
+    qc.setQueryData([...chats, data.id], data);
+    void qc.invalidateQueries({ queryKey: chats, exact: true });
+    answered();
+  };
+
+  const current =
+    !s ? (
+      <SketchSkeleton />
+    ) : shown.length && frame && (!shown[0]!.redraw || shown.length > 1) ? (
+      <DraftFrames view={drafts!} drafts={shown} frame={frame} sketch={s.id} chat={chat} stamp={s.stamp} onSaved={savedAnyway} />
+    ) : cards && screen && frame ? (
+      <VariantCards
+        key={`${screen.id}:${s.stamp}`}
+        sketch={s.id}
+        screen={{ id: screen.id, name: screen.name }}
+        frame={frame}
+        cards={cards}
+        stamp={s.stamp}
+        chat={chat}
+        working={doing !== null}
+        locked={locked}
+        onPicked={picked}
+      />
+    ) : html !== undefined ? (
+      <PageFrame key={`${screen!.id}:${frame}`} html={html} frame={frame!} title={`${screen!.name}, ${frame}`} />
+    ) : doing ? (
+      <p className="ws-empty" role="status">
+        The AI Designer draws here. {doing}…
+      </p>
+    ) : (
+      <p className="ws-empty">
+        {screens.length ? emptyScreenText(screen!.name, frame) : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
+      </p>
+    );
 
   return (
     <>
@@ -143,6 +188,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               designSystem={s.designSystem ? (s.designSystem.name ?? s.designSystem.id) : null}
               onConversation={setChat}
               locked={locked ? screen!.name : null}
+              onDrafts={setDrafts}
             />
           ) : (
             <aside className="dc" aria-label="Chat with the AI Designer" />
@@ -166,31 +212,12 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               <PrototypeView project={project} sketch={s.id} frame={frame} onChanged={answered} />
             ) : (
               <div className="ws-view">
-                {!s ? (
-                  <p className="note">Reading the sketch…</p>
-                ) : cards && screen && frame ? (
-                  <VariantCards
-                    key={`${screen.id}:${s.stamp}`}
-                    sketch={s.id}
-                    screen={{ id: screen.id, name: screen.name }}
-                    frame={frame}
-                    cards={cards}
-                    stamp={s.stamp}
-                    chat={chat}
-                    working={doing !== null}
-                    locked={locked}
-                    onPicked={picked}
-                  />
-                ) : html !== undefined ? (
-                  <iframe className={`ws-frame ${frame}`} title={`${screen!.name}, ${frame}`} sandbox="" srcDoc={html} />
-                ) : doing ? (
-                  <p className="ws-empty" role="status">
-                    The AI Designer draws here. {doing}…
-                  </p>
+                {s && frame && shown.length === 1 && shown[0]!.redraw ? (
+                  <DraftFrames view={drafts!} drafts={shown} frame={frame} sketch={s.id} chat={chat} stamp={s.stamp} onSaved={savedAnyway}>
+                    {current}
+                  </DraftFrames>
                 ) : (
-                  <p className="ws-empty">
-                    {screens.length ? emptyScreenText(screen!.name, frame) : 'No screens yet. Tell the AI Designer in the chat what to draw, or ask it a question first.'}
-                  </p>
+                  current
                 )}
               </div>
             )}

@@ -37,7 +37,22 @@ export function readThumbnail(bp: BoardPaths, sketch: string, screen: string, ve
  * What the AI Designer did with a message (AB-177.1). "needs-design-system": variants were asked for on a sketch with
  * no design system, so nothing was drawn (US-17); the board shows it as an alert to select one, or to skip.
  */
-export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system';
+export type ChatReplyKind = 'answer' | 'ask' | 'unavailable' | 'changed' | 'stopped' | 'failed' | 'needs-design-system' | 'not-saved';
+
+/** One step of the AI Designer's work on a message (US-57), as its reply keeps it: done, or not done (stopped). */
+export interface ChatStepMark {
+  words: string;
+  state: 'done' | 'stopped';
+}
+
+/**
+ * Drawings a reply could not save (US-57, AB-182.1): the screens they draw were changed elsewhere while the Designer
+ * drew. They are kept with the chat on this computer (studio-unsaved.ts) until "Save them anyway" saves them.
+ */
+export interface UnsavedMark {
+  id: string;
+  screens: string[];
+}
 
 /**
  * A pick made with a Studio button (US-18, AB-143.1): the screen, the version now in use, the variant's letter and short
@@ -89,6 +104,13 @@ export interface StudioChatMessage {
   picked?: PickMark;
   /** An "action" line for Approve or Reopen (US-15): which screen, at which version, by whom and when. */
   approval?: ApprovalLine;
+  /** A Designer reply (US-57): the steps of its work, and how long it took in milliseconds. */
+  steps?: ChatStepMark[];
+  took?: number;
+  /** A "not-saved" reply (US-57): its drawings kept on this computer, until "Save them anyway". */
+  unsaved?: UnsavedMark;
+  /** An "action" line for "Save them anyway" (US-57): what was saved, and when. */
+  savedAnyway?: { saved: { screen: string; name?: string; version: number }[]; at: string };
 }
 
 /** What the start page keeps on a sketch's first message (US-08), on this computer only. */

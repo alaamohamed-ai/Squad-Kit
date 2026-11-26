@@ -22,6 +22,11 @@ import { DEFAULT_ASK_VARIANTS, type ChatLanguage, type ChatSort } from './studio
  * A screen added with Add screen (US-11): with it selected, a message that describes a page draws it as 2 variants and
  * names it from a few plain words ("A payment page …" → Payment); "start from a copy of Form" starts it from Form and
  * names it "Form 2".
+ *
+ * The work shows as it goes (US-57): its steps and each variant's or screen's frame come from the same chat loop as the
+ * live Designer, one finished drawing at a time, with a pause per screen. Like the live one, it answers one message at
+ * a time in a project: a message sent while another sketch's or design system's answer runs waits for a free place,
+ * and that wait is its own step.
  */
 
 /** How long the sample Designer takes on one screen, so its progress and Stop can be seen. */
@@ -39,6 +44,28 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 const T = (language: ChatLanguage, en: string, ar: string) => (language === 'Arabic' ? ar : en);
+
+/** The sample Designer's one place per project: the answers that hold it or wait for it, first in line first. */
+const places = new Map<string, symbol[]>();
+
+/** Waits for the project's one sample place, saying so; gives back the release. Stop ends the wait. */
+async function demoPlace(root: string, o: ChatOptions): Promise<() => void> {
+  const me = Symbol('demo-answer');
+  const line = places.get(root) ?? [];
+  places.set(root, [...line, me]);
+  const release = () => {
+    const now = (places.get(root) ?? []).filter((x) => x !== me);
+    if (now.length) places.set(root, now);
+    else places.delete(root);
+  };
+  let said = false;
+  while (places.get(root)?.[0] !== me && !o.signal?.aborted) {
+    if (!said) o.onWait?.('Next in line: the sample Designer answers one message at a time (1 of 1 busy).');
+    said = true;
+    await sleep(300, o.signal);
+  }
+  return release;
+}
 
 /**
  * The sample Designer's words for the sketch's own actions: each needs "the sketch" (or "this sketch", "my sketch"),
@@ -339,9 +366,11 @@ function changed(html: string): string {
 
 export function demoWorker(bp: BoardPaths, turn: ChatTurn, sketch: Sketch | null, o: ChatOptions): ChatWorker {
   const L = turn.language;
+  let release: (() => void) | null = null;
   return {
-    release: () => undefined,
+    release: () => release?.(),
     async sort(brief) {
+      release = await demoPlace(bp.root, o);
       await sleep(600, o.signal);
       if (o.signal?.aborted) return { error: 'You stopped the Designer.' };
       if (brief.naming) return demoFirstSort(turn.text, L);

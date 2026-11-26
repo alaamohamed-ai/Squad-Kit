@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Check, ImagePlus, Lock, LockOpen, MessageSquarePlus, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUp, Check, ImagePlus, Lock, LockOpen, MessageSquarePlus, Sparkles, X } from 'lucide-react';
 import { api, assetUrl, send } from '../../api/client';
 import {
   DESIGN_SYSTEMS_PATH,
@@ -23,12 +23,15 @@ import {
   type DesignSystemList,
   type MessagePicture,
 } from '../../lib/studio';
+import { watchDrawing } from '../../lib/studio-reveal';
+import { draftsKey, draftsOf, type DraftsView } from '../../lib/studio-work';
+import { ReplyWork, WorkingSteps } from './ChatSteps';
 import { readPicture } from './StartSketch';
 
 /* ── The chat with the AI Designer (US-52, AB-177) ──
    Always open on the left of a sketch's workspace and of a design system's page: the Designer's name, what it looks
    at and whose turn it is; the conversation, Arabic messages right to left; pictures on a message; while it works,
-   what it is doing and a Stop button. Conversations stay on this computer; the one picked stays in this browser tab
+   what it is doing, its steps with the time so far, and a Stop button (US-57). Conversations stay on this computer; the one picked stays in this browser tab
    (AB-127.1). New conversation starts an empty chat and keeps the old ones, and every version. */
 
 export interface ChatPanelProps {
@@ -51,11 +54,13 @@ export interface ChatPanelProps {
   onConversation?: (chat: string | null) => void;
   /** The screen looked at is approved (US-15): its name. The chat says the AI Designer leaves it as it is. */
   locked?: string | null;
+  /** The frames of the work going on, or the drawings kept "Not saved" (US-57), told to the page each time they change. */
+  onDrafts?: (drafts: DraftsView | null) => void;
 }
 
-const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work', 'needs-design-system': 'No design system' };
+const LABELS: Record<string, string> = { changed: 'New version', stopped: 'Stopped', unavailable: 'Not available yet', failed: 'Did not work', 'needs-design-system': 'No design system', 'not-saved': 'Not saved' };
 
-export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking, designSystem, onConversation, locked }: ChatPanelProps) {
+export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswered, onWorking, designSystem, onConversation, locked, onDrafts }: ChatPanelProps) {
   const base = chatsPath(kind, id);
   const qc = useQueryClient();
   const list = useQuery({ queryKey: chatsKey(project, kind, id), queryFn: () => api<ConversationList>(base) });
@@ -78,14 +83,17 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
   const working = convo.data?.working ?? null;
   const messages = convo.data?.messages ?? [];
 
-  // The answer came: the list's counts and the page's versions are read again.
+  // The answer came: the list's counts and the page's versions are read again. Its drawings, watched being made here,
+  // reveal the first time they show (US-57), even the last one, saved before this tab read it as done.
+  const justDrawn = convo.data?.justDrawn;
   useEffect(() => {
     if (wasWorking.current && !working) {
+      for (const d of justDrawn ?? []) watchDrawing(d.pages);
       void qc.invalidateQueries({ queryKey: chatsKey(project, kind, id), exact: true });
       onAnswered?.();
     }
     wasWorking.current = Boolean(working);
-  }, [working, qc, project, kind, id, onAnswered]);
+  }, [working, justDrawn, qc, project, kind, id, onAnswered]);
 
   // Each step of the work (a name given, a variant drawn) is told to the page, which reads the sketch again.
   const doing = working?.doing ?? null;
@@ -97,11 +105,21 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
     onConversation?.(chat);
   }, [chat, onConversation]);
 
+  // The frames on the page (US-57): told again only when one of them changes.
+  const drafts = draftsOf(working, messages);
+  const draftsAt = draftsKey(drafts);
+  useEffect(() => {
+    // A drawing finished while this tab watches: it reveals the first time it shows here, and only here.
+    if (drafts?.state === 'working') for (const d of drafts.drafts) if (d.state === 'done') watchDrawing(d.pages);
+    onDrafts?.(drafts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftsAt, onDrafts]);
+
   // A block, not an arrow's value: newer browsers return a promise from scrollIntoView, and React takes any value
   // an effect returns for its cleanup.
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages.length, working?.doing]);
+  }, [messages.length, working?.doing, working?.steps?.length]);
 
   const pick = (c: string) => {
     setPicked(c);
@@ -239,17 +257,27 @@ export function ChatPanel({ project, kind, id, lookingAt, look, stamp, onAnswere
           <li className="dc-empty">Ask a question, ask for advice or say what to change. Questions change nothing; only a change makes a new version.</li>
         )}
         {messages.map((m, i) => (
-          <Message key={i} m={m} />
+          <Message
+            key={i}
+            m={m}
+            after={
+              m.role === 'designer' && (m.steps?.length || m.unsaved) ? (
+                <ReplyWork
+                  m={m}
+                  rtl={textDir(m.text) === 'rtl'}
+                  base={base}
+                  chat={chat}
+                  stamp={stamp}
+                  onSaved={(data) => {
+                    qc.setQueryData([...chatsKey(project, kind, id), chat], data);
+                    onAnswered?.();
+                  }}
+                />
+              ) : null
+            }
+          />
         ))}
-        {working && (
-          <li className="dc-working" role="status">
-            <span className="dc-dot" aria-hidden />
-            <span className="dc-doing">{working.doing}</span>
-            <button type="button" className="dc-stop" onClick={() => void stop()}>
-              <Square size={11} aria-hidden /> Stop
-            </button>
-          </li>
-        )}
+        {working && <WorkingSteps working={working} onStop={() => void stop()} />}
         <li ref={end} aria-hidden className="dc-end" />
       </ol>
 
@@ -424,7 +452,7 @@ function NoDesignSystemAlert(p: {
   );
 }
 
-function Message({ m }: { m: ChatMessageView }) {
+function Message({ m, after }: { m: ChatMessageView; after?: ReactNode }) {
   // A Studio button's line (AB-143.1), small, between the messages.
   if (m.role === 'action') {
     return (
@@ -462,6 +490,7 @@ function Message({ m }: { m: ChatMessageView }) {
           {m.saved.map((s) => `${s.name ?? s.screen}${s.version ? ` v${s.version}` : ''}`).join(' · ')}
         </span>
       )}
+      {after}
       {m.role === 'person' && <time className="dc-you">You · {timeOf(m.at)}</time>}
     </li>
   );

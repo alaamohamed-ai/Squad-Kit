@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-react';
 import { PROJECT, api } from '../../api/client';
 import { designSystemsKey, isColorValue, lookingAtText, saveStudioTab, type DesignSystemFull } from '../../lib/studio';
 import { ChatPanel } from './ChatPanel';
+import { SketchSkeleton } from './Skeletons';
 import { useMarkStudioSeen } from '../../lib/studio-seen';
 
 /* ── A design system's page (US-52) ──
@@ -69,7 +70,7 @@ export function DesignSystemPage({ project, id }: { project: string; id: string 
               </div>
             )}
             {!d ? (
-              <p className="note ws-empty">Reading the design system…</p>
+              <SketchSkeleton what="the design system" />
             ) : current && current.components.length ? (
               <ul className="ds-comps" aria-label="Components">
                 {current.components.map((c) => (

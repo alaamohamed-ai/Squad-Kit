@@ -26,6 +26,7 @@ import {
 } from '../lib/studio';
 import { SketchMenu } from './studio/SketchMenu';
 import { NewSketchButton, StartSketch } from './studio/StartSketch';
+import { DesignSystemsSkeleton, SketchesSkeleton } from './studio/Skeletons';
 import { useMarkStudioSeen } from '../lib/studio-seen';
 
 /* ── Studio: the project's sketches and design systems ──
@@ -78,7 +79,7 @@ function Sketches({ project, onSetUpDesignSystem }: { project: string; onSetUpDe
   // A refused Duplicate, in the server's words, until the next action.
   const [problem, setProblem] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  if (list.isPending) return <p className="note">Reading the sketches…</p>;
+  if (list.isPending) return <SketchesSkeleton />;
   if (list.isError) return <p className="note bad">{list.error.message}</p>;
   const sketches = list.data.sketches;
   if (!sketches.length || starting) {
@@ -208,7 +209,7 @@ const THUMB_H = 150;
 /** The Design systems tab (US-33): one card per design system, the Default first, then the others as they were made. */
 function DesignSystems({ project }: { project: string }) {
   const list = useDesignSystems(project);
-  if (list.isPending) return <p className="note">Reading the design systems…</p>;
+  if (list.isPending) return <DesignSystemsSkeleton />;
   if (list.isError) return <p className="note bad">{list.error.message}</p>;
   const systems = list.data.designSystems;
   // Centred the same way as the Sketches start page: only the short message, no chat box, nothing "coming soon" (US-53).

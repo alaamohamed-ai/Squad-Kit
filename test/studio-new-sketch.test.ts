@@ -342,7 +342,7 @@ describe('done when 5 with the live AI Designer', () => {
     expect(r.reply.text).toMatch(/^I named the sketch "Booking 2" and its first screen "Form"\./);
   });
 
-  it('a teammate changed the sketch while it drew: the save is refused with "Changed elsewhere, reload"', async () => {
+  it('a teammate renamed the sketch while it drew: the first screen is saved anyway, since it did not change (US-57)', async () => {
     const made = startSketch(bp, { message: 'A page where patients book a follow-up visit with their last doctor', variants: 1 });
     answers.push({ kind: 'change', reply: 'Drawing.', sketchName: 'Booking', screenName: 'Form', screens: [{ name: 'Form', change: 'Draw it' }] }, async () => {
       const now = actions.getSketch(bp, made.id);
@@ -350,9 +350,10 @@ describe('done when 5 with the live AI Designer', () => {
       return { ok: true, text: '', structured: { screens: [{ name: 'Form', frames: [{ frame: 'desktop', html: page('x') }, { frame: 'mobile', html: page('y') }] }], note: 'x.', variantName: 'One page', idea: 'All on one page.' }, sessionId: 'session-1' } as RunResult;
     });
     const r = await sendChatMessage(bp, { owner: { kind: 'sketch', id: made.id }, chat: 'main' }, { place });
-    expect(r.reply.kind).toBe('failed');
-    expect(r.reply.text).toContain(studio.CHANGED_ELSEWHERE);
-    expect(actions.getSketch(bp, made.id).screens[0]!.variants).toEqual([]);
+    expect(r.reply.kind).toBe('changed');
+    expect(r.reply.text).not.toContain(studio.CHANGED_ELSEWHERE);
+    expect(actions.getSketch(bp, made.id).name).toBe('Theirs');
+    expect(actions.getSketch(bp, made.id).screens[0]!.variants).toHaveLength(1);
   });
 });
 

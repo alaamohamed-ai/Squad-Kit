@@ -60,6 +60,7 @@ const EXCUSED: Record<string, string> = {
   'sandbox.ts:MAX_BLOCKED_SITES': 'How many refused sites the log on Harness → Safety keeps. A refused site stops nothing.',
   'additions.ts:LOCK_LEFT_MS': 'A lock a closed program left behind. A save takes a moment, and nobody waits on this.',
   'additions.ts:LOCK_WAIT_MS': 'How long one save waits for another. It ends in a plain "try again".',
+  'studio-chat-runs.ts:JUST_DRAWN_MS': "How long the AI Designer's last drawings stay readable after its answer ends, so the tab that watched them reveals them once. Nobody waits on it, and it stops nothing.",
   'studio-lock.ts:LOCK_LEFT_MS': 'A Studio lock a closed program left behind. A save takes a moment, and nobody waits on this.',
   'studio-lock.ts:LOCK_WAIT_MS': 'How long one Studio save waits for another. It ends in a plain "try again".',
   'studio-names.ts:MAX_NAME':'How long a sketch, screen or design system name may be. It says so in plain words when a name is longer.',

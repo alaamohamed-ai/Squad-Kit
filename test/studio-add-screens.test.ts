@@ -287,15 +287,16 @@ describe('done when 2: the AI Designer draws and names the new screen from the c
     expect(snapshot()).toEqual(before);
   });
 
-  it('a teammate\'s change since the message was read refuses the naming and the drawing: "Changed elsewhere, reload"', async () => {
+  it('a teammate\'s change to another screen since the message was read: the naming and the drawing are saved anyway (US-57)', async () => {
     const s = booking();
     const added = actions.addScreen(bp, 'booking', {}, s.stamp);
     actions.changeScreen(bp, 'booking', 'form', { status: 'ready' }, added.stamp);
     const before = snapshot();
     answers.push({ kind: 'change', reply: 'I will draw it.', screenName: 'Payment', screens: [{ id: 'new-screen', name: 'Payment', change: 'A payment page' }] }, variant('Payment', 'One page'), variant('Payment', 'Steps'));
     const r = await send('A payment page', 'new-screen', { stamp: added.stamp });
-    expect(r.reply.text).toBe(studio.CHANGED_ELSEWHERE);
-    expect(snapshot()).toEqual(before);
+    expect(r.reply.text).toMatch(/^I named the new screen "Payment"\./);
+    expect(snapshot()).not.toEqual(before);
+    expect(actions.getSketch(bp, 'booking').screens.find((x) => x.id === 'new-screen')).toMatchObject({ name: 'Payment' });
   });
 
   it('the name is saved with the drawing: a drawing that fails saves no name, and the reply does not say one', async () => {

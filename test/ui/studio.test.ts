@@ -99,8 +99,9 @@ async function click(label: string) {
 async function settle() {
   const busy = () => {
     const panel = page.getElementById('studio-panel');
-    if (panel) return /^Reading the /.test(panel.textContent) || !!panel.querySelector('.sk-status:not(.bad)');
-    return !page.querySelector('h1') || /Reading the /.test(page.body.textContent) || page.querySelector('h1').textContent === '…';
+    // While a Studio place reads, it shows grey placeholder shapes (US-57).
+    if (panel) return !!panel.querySelector('.skel') || !!panel.querySelector('.sk-status:not(.bad)');
+    return !page.querySelector('h1') || !!page.querySelector('.skel') || page.querySelector('h1').textContent === '…';
   };
   for (let i = 0; i < 100 && busy(); i++) await act(() => new Promise((r) => setTimeout(r, 5)));
   await act(() => new Promise((r) => setTimeout(r, 0)));
@@ -323,7 +324,7 @@ describe('the Studio page', () => {
     // changes, each in its own file. The card menu (SketchMenu.tsx, US-46) also holds Export, which saves nothing.
     for (const file of ['console-ui/src/pages/Studio.tsx', 'console-ui/src/lib/studio.ts'])
       expect(read(file)).not.toMatch(/lib\/data|useAct|apiFetch|fetch\(|useMutation|\bsend\b|method:/);
-    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchMenu', './studio/StartSketch', '../lib/studio-seen']);
+    expect([...read('console-ui/src/pages/Studio.tsx').matchAll(/from '([^']+)'/g)].map((m) => m[1])).toEqual(['react', '@tanstack/react-query', '@tanstack/react-router', '../api/client', '../lib/studio', './studio/SketchMenu', './studio/StartSketch', './studio/Skeletons', '../lib/studio-seen']);
   });
 });
 
