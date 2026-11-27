@@ -419,7 +419,8 @@ describe('the routes', () => {
       ['confirm', 1],
       ['done', 1],
     ]);
-    expect(p.tabs.map((t: any) => t.label)).toEqual(['In use']);
+    // Every screen has one drawing, so each counts as Option A (US-59).
+    expect(p.tabs.map((t: any) => t.label)).toEqual(['In use', 'Option A']);
     expect(p.left).toEqual([{ id: 'receipt', name: 'Receipt' }]);
     expect(p).toMatchObject({ start: 'form', markedStart: null, links: [], working: null, problem: null, sketch: { id: 'booking', name: 'Booking', frames: ['desktop', 'mobile'] } });
     expect((await get('login')).screens).toEqual([]);
@@ -481,9 +482,13 @@ describe('the sample board', () => {
     // "Book visit" is on Options A and C; on B (in use) Play skips it, and "Next" works.
     expect(booking.tabs[0]!.links.find((l) => l.button === 'Book visit')).toMatchObject({ broken: 'button-gone' });
     expect(booking.tabs[0]!.links.find((l) => l.button === 'Next')!.broken).toBeUndefined();
-    // Home and Confirm have one drawing with no letter: they are in "In use" only, so Option A holds Form alone.
-    expect(booking.tabs[1]!.screens.map((s) => s.id)).toEqual(['form']);
-    expect(booking.tabs[1]!.links.find((l) => l.button === 'Book visit')).toMatchObject({ broken: 'screen-off', warning: 'Confirm has no Option A, so this link is off here.' });
+    // Home and Confirm have one drawing with no letter: it counts as their Option A (US-59), so Option A holds all three
+    // and "Book visit", on Form's Option A, leads to Confirm there.
+    expect(booking.tabs[1]!.screens.map((s) => s.id)).toEqual(['home', 'form', 'confirm']);
+    expect(booking.tabs[1]!.links.find((l) => l.button === 'Book visit')!.broken).toBeUndefined();
+    // Options B and C hold Form alone: a one-drawing screen is never in them.
+    expect(booking.tabs[2]!.screens.map((s) => s.id)).toEqual(['form']);
+    expect(booking.tabs[3]!.screens.map((s) => s.id)).toEqual(['form']);
     expect(booking.screens[2]!.drawings[0]!.frames.desktop).toMatch(/<button aria-label="Back" style="[^"]*" data-sq-button="Back">‹<\/button>/);
     const arabic = read('arabic-booking');
     expect(arabic.screens.map((s) => [s.name, s.rtl])).toEqual([

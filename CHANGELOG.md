@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A one-option screen is Option A in the prototype.** A screen drawn once, with no options, now shows in "In use"
+  and in "Option A", so a sketch of one-drawing screens has the tabs "In use" and "Option A", and links to it work on
+  Option A. It stays out of Option B and C, and a screen with options from an ask still shows that ask's own A.
+  Nothing is saved: the sketch files do not change.
 - **The prototype shows every option.** Every screen with a drawing is in the prototype now, approved or not, with all
   its options, so a flow can be tried before anything is approved. Tabs for the whole flow, in the map and in Play,
   show "In use" (each screen at its drawing in use), then "Option A", "Option B", "Option C": each holds only the

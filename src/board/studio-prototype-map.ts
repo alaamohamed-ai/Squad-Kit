@@ -3,16 +3,16 @@ import type { LinkTarget, PrototypeFile } from './studio-prototype.js';
 import { askVariantsOf, shownVariant } from './studio-export.js';
 
 /**
- * The prototype's rules (US-54, US-58, AB-179.1, AB-183.1), worked out on read from what is saved, and writing nothing
- * (AB-127.1):
+ * The prototype's rules (US-54, US-58, US-59, AB-179.1, AB-183.1), worked out on read from what is saved, and writing
+ * nothing (AB-127.1):
  *
  * - Its screens: every screen with a drawing, in the screen order, with one rule for every screen, approved or not:
  *   every option of the ask its drawing in use came from (A, B, C, grouped as the PDF export groups them), or its one
  *   drawing. The drawing in use is the one the Screens view shows as in use: an approved screen's approved version,
  *   else the one marked "Use this one" (AB-140.1). A screen with no drawing is left out.
  * - Its tabs, for the whole flow: "In use", every screen at its drawing in use, then "Option A", "Option B" …, each
- *   with only the screens that have a drawing of that letter, at it, so options are never mixed. A drawing with no
- *   letter is in "In use" only.
+ *   with only the screens that have a drawing of that letter, at it, so options are never mixed. A screen's one drawing
+ *   with no letter counts as Option A, so it is in "In use" and "Option A"; the drawing itself keeps no letter.
  * - Its buttons: every button and link in each drawing, named the same way on every frame, so one link works on Desktop
  *   and on Mobile: by its words; else its label, its title or its picture's text; else by its kind and place ("Icon
  *   button 2"). Arabic words count as words. Two buttons with the same words on one page are "Next" and "Next 2".
@@ -297,7 +297,8 @@ export interface PrototypeTab {
   label: string;
   /**
    * Its screens in the screen order, each at the version this tab shows. "In use" holds every screen; an "Option" tab
-   * only the screens with a drawing of that letter, at it, approved or not, one drawing or several (tabDrawing).
+   * only the screens with a drawing of that letter, at it, approved or not, one drawing or several (tabDrawing); a
+   * screen's one drawing with no letter is in "Option A".
    */
   screens: { id: string; version: number }[];
   /** Where Play starts on this tab: the marked start when it is in the tab, else the tab's first screen. */
@@ -311,7 +312,7 @@ export interface PrototypeMap {
   screens: PrototypeScreen[];
   /** The links of the screens in the prototype, as saved: broken when no drawing has the button, or the screen is out. */
   links: PrototypeMapLink[];
-  /** "In use" first, then one "Option" tab per letter any screen's drawings have. */
+  /** "In use" first, then one "Option" tab per letter any screen's drawings count as (a one drawing counts as A). */
   tabs: PrototypeTab[];
   /** Where Play starts on "In use": the marked start while it is in the prototype, else the first screen; null with none. */
   start: string | null;
@@ -358,11 +359,18 @@ function screenOf(sketch: Sketch, s: SketchScreen): PrototypeScreen | null {
   return { id: s.id, name: s.name, version: used.version, drawings, buttons, rtl: inUse.rtl };
 }
 
+/** The letter a screen's one drawing with no letter counts as in the prototype (US-59): it is that screen's Option A. */
+export const ONE_DRAWING_LETTER = 'A';
+
+/** The option a drawing counts as in the prototype: its own letter, else Option A. Nothing is saved: only read so. */
+export const tabLetterOf = (d: PrototypeDrawing): string => d.letter ?? ONE_DRAWING_LETTER;
+
 /** The drawing a tab shows of a screen, or undefined when the screen is left out of it. */
 export function tabDrawing(screen: PrototypeScreen, tab: string): PrototypeDrawing | undefined {
   if (tab === IN_USE_TAB) return screen.drawings.find((d) => d.version === screen.version);
-  // Only in the tab of its own letter: a drawing with no letter is in "In use" only.
-  return screen.drawings.find((d) => d.letter === tab);
+  // Only in the tab of its own letter, so options are never mixed. A drawing with no letter is a screen's one drawing
+  // (screenOf), so it counts as Option A; a screen with options from an ask shows that ask's own A.
+  return screen.drawings.find((d) => tabLetterOf(d) === tab);
 }
 
 const sameButton = (screen: string, a: string, b: string) => buttonKey(screen, a) === buttonKey(screen, b);
@@ -372,7 +380,7 @@ const sameButton = (screen: string, a: string, b: string) => buttonKey(screen, a
  *
  * - Its screens: every screen with a drawing, approved or not, by one rule, in the screen order (screenOf).
  * - Its tabs: "In use" holds every screen at its drawing in use; then one "Option" tab per letter, holding only the
- *   screens with a drawing of that letter, at it, so options are never mixed.
+ *   screens with a drawing of that letter, at it, so options are never mixed. A screen's one drawing is its Option A.
  * - Each link, on each tab: broken where the drawing shown lacks its button, or where the screen it leads to is not in
  *   that tab. Play skips it there.
  */
@@ -401,7 +409,8 @@ export function prototypeMap(sketch: Sketch, file: PrototypeFile): PrototypeMap 
     links.push({ ...l, button: button.name });
   }
 
-  const letters = [...new Set(screens.flatMap((s) => s.drawings.flatMap((d) => (d.letter ? [d.letter] : []))))].sort((a, b) => a.localeCompare(b));
+  // One tab per letter any screen counts as: a screen's one drawing counts as Option A, so A shows whenever one is drawn.
+  const letters = [...new Set(screens.flatMap((s) => s.drawings.map(tabLetterOf)))].sort((a, b) => a.localeCompare(b));
   const markedStart = file.start ?? null;
   const tabs: PrototypeTab[] = [IN_USE_TAB, ...letters].map((id) => {
     const label = id === IN_USE_TAB ? 'In use' : `Option ${id}`;

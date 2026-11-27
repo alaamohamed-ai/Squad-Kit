@@ -87,7 +87,7 @@ function seedBooking() {
   studio.pickVariant(bp, 'booking', 'confirm', versionOf('B'), s.stamp, { by: 'Alaa' });
 }
 
-/** Done gets its one drawing, with no letter, so it joins the prototype, in "In use" only. */
+/** Done gets its one drawing, with no letter, so it joins the prototype, in "In use" and "Option A" (US-59). */
 const drawDone = () => studio.addVariant(bp, 'booking', 'done', { frames: both('<h1>Done</h1><button>Home</button>') }, sketch().stamp).stamp;
 /** Done is drawn as options of its own: A, B and C unless said. */
 const drawDoneOptions = (letters = ['A', 'B', 'C']) =>
@@ -143,9 +143,12 @@ describe('done when 1: every screen with a drawing is in the prototype, with its
       { id: 'form', version: 2 },
       { id: 'confirm', version: versionOf('B') },
     ]);
-    // An Option tab holds only the screens with a drawing of its letter: Form, with no letter, is in "In use" only.
+    // An Option tab holds only the screens with a drawing of its letter: Form, with one drawing, counts as Option A.
     expect(tab('C').screens).toEqual([{ id: 'confirm', version: versionOf('C') }]);
-    expect(tab('A').screens).toEqual([{ id: 'confirm', version: versionOf('A') }]);
+    expect(tab('A').screens).toEqual([
+      { id: 'form', version: 2 },
+      { id: 'confirm', version: versionOf('A') },
+    ]);
     expect(studio.tabDrawing(m.screens[1]!, 'A')!.frames.desktop).toContain('Confirm A');
   });
 
@@ -155,7 +158,7 @@ describe('done when 1: every screen with a drawing is in the prototype, with its
     const s = drawDoneOptions(['A', 'B']);
     expect(s.screens.find((x) => x.id === 'done')!.chosen).toBeGreaterThan(1);
     expect(tab('C').screens.map((x) => x.id)).toEqual(['confirm']);
-    expect(tab('A').screens.map((x) => x.id)).toEqual(['confirm', 'done']);
+    expect(tab('A').screens.map((x) => x.id)).toEqual(['form', 'confirm', 'done']);
     expect(tab('in-use').screens.map((x) => x.id)).toEqual(['form', 'confirm', 'done']);
   });
 
@@ -166,17 +169,20 @@ describe('done when 1: every screen with a drawing is in the prototype, with its
     expect(confirm.version).toBe(versionOf('B'));
     expect(confirm.drawings.map((d) => d.letter)).toEqual(['A', 'B', 'C']);
     expect(tab('in-use').screens[1]).toEqual({ id: 'confirm', version: versionOf('B') });
-    expect(tab('A').screens).toEqual([{ id: 'confirm', version: versionOf('A') }]);
+    expect(tab('A').screens).toEqual([
+      { id: 'form', version: 2 },
+      { id: 'confirm', version: versionOf('A') },
+    ]);
     expect(tab('C').screens).toEqual([{ id: 'confirm', version: versionOf('C') }]);
   });
 
-  it('puts a screen with one drawing in "In use" and only in the tab of its own letter', () => {
-    // Done is drawn once, as Option C of its own ask; Form has one drawing with no letter.
+  it('puts a screen with one drawing in "In use" and only in the tab of its own letter, Option A when it has none', () => {
+    // Done is drawn once, as Option C of its own ask; Form has one drawing with no letter, so it counts as Option A.
     drawDoneOptions(['C']);
     const done = map().screens.find((s) => s.id === 'done')!;
     expect(done.drawings.map((d) => d.letter)).toEqual(['C']);
     expect(map().tabs.filter((t) => t.screens.some((x) => x.id === 'done')).map((t) => t.id)).toEqual(['in-use', 'C']);
-    expect(map().tabs.filter((t) => t.screens.some((x) => x.id === 'form')).map((t) => t.id)).toEqual(['in-use']);
+    expect(map().tabs.filter((t) => t.screens.some((x) => x.id === 'form')).map((t) => t.id)).toEqual(['in-use', 'A']);
   });
 
   it('sends the screens, the tabs and the screens left out from the route, writing nothing', async () => {
@@ -193,11 +199,13 @@ describe('done when 1: every screen with a drawing is in the prototype, with its
 });
 
 describe('done when 2: one link per button works on every option', () => {
-  it('has Continue and Back working on "In use"; each Option tab holds Confirm alone, with its Back working and Confirm its start', () => {
+  it('has Continue and Back working on "In use" and Option A; Options B and C hold Confirm alone, with its Back working and Confirm its start', () => {
     link();
-    expect(tabLinks('in-use')).toEqual(['form/Continue → confirm', 'confirm/Back → Back']);
-    expect(tab('in-use').start).toBe('form');
-    for (const id of ['A', 'B', 'C']) {
+    for (const id of ['in-use', 'A']) {
+      expect(tabLinks(id)).toEqual(['form/Continue → confirm', 'confirm/Back → Back']);
+      expect(tab(id).start).toBe('form');
+    }
+    for (const id of ['B', 'C']) {
       expect(tabLinks(id)).toEqual(['confirm/Back → Back']);
       expect(tab(id).start).toBe('confirm');
     }
@@ -209,7 +217,7 @@ describe('done when 3: a button on some options only', () => {
     drawDoneOptions();
     link(true);
     expect(map().screens.map((s) => s.name)).toEqual(['Form', 'Confirm', 'Done']);
-    expect(tabLinks('A')).toEqual(['confirm/Back → Back', 'confirm/Pay now → done']);
+    expect(tabLinks('A')).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Pay now → done']);
     expect(tabLinks('B')).toEqual(['confirm/Back → Back', 'confirm/Pay now → done']);
     expect(tabLinks('in-use')).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Pay now → done']);
     expect(tabLinks('C')).toEqual(['confirm/Back → Back', 'confirm/Pay now → done (button-gone)']);
@@ -309,5 +317,119 @@ describe('done when 5: the start can be any screen, and Play changes nothing in 
     expect(fs.readFileSync(screenFile(bp, 'booking', 'confirm'), 'utf8')).toBe(confirmFile);
     expect(sketch().screens.find((s) => s.id === 'confirm')!.chosen).toBe(versionOf('B'));
     expect(sketch().stamp).toBe(stamp);
+  });
+});
+
+/**
+ * US-59 A one-option screen is Option A in the prototype (AB-184). A screen's one drawing has no letter: the prototype
+ * reads it as that screen's Option A, so it shows in "In use" and "Option A" and never in B or C, and nothing is saved.
+ */
+describe('US-59: a screen with one drawing counts as Option A', () => {
+  const ids = (m: ReturnType<typeof map>, id: string) => m.tabs.find((t) => t.id === id)?.screens.map((x) => x.id);
+
+  it('done when 1: a copy of the sketch, every screen with one drawing, has "In use" and "Option A", each screen at its one drawing', () => {
+    const copy = studio.duplicateSketch(bp, 'booking', sketch().stamp, { by: 'Alaa' });
+    expect(copy.name).toBe('Booking copy');
+    expect(copy.screens.every((s) => s.variants.every((v) => !v.letter))).toBe(true);
+    const m = studio.prototypeMap(studio.readSketch(bp, copy.id)!, studio.readPrototypeFile(bp, copy.id));
+    expect(m.tabs.map((t) => [t.id, t.label])).toEqual([
+      ['in-use', 'In use'],
+      ['A', 'Option A'],
+    ]);
+    expect(m.tabs[1]!.screens).toEqual(m.tabs[0]!.screens);
+    expect(m.tabs[1]!.screens.map((x) => x.id)).toEqual(['form', 'confirm']);
+    for (const s of m.screens) expect(studio.tabDrawing(s, 'A')!.version).toBe(s.version);
+    // The map's screens show no Options buttons: each still has its one drawing, with no letter.
+    expect(m.screens.map((s) => s.drawings.map((d) => d.letter ?? null))).toEqual([[null], [null]]);
+  });
+
+  it('done when 2: a one-drawing screen is in "In use" and "Option A", and in neither Option B nor Option C', () => {
+    drawDone();
+    const m = map();
+    expect(ids(m, 'in-use')).toEqual(['form', 'confirm', 'done']);
+    expect(ids(m, 'A')).toEqual(['form', 'confirm', 'done']);
+    expect(ids(m, 'B')).toEqual(['confirm']);
+    expect(ids(m, 'C')).toEqual(['confirm']);
+    expect(studio.tabDrawing(m.screens[0]!, 'B')).toBeUndefined();
+    expect(studio.tabDrawing(m.screens[2]!, 'C')).toBeUndefined();
+  });
+
+  it('done when 3: an older drawing with no letter gives way to the Option A of the newer ask in use', () => {
+    drawDone();
+    const older = sketch().screens.find((s) => s.id === 'done')!.variants[0]!.version;
+    drawDoneOptions();
+    const asked = (letter: string) => sketch().screens.find((s) => s.id === 'done')!.variants.find((v) => v.letter === letter)!.version;
+    // The ask's B in use: Option A still shows the ask's A, never the older drawing with no letter.
+    studio.pickVariant(bp, 'booking', 'done', asked('B'), sketch().stamp, { by: 'Alaa' });
+    const done = map().screens.find((s) => s.id === 'done')!;
+    expect(done.drawings.map((d) => d.letter)).toEqual(['A', 'B', 'C']);
+    expect(studio.tabDrawing(done, 'A')!.version).toBe(asked('A'));
+    expect(studio.tabDrawing(done, 'A')!.version).not.toBe(older);
+    expect(tab('A').screens.find((x) => x.id === 'done')).toEqual({ id: 'done', version: asked('A') });
+    // The older drawing back in use: it is Done's one drawing again, so it is Option A, and B and C leave Done out.
+    studio.pickVariant(bp, 'booking', 'done', older, sketch().stamp, { by: 'Alaa' });
+    expect(tab('A').screens.find((x) => x.id === 'done')).toEqual({ id: 'done', version: older });
+    expect(ids(map(), 'B')).toEqual(['confirm']);
+  });
+
+  it('done when 4: on Option A, Sign in on a screen with options leads to a one-drawing screen; a button not on Option A is skipped', () => {
+    let s = studio.saveSketch(bp, { name: 'Login', frames: ['desktop', 'mobile'], screens: [{ name: 'Sign in' }, { name: 'Home' }] });
+    const id = (name: string) => s.screens.find((x) => x.name === name)!.id;
+    const signIn = id('Sign in');
+    const home = id('Home');
+    s = studio.addVariant(bp, 'login', home, { frames: both('<h1>Home</h1><button>Log out</button>') }, s.stamp);
+    s = studio.saveAskVariants(
+      bp,
+      'login',
+      { id: 'ask-sign-in' },
+      [
+        {
+          id: signIn,
+          name: 'Sign in',
+          variants: [
+            { letter: 'A', name: 'Email', idea: 'Email first.', frames: both('<h1>Sign in A</h1><button>Sign in</button>') },
+            { letter: 'B', name: 'Phone', idea: 'Phone first.', frames: both('<h1>Sign in B</h1><button>Sign in</button><a>Forgot password</a>') },
+          ],
+        },
+      ],
+      s.stamp,
+    ).sketch;
+    let stamp = studio.setPrototypeLink(bp, 'login', { screen: signIn, button: 'Sign in', to: { screen: home } }, s.stamp).stamp;
+    stamp = studio.setPrototypeLink(bp, 'login', { screen: signIn, button: 'Forgot password', to: { screen: home } }, stamp).stamp;
+    const m = studio.prototypeMap(studio.readSketch(bp, 'login')!, studio.readPrototypeFile(bp, 'login'));
+    const optionA = m.tabs.find((t) => t.id === 'A')!;
+    expect(optionA.screens.map((x) => x.id)).toEqual([signIn, home]);
+    expect(optionA.start).toBe(signIn);
+    const onA = (button: string) => optionA.links.find((l) => l.button === button)!;
+    // Play follows a working link: Sign in goes to Home, at its one drawing.
+    expect(onA('Sign in').broken).toBeUndefined();
+    expect(onA('Sign in').to).toEqual({ screen: home });
+    expect(onA('Forgot password')).toMatchObject({ broken: 'button-gone', warning: '"Forgot password" is not on Option A of Sign in, so Play skips it here.' });
+    // On Option B, Home (one drawing, Option A only) is left out, so both links are off there.
+    const optionB = m.tabs.find((t) => t.id === 'B')!;
+    expect(optionB.screens.map((x) => x.id)).toEqual([signIn]);
+    expect(optionB.links.map((l) => [l.button, l.broken])).toEqual([
+      ['Sign in', 'screen-off'],
+      ['Forgot password', 'screen-off'],
+    ]);
+    expect(optionB.links[0]!.warning).toBe('Home has no Option B, so this link is off here.');
+  });
+
+  it('done when 5: moving between "In use" and "Option A" writes nothing, and the drawing keeps no letter', async () => {
+    drawDone();
+    link(true);
+    const before = snapshot();
+    const stamp = sketch().stamp;
+    const app = new Hono();
+    mountStudioApi(app, { paths: buildPaths(tmp) });
+    for (let i = 0; i < 3; i++) {
+      const p = (await (await app.request('/api/v1/studio/sketches/booking/prototype')).json()) as any;
+      expect(p.tabs.find((t: any) => t.id === 'A').screens.map((x: any) => x.id)).toEqual(['form', 'confirm', 'done']);
+      expect(p.screens.find((s: any) => s.id === 'done').drawings.map((d: any) => d.letter ?? null)).toEqual([null]);
+    }
+    for (const id of ['in-use', 'A', 'in-use']) studio.tabDrawing(map().screens[2]!, id);
+    expect(snapshot()).toEqual(before);
+    expect(sketch().stamp).toBe(stamp);
+    expect(sketch().screens.find((s) => s.id === 'done')!.variants.map((v) => v.letter ?? null)).toEqual([null]);
   });
 });

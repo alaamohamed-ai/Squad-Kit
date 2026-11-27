@@ -108,10 +108,11 @@ const options = (done: 'none' | 'one' | 'ab' | 'abc' = 'none', start = 'form'): 
   const doneScreen = done === 'none' ? null : { id: 'done', name: 'Done', version: 1, rtl: false, buttons: [B('Back')], drawings: done === 'one' ? [doneDrawing(1)] : doneLetters.map((l, i) => doneDrawing(i + 1, l)) };
   const screens: any[] = [form, confirm, ...(doneScreen ? [doneScreen] : [])];
   const links: any[] = [{ screen: 'form', button: 'Continue', to: { screen: 'confirm' } }, { screen: 'confirm', button: 'Back', to: { back: true } }, ...(doneScreen ? [{ screen: 'confirm', button: 'Pay now', to: { screen: 'done' } }, { screen: 'done', button: 'Back', to: { back: true } }] : [])];
-  // As the server: "In use" holds every screen at its drawing in use, an Option tab only the drawings of its letter.
+  // As the server: "In use" holds every screen at its drawing in use, an Option tab only the drawings of its letter; a
+  // screen's one drawing with no letter counts as Option A (US-59).
   const tabOf = (id: string) => {
     const shown = screens.flatMap((x) => {
-      const d = id === 'in-use' ? x.drawings.find((v: any) => v.version === x.version) : x.drawings.find((v: any) => v.letter === id);
+      const d = id === 'in-use' ? x.drawings.find((v: any) => v.version === x.version) : x.drawings.find((v: any) => (v.letter ?? 'A') === id);
       return d ? [{ x, d }] : [];
     });
     const label = id === 'in-use' ? 'In use' : `Option ${id}`;
@@ -430,7 +431,9 @@ describe('US-58 done when 3: the map per tab', () => {
     // A card's option picks that tab for the whole map.
     await press(button('Option A', cards()[0]));
     expect(tabIn('Options', 'Option A').getAttribute('aria-selected')).toBe('true');
-    await until(() => bodyOf(cardFrame(0)).includes('Confirm A'));
+    // Form, with one drawing, counts as Option A: it comes first there, then Confirm at its Option A.
+    await until(() => cards().length === 3 && bodyOf(cardFrame(1)).includes('Confirm A'));
+    expect(cards().map(head)[0]).toBe('Form v2 Start');
     expect(picker('Pay now on Confirm leads to').value).toBe('screen:done');
     expect(cards()[0].querySelector('.pt-btn.broken')).toBeNull();
     expect(changes).toEqual([]);
@@ -501,6 +504,36 @@ describe('US-58 done when 2, 3 and 5: Play with tabs', () => {
     await key('Escape');
     // Back on the map, Option B is still the one shown in use.
     expect(text(cards()[1].querySelector('.pt-options button[aria-pressed="true"]'))).toBe('Option B');
+    expect(changes).toEqual([]);
+  });
+});
+
+describe('US-59 done when 4: Play on Option A reaches a screen with one drawing', () => {
+  it('goes from Form through Confirm A to Done, drawn once, and shows Done in no other option', async () => {
+    protos.options = options('one');
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 3);
+    // Option A holds every screen: Form and Done count as Option A, each at its one drawing.
+    await press(tabIn('Options', 'Option A'));
+    await until(() => cards().length === 3 && bodyOf(cardFrame(1)).includes('Confirm A'));
+    expect(cards().map(head)).toEqual(['Form v2 Start', 'Confirm v1 Make start', 'Done v1 Make start']);
+    await press(button('Play'));
+    await until(() => !!inFrame(playFrame(), 'Continue'));
+    // Play opens on "In use"; Option A picked there keeps Form, its start, on the page.
+    await press(tabIn('Options', 'Option A', play()));
+    expect(tabIn('Options', 'Option A', play()).getAttribute('aria-selected')).toBe('true');
+    expect(playing()).toBe('Form');
+    await press(inFrame(playFrame(), 'Continue'));
+    await until(() => bodyOf(playFrame()).includes('Confirm A'));
+    await press(inFrame(playFrame(), 'Pay now'));
+    await until(() => playing() === 'Done');
+    expect(playing()).toBe('Done');
+    await key('Escape');
+    // Option B holds Confirm alone: a screen drawn once is never mixed into another option.
+    await press(tabIn('Options', 'Option B'));
+    await until(() => cards().length === 1);
+    expect(cards().map(head)).toEqual(['Confirm v2 Start']);
     expect(changes).toEqual([]);
   });
 });
