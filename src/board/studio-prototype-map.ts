@@ -1,17 +1,25 @@
-import type { Sketch } from './studio-read.js';
+import type { ScreenVariant, Sketch, SketchScreen } from './studio-read.js';
 import type { LinkTarget, PrototypeFile } from './studio-prototype.js';
+import { askVariantsOf, shownVariant } from './studio-export.js';
 
 /**
- * The prototype's rules (US-54, AB-179.1), worked out on read from what is saved, and writing nothing (AB-127.1):
+ * The prototype's rules (US-54, US-58, AB-179.1, AB-183.1), worked out on read from what is saved, and writing nothing
+ * (AB-127.1):
  *
- * - Its screens: the sketch's approved screens, in the screen order, each at the version it was approved at. A screen
- *   that is not approved (never, or reopened now) is not in it.
- * - Its buttons: every button and link in each screen's drawing, named the same way on every frame, so one link works
- *   on Desktop and on Mobile: by its words; else its label, its title or its picture's text; else by its kind and place
- *   ("Icon button 2"). Arabic words count as words. Two buttons with the same words on one page are "Next" and "Next 2".
- * - Each link: working, or broken when its button is gone from the drawing, or its screen is not approved now. A broken
- *   link stays in the file, says why in a short warning, and Play skips it.
- * - The start screen: the one the person marked while it is approved, else the first approved screen in the screen order.
+ * - Its screens: every screen with a drawing, in the screen order, with one rule for every screen, approved or not:
+ *   every option of the ask its drawing in use came from (A, B, C, grouped as the PDF export groups them), or its one
+ *   drawing. The drawing in use is the one the Screens view shows as in use: an approved screen's approved version,
+ *   else the one marked "Use this one" (AB-140.1). A screen with no drawing is left out.
+ * - Its tabs, for the whole flow: "In use", every screen at its drawing in use, then "Option A", "Option B" …, each
+ *   with only the screens that have a drawing of that letter, at it, so options are never mixed. A drawing with no
+ *   letter is in "In use" only.
+ * - Its buttons: every button and link in each drawing, named the same way on every frame, so one link works on Desktop
+ *   and on Mobile: by its words; else its label, its title or its picture's text; else by its kind and place ("Icon
+ *   button 2"). Arabic words count as words. Two buttons with the same words on one page are "Next" and "Next 2".
+ * - Each link belongs to the screen and the button's name, so it is the same on every option. On each tab it is
+ *   working, or broken where the drawing shown lacks its button or the screen it leads to is not in that tab. A broken
+ *   link stays in the file, says why in a short warning, and Play skips it there.
+ * - The start screen: the one the person marked while it is in the tab, else the tab's first screen.
  *
  * Each drawing is sent to the board with its buttons marked (data-sq-button="<name>"), so the board finds the same button
  * the rules found, with no second way of naming them.
@@ -230,13 +238,16 @@ export function isRightToLeft(html: string): boolean {
   return rtl(/<html\b[^>]*>/i.exec(page)?.[0]) || rtl(body?.[0]) || rtl(/<[a-z][^>]*>/i.exec(inside)?.[0]);
 }
 
-/** One screen in the prototype: an approved screen at the version it was approved at. */
-export interface PrototypeScreen {
-  id: string;
-  name: string;
-  /** The version it was approved at. */
+
+/** One drawing of a screen in the prototype: its one drawing, or one of its options (A, B, C). */
+export interface PrototypeDrawing {
+  /** The saved version it shows. */
   version: number;
-  /** Frame id → its drawing, with each button marked. */
+  /** Its option's letter (A, B, C), when it was drawn as a variant of an ask; left out on a drawing with no letter. */
+  letter?: string;
+  /** Its option's short name ("Split steps"), when it has one. */
+  name?: string;
+  /** Frame id → its page, with each button marked. */
   frames: Record<string, string>;
   /** Every button on it, in page order over its frames, each with the frames it is on. */
   buttons: (FoundButton & { frames: string[] })[];
@@ -244,7 +255,21 @@ export interface PrototypeScreen {
   rtl: boolean;
 }
 
-/** Why a link does not work now. */
+/** One screen in the prototype: a screen with a drawing, approved or not, by the same rule. */
+export interface PrototypeScreen {
+  id: string;
+  name: string;
+  /** The version in use: the approved one, else the one marked "Use this one", as the Screens view shows it. */
+  version: number;
+  /** Its drawings: its options A first, or its one drawing. */
+  drawings: PrototypeDrawing[];
+  /** Every button over all its drawings, in page order, each once: a link belongs to the screen and the button's name. */
+  buttons: (FoundButton & { frames: string[] })[];
+  /** Its drawing in use is laid out right to left (Arabic). */
+  rtl: boolean;
+}
+
+/** Why a link does not work: its button is not on the drawing shown, or the screen it leads to is not there. */
 export type LinkProblem = 'button-gone' | 'screen-off';
 
 export interface PrototypeMapLink {
@@ -258,58 +283,155 @@ export interface PrototypeMapLink {
   warning?: string;
 }
 
-export interface PrototypeMap {
-  screens: PrototypeScreen[];
-  /** The links of the screens in the prototype, as saved, each working or broken. */
-  links: PrototypeMapLink[];
-  /** Where Play starts: the marked start while it is approved, else the first approved screen; null with none. */
+/** The tab "In use" holds every screen at its drawing in use. */
+export const IN_USE_TAB = 'in-use';
+
+/**
+ * One tab of the prototype, for the whole flow: "In use", or one option's letter. Each holds its screens at the drawing
+ * that tab shows, its own start screen, and the links checked on it.
+ */
+export interface PrototypeTab {
+  /** "in-use", or the option's letter. */
+  id: string;
+  /** "In use", "Option B": the client's words, as the PDF export says them. */
+  label: string;
+  /**
+   * Its screens in the screen order, each at the version this tab shows. "In use" holds every screen; an "Option" tab
+   * only the screens with a drawing of that letter, at it, approved or not, one drawing or several (tabDrawing).
+   */
+  screens: { id: string; version: number }[];
+  /** Where Play starts on this tab: the marked start when it is in the tab, else the tab's first screen. */
   start: string | null;
-  /** The start screen the person marked, as saved, approved now or not. */
+  /** The links of the screens in this tab, each working or broken on it. */
+  links: PrototypeMapLink[];
+}
+
+export interface PrototypeMap {
+  /** Every screen with a drawing, in the screen order. */
+  screens: PrototypeScreen[];
+  /** The links of the screens in the prototype, as saved: broken when no drawing has the button, or the screen is out. */
+  links: PrototypeMapLink[];
+  /** "In use" first, then one "Option" tab per letter any screen's drawings have. */
+  tabs: PrototypeTab[];
+  /** Where Play starts on "In use": the marked start while it is in the prototype, else the first screen; null with none. */
+  start: string | null;
+  /** The start screen the person marked, as saved, in the prototype now or not. */
   markedStart: string | null;
 }
 
-/** The prototype of a sketch, worked out from its screens and its prototype file. Writes nothing. */
-export function prototypeMap(sketch: Sketch, file: PrototypeFile): PrototypeMap {
-  const screens: PrototypeScreen[] = [];
-  for (const s of sketch.screens) {
-    if (s.status !== 'approved') continue;
-    const version = s.approved?.version ?? s.chosen;
-    const variant = s.variants.find((v) => v.version === version);
-    if (!variant || version === null) continue;
-    const frames: Record<string, string> = {};
-    const buttons: PrototypeScreen['buttons'] = [];
-    const order = [...sketch.frames.filter((f) => f in variant.frames), ...Object.keys(variant.frames).filter((f) => !sketch.frames.includes(f))];
-    for (const f of order) {
-      const page = findButtons(variant.frames[f]!);
-      frames[f] = page.marked;
-      for (const b of page.buttons) {
-        const had = buttons.find((x) => x.name.toLowerCase() === b.name.toLowerCase());
-        if (had) had.frames.push(f);
-        else buttons.push({ ...b, frames: [f] });
-      }
+function drawingOf(sketch: Sketch, v: ScreenVariant): PrototypeDrawing {
+  const frames: Record<string, string> = {};
+  const buttons: PrototypeDrawing['buttons'] = [];
+  const order = [...sketch.frames.filter((f) => f in v.frames), ...Object.keys(v.frames).filter((f) => !sketch.frames.includes(f))];
+  for (const f of order) {
+    const page = findButtons(v.frames[f]!);
+    frames[f] = page.marked;
+    for (const b of page.buttons) {
+      const had = buttons.find((x) => x.name.toLowerCase() === b.name.toLowerCase());
+      if (had) had.frames.push(f);
+      else buttons.push({ ...b, frames: [f] });
     }
-    const first = order[0] ? variant.frames[order[0]]! : '';
-    screens.push({ id: s.id, name: s.name, version, frames, buttons, rtl: isRightToLeft(first) });
   }
+  const first = order[0] ? v.frames[order[0]]! : '';
+  return { version: v.version, ...(v.letter ? { letter: v.letter, ...(v.name ? { name: v.name } : {}) } : {}), frames, buttons, rtl: isRightToLeft(first) };
+}
+
+/**
+ * One screen as the prototype holds it, or null when it has no drawing. One rule for every screen, approved or not: its
+ * drawings are the options of the ask its drawing in use came from (each letter's newest, and the one in use for its
+ * own letter, as the variant cards and the PDF export group them), or its one drawing.
+ */
+function screenOf(sketch: Sketch, s: SketchScreen): PrototypeScreen | null {
+  const used = shownVariant(s);
+  if (!used) return null;
+  const asked = askVariantsOf(s, used);
+  const drawings = (asked.length ? asked : [used]).map((v) => drawingOf(sketch, v));
+  const buttons: PrototypeScreen['buttons'] = [];
+  for (const d of drawings) {
+    for (const b of d.buttons) {
+      const had = buttons.find((x) => x.name.toLowerCase() === b.name.toLowerCase());
+      if (had) had.frames = [...new Set([...had.frames, ...b.frames])];
+      else buttons.push({ ...b, frames: [...b.frames] });
+    }
+  }
+  const inUse = drawings.find((d) => d.version === used.version)!;
+  return { id: s.id, name: s.name, version: used.version, drawings, buttons, rtl: inUse.rtl };
+}
+
+/** The drawing a tab shows of a screen, or undefined when the screen is left out of it. */
+export function tabDrawing(screen: PrototypeScreen, tab: string): PrototypeDrawing | undefined {
+  if (tab === IN_USE_TAB) return screen.drawings.find((d) => d.version === screen.version);
+  // Only in the tab of its own letter: a drawing with no letter is in "In use" only.
+  return screen.drawings.find((d) => d.letter === tab);
+}
+
+const sameButton = (screen: string, a: string, b: string) => buttonKey(screen, a) === buttonKey(screen, b);
+
+/**
+ * The prototype of a sketch, worked out from its screens and its prototype file (US-54, US-58). Writes nothing.
+ *
+ * - Its screens: every screen with a drawing, approved or not, by one rule, in the screen order (screenOf).
+ * - Its tabs: "In use" holds every screen at its drawing in use; then one "Option" tab per letter, holding only the
+ *   screens with a drawing of that letter, at it, so options are never mixed.
+ * - Each link, on each tab: broken where the drawing shown lacks its button, or where the screen it leads to is not in
+ *   that tab. Play skips it there.
+ */
+export function prototypeMap(sketch: Sketch, file: PrototypeFile): PrototypeMap {
+  const screens = sketch.screens.map((s) => screenOf(sketch, s)).filter((s): s is PrototypeScreen => s !== null);
   const inPrototype = new Map(screens.map((s) => [s.id, s]));
-  const nameOf = (id: string) => sketch.screens.find((s) => s.id === id)?.name ?? id;
+  const nameOf = (id: string) => sketch.screens.find((s) => s.id === id)?.name;
+  const outWarning = (id: string) => {
+    const name = nameOf(id);
+    return name ? `${name} has no drawing yet, so this link is off.` : 'Its screen is gone from the sketch.';
+  };
+
   const links: PrototypeMapLink[] = [];
   for (const l of file.links) {
     const from = inPrototype.get(l.screen);
     if (!from) continue;
-    const button = from.buttons.find((b) => buttonKey(from.id, b.name) === buttonKey(l.screen, l.button));
+    const button = from.buttons.find((b) => sameButton(from.id, b.name, l.button));
     if (!button) {
       links.push({ ...l, broken: 'button-gone', warning: `"${l.button}" is gone from ${from.name}. Pick its new button, or take the link away.` });
       continue;
     }
     if ('screen' in l.to && !inPrototype.has(l.to.screen)) {
-      const exists = sketch.screens.some((s) => s.id === (l.to as { screen: string }).screen);
-      links.push({ ...l, button: button.name, broken: 'screen-off', warning: exists ? `${nameOf(l.to.screen)} is not approved now, so this link is off.` : 'Its screen is gone from the sketch.' });
+      links.push({ ...l, button: button.name, broken: 'screen-off', warning: outWarning(l.to.screen) });
       continue;
     }
     links.push({ ...l, button: button.name });
   }
+
+  const letters = [...new Set(screens.flatMap((s) => s.drawings.flatMap((d) => (d.letter ? [d.letter] : []))))].sort((a, b) => a.localeCompare(b));
   const markedStart = file.start ?? null;
-  const start = markedStart && inPrototype.has(markedStart) ? markedStart : (screens[0]?.id ?? null);
-  return { screens, links, start, markedStart };
+  const tabs: PrototypeTab[] = [IN_USE_TAB, ...letters].map((id) => {
+    const label = id === IN_USE_TAB ? 'In use' : `Option ${id}`;
+    const shown = screens.flatMap((s) => {
+      const d = tabDrawing(s, id);
+      return d ? [{ screen: s, drawing: d }] : [];
+    });
+    const inTab = new Set(shown.map((x) => x.screen.id));
+    const tabLinks: PrototypeMapLink[] = [];
+    for (const l of links) {
+      const at = shown.find((x) => x.screen.id === l.screen);
+      if (!at) continue;
+      // Broken on every tab: no drawing has its button, or the screen it leads to is not in the prototype.
+      if (l.broken) {
+        tabLinks.push(l);
+        continue;
+      }
+      const where = at.screen.drawings.length > 1 ? `${at.drawing.letter ? `Option ${at.drawing.letter}` : 'this option'} of ${at.screen.name}` : at.screen.name;
+      if (!at.drawing.buttons.some((b) => sameButton(l.screen, b.name, l.button))) {
+        tabLinks.push({ ...l, broken: 'button-gone', warning: `"${l.button}" is not on ${where}, so Play skips it here.` });
+        continue;
+      }
+      if ('screen' in l.to && !inTab.has(l.to.screen)) {
+        tabLinks.push({ ...l, broken: 'screen-off', warning: `${nameOf(l.to.screen) ?? l.to.screen} has no ${label}, so this link is off here.` });
+        continue;
+      }
+      tabLinks.push(l);
+    }
+    const start = markedStart && inTab.has(markedStart) ? markedStart : (shown[0]?.screen.id ?? null);
+    return { id, label, screens: shown.map((x) => ({ id: x.screen.id, version: x.drawing.version })), start, links: tabLinks };
+  });
+  return { screens, links, tabs, start: tabs[0]!.start, markedStart };
 }

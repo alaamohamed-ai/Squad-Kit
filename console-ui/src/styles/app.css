@@ -1560,7 +1560,15 @@ button.sk-opt:hover:not(:disabled) { border-color: var(--line-strong); }
 .pt { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pt-row { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); }
 .pt-row .btn { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.pt-line { flex: 1 1 auto; margin: 0; min-width: 0; font-size: 13px; color: var(--muted); }
+.pt-row { flex-wrap: wrap; }
+.pt-row .grow { flex: 1; }
+.pt-row .ws-frames { margin-left: 0; }
+.pt-line { flex: none; margin: 0; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.pt-tabs { flex: none; }
+.pt-options { list-style: none; margin: -2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.pt-options button { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.pt-options button:hover { color: var(--text); }
+.pt-options button.on { color: var(--text); border-color: var(--text); }
 .pt-working, .pt-problem { margin: 10px 20px 0; font-size: 13px; }
 .pt-working { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .pt-note { padding: 24px; }

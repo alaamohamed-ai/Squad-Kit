@@ -47,7 +47,17 @@ const sketchOf = (id: string, name: string) => ({
 });
 
 type Proto = any;
-const booking = (): Proto => ({
+/**
+ * The prototype as the server sends it (US-58): each screen with its drawings, and the tabs. A screen written the
+ * US-54 way (its one drawing's frames and buttons on it) becomes one screen with that one drawing, and the
+ * prototype gets its one tab, "In use".
+ */
+const shaped = (p: Proto): Proto => {
+  const screens = p.screens.map((s: any) => (s.drawings ? s : { id: s.id, name: s.name, version: s.version, rtl: s.rtl, buttons: s.buttons, drawings: [{ version: s.version, frames: s.frames, buttons: s.buttons, rtl: s.rtl }] }));
+  const tabs = p.tabs ?? [{ id: 'in-use', label: 'In use', screens: screens.map((s: any) => ({ id: s.id, version: s.version })), start: p.start, links: p.links }];
+  return { ...p, screens, tabs };
+};
+const booking = (): Proto => shaped({
   sketch: { id: 'booking', name: 'Booking', frames: ['desktop', 'mobile'], stamp: 'stamp-1' },
   screens: [
     { id: 'form', name: 'Form', version: 2, rtl: false, frames: { desktop: marked(`<h1>Form desktop</h1>${btn('Continue')}<a data-sq-button="Help">Help</a>`), mobile: marked(`<h1>Form mobile</h1>${btn('Continue')}`) }, buttons: [{ name: 'Continue', kind: 'button', frames: ['desktop', 'mobile'] }, { name: 'Help', kind: 'link', frames: ['desktop'] }] },
@@ -64,8 +74,8 @@ const booking = (): Proto => ({
   working: null,
   problem: null,
 });
-const login = (): Proto => ({ sketch: { id: 'login', name: 'Login', frames: ['desktop'], stamp: 'stamp-l' }, screens: [], links: [], start: null, markedStart: null, left: [{ id: 'sign-in', name: 'Sign in' }], working: null, problem: null });
-const arabic = (): Proto => ({
+const login = (): Proto => shaped({ sketch: { id: 'login', name: 'Login', frames: ['desktop'], stamp: 'stamp-l' }, screens: [], links: [], start: null, markedStart: null, left: [{ id: 'sign-in', name: 'Sign in' }], working: null, problem: null });
+const arabic = (): Proto => shaped({
   sketch: { id: 'arabic-booking', name: 'الحجز', frames: ['desktop', 'mobile'], stamp: 'stamp-a' },
   screens: [
     { id: 'booking-form', name: 'نموذج الحجز', version: 1, rtl: true, frames: { desktop: marked(`<h1>نموذج</h1>${btn('احجز الزيارة')}`, true), mobile: marked(`<h1>نموذج</h1>${btn('احجز الزيارة')}`, true) }, buttons: [{ name: 'احجز الزيارة', kind: 'button', frames: ['desktop', 'mobile'] }] },
@@ -81,6 +91,42 @@ const arabic = (): Proto => ({
   working: null,
   problem: null,
 });
+
+/**
+ * US-58's Booking, by the rules the server works out: Form approved at v2 with one drawing and no letter (so in "In use"
+ * only); Confirm drawn as Options A (v1), B (v2, in use) and C (v3), with "Pay now" on A and B only. Done: no drawing
+ * ("none"), one drawing with no letter ("one"), Options A and B ("ab") or Options A, B and C ("abc"), A in use.
+ */
+const options = (done: 'none' | 'one' | 'ab' | 'abc' = 'none', start = 'form'): Proto => {
+  const B = (name: string) => ({ name, kind: 'button', frames: ['desktop', 'mobile'] });
+  const two = (body: string) => ({ desktop: marked(`${body}<p>desktop</p>`), mobile: marked(`${body}<p>mobile</p>`) });
+  const form = { id: 'form', name: 'Form', version: 2, rtl: false, buttons: [B('Continue')], drawings: [{ version: 2, frames: two(`<h1>Form</h1>${btn('Continue')}`), buttons: [B('Continue')], rtl: false }] };
+  const opt = (letter: string, version: number, pay: boolean) => ({ version, letter, name: `Idea ${letter}`, frames: two(`<h1>Confirm ${letter}</h1>${btn('Back', '‹')}${pay ? btn('Pay now') : ''}`), buttons: [B('Back'), ...(pay ? [B('Pay now')] : [])], rtl: false });
+  const confirm = { id: 'confirm', name: 'Confirm', version: 2, rtl: false, buttons: [B('Back'), B('Pay now')], drawings: [opt('A', 1, true), opt('B', 2, true), opt('C', 3, false)] };
+  const doneDrawing = (version: number, letter?: string) => ({ version, ...(letter ? { letter } : {}), frames: two(`<h1>Done ${letter ?? ''}</h1>${btn('Back', '‹')}`), buttons: [B('Back')], rtl: false });
+  const doneLetters = done === 'ab' ? ['A', 'B'] : done === 'abc' ? ['A', 'B', 'C'] : [];
+  const doneScreen = done === 'none' ? null : { id: 'done', name: 'Done', version: 1, rtl: false, buttons: [B('Back')], drawings: done === 'one' ? [doneDrawing(1)] : doneLetters.map((l, i) => doneDrawing(i + 1, l)) };
+  const screens: any[] = [form, confirm, ...(doneScreen ? [doneScreen] : [])];
+  const links: any[] = [{ screen: 'form', button: 'Continue', to: { screen: 'confirm' } }, { screen: 'confirm', button: 'Back', to: { back: true } }, ...(doneScreen ? [{ screen: 'confirm', button: 'Pay now', to: { screen: 'done' } }, { screen: 'done', button: 'Back', to: { back: true } }] : [])];
+  // As the server: "In use" holds every screen at its drawing in use, an Option tab only the drawings of its letter.
+  const tabOf = (id: string) => {
+    const shown = screens.flatMap((x) => {
+      const d = id === 'in-use' ? x.drawings.find((v: any) => v.version === x.version) : x.drawings.find((v: any) => v.letter === id);
+      return d ? [{ x, d }] : [];
+    });
+    const label = id === 'in-use' ? 'In use' : `Option ${id}`;
+    const tabLinks = links.flatMap((l) => {
+      const at = shown.find((y) => y.x.id === l.screen);
+      if (!at) return [];
+      if (!at.d.buttons.some((b: any) => b.name === l.button)) return [{ ...l, broken: 'button-gone', warning: `"${l.button}" is not on Option ${at.d.letter} of ${at.x.name}, so Play skips it here.` }];
+      if ('screen' in l.to && !shown.some((y) => y.x.id === l.to.screen)) return [{ ...l, broken: 'screen-off', warning: `Done has no ${label}, so this link is off here.` }];
+      return [l];
+    });
+    return { id, label, screens: shown.map((y) => ({ id: y.x.id, version: y.d.version })), start: shown.some((y) => y.x.id === start) ? start : shown[0]!.x.id, links: tabLinks };
+  };
+  const tabs = ['in-use', 'A', 'B', 'C'].map(tabOf);
+  return { sketch: { id: 'options', name: 'Booking', frames: ['desktop', 'mobile'], stamp: 'stamp-o' }, screens, links, tabs, start, markedStart: start === 'form' ? null : start, left: doneScreen ? [] : [{ id: 'done', name: 'Done' }], working: null, problem: null };
+};
 
 let root: { render(n: unknown): void; unmount(): void } | null = null;
 let changes: { method: string; url: string; body: any }[];
@@ -129,7 +175,7 @@ beforeEach(() => {
   dom.window.localStorage.setItem('squad.console.token', 'a-token');
   changes = [];
   next = [];
-  protos = { booking: booking(), login: login(), 'arabic-booking': arabic() };
+  protos = { booking: booking(), login: login(), 'arabic-booking': arabic(), options: options() };
   const fetchSpy = vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET';
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
@@ -141,17 +187,21 @@ beforeEach(() => {
     if (method === 'GET' && rest === '') return json(sketchOf(id, protos[id]?.sketch.name ?? id));
     if (method === 'GET' && rest === '/chats') return json({ conversations: [], current: 'main' });
     if (method === 'GET' && rest === '/chats/main') return json({ id: 'main', owner: { kind: 'sketch', id, name: id }, startedAt: null, messages: [], working: null });
-    if (method === 'GET' && rest === '/prototype') return json(next.length ? (protos[id] = next.shift()) : protos[id]);
+    if (method === 'GET' && rest === '/prototype') return json(next.length ? (protos[id] = shaped(next.shift())) : protos[id]);
     if (method === 'PUT' && rest === '/prototype/link') {
       const p = protos[id];
       const links = p.links.filter((l: any) => !(l.screen === body.screen && l.button === body.button));
       if (body.back) links.push({ screen: body.screen, button: body.button, to: { back: true } });
       else if (body.to) links.push({ screen: body.screen, button: body.button, to: { screen: body.to } });
-      protos[id] = { ...p, links, sketch: { ...p.sketch, stamp: `${p.sketch.stamp}+` } };
+      // The tabs follow the links, as the server works them out again.
+      const tabs = p.tabs.map((t: any) => ({ ...t, links: [...t.links.filter((l: any) => !(l.screen === body.screen && l.button === body.button)), ...links.filter((l: any) => l.screen === body.screen && l.button === body.button)] }));
+      protos[id] = { ...p, links, tabs, sketch: { ...p.sketch, stamp: `${p.sketch.stamp}+` } };
       return json(protos[id]);
     }
     if (method === 'PUT' && rest === '/prototype/start') {
-      protos[id] = { ...protos[id], start: body.screen, markedStart: body.screen, sketch: { ...protos[id].sketch, stamp: 'stamp-2' } };
+      const p = protos[id];
+      const tabs = p.tabs.map((t: any) => ({ ...t, start: t.screens.some((x: any) => x.id === body.screen) ? body.screen : t.start }));
+      protos[id] = { ...p, tabs, start: body.screen, markedStart: body.screen, sketch: { ...p.sketch, stamp: 'stamp-2' } };
       return json(protos[id]);
     }
     if (method === 'POST' && rest === '/prototype/generate') return json({ working: { since: '2026-11-24T10:00:00Z', doing: 'Linking the screens' } });
@@ -180,7 +230,7 @@ describe('done when 1: the Prototype tab', () => {
     await until(() => cards().length === 2);
     expect(page.querySelector('.ws').className).toBe('ws proto');
     expect(page.querySelector('.top [aria-label="View"]')).toBe(view);
-    expect(text(page.querySelector('.pt-line'))).toBe('2 approved screens: Form and Confirm. Done is not approved, so it is not in the prototype.');
+    expect(text(page.querySelector('.pt-line'))).toBe('2 screens');
     expect(cards().map(head)).toEqual(['Form v2 Start', 'Confirm v1 Make start']);
     // One arrow: Form's Continue to Confirm. Back has no card to point to, and a broken link draws none.
     expect(page.querySelectorAll('.pt-arrows path:not(marker path)').length).toBe(1);
@@ -197,11 +247,11 @@ describe('done when 1: the Prototype tab', () => {
     expect(head(cards()[0])).toBe('Form v2 Make start');
   });
 
-  it('says "Approve a screen to start the prototype" for Login, with Generate and Play off', async () => {
+  it('says "Draw a screen to start the prototype" for Login, with Generate and Play off', async () => {
     await open('login');
     await press(tab('Prototype'));
     await until(() => !!page.querySelector('.pt-none'));
-    expect(text(page.querySelector('.pt-none'))).toContain('Approve a screen to start the prototype');
+    expect(text(page.querySelector('.pt-none'))).toContain('Draw a screen to start the prototype');
     expect(button('Generate the prototype').disabled).toBe(true);
     expect(button('Play').disabled).toBe(true);
   });
@@ -330,6 +380,131 @@ describe('done when 4: Play', () => {
   });
 });
 
+const tabs = (label: string, within: any = page) => [...within.querySelectorAll(`[role="tablist"][aria-label="${label}"] [role="tab"]`)] as any[];
+const tabIn = (label: string, name: string, within: any = page) => tabs(label, within).find((b) => text(b) === name);
+const cardFrame = (i: number) => cards()[i]?.querySelector('iframe');
+const bodyOf = (frame: any) => frame?.contentDocument?.body?.textContent ?? '';
+const playing = () => text(play()?.querySelector('.pp-screen'));
+
+describe('US-58 done when 1: every drawn screen, with its options, under one top row', () => {
+  it('shows Form at v2 and Confirm with its options and no approval mark, Done left out, and one row: count, tabs, Generate, Play, frames', async () => {
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 2);
+    // The workspace's second row is gone: the prototype's own row holds everything.
+    expect(page.querySelector('.ws-bar')).toBeNull();
+    const row = page.querySelector('.pt-row');
+    // It counts screens only.
+    expect(text(row.querySelector('.pt-line'))).toBe('2 screens');
+    expect(tabs('Options').map(text)).toEqual(['In use', 'Option A', 'Option B', 'Option C']);
+    expect(tabIn('Options', 'In use').getAttribute('aria-selected')).toBe('true');
+    const parts = [...row.children].filter((el: any) => el.tagName === 'BUTTON' || el.getAttribute('role') === 'tablist');
+    expect(parts.map((el: any) => el.getAttribute('aria-label') ?? text(el))).toEqual(['Options', 'Generate the prototype', 'Play', 'Frames']);
+    // "Generate the prototype" is the filled main button, like "Approve screen"; the frame switch is at the far right.
+    expect(button('Generate the prototype').className).toBe('btn pri');
+    expect(button('Play').className).toBe('btn');
+    expect(row.lastElementChild.getAttribute('aria-label')).toBe('Frames');
+    expect(cards().map(head)).toEqual(['Form v2 Start', 'Confirm v2 Make start']);
+    expect(text(page.querySelector('.pt'))).not.toContain('approved');
+    expect([...cards()[1].querySelectorAll('.pt-options button')].map(text)).toEqual(['Option A', 'Option B', 'Option C']);
+    expect(text(cards()[1].querySelector('.pt-options button[aria-pressed="true"]'))).toBe('Option B');
+    expect(cards()[0].querySelector('.pt-options')).toBeNull();
+  });
+});
+
+describe('US-58 done when 3: the map per tab', () => {
+  it('shows Option C with only the screens that have it, "Pay now" broken there and working on A, and changes no file', async () => {
+    protos.options = options('abc');
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 3);
+    expect(text(page.querySelector('.pt-line'))).toBe('3 screens');
+    await press(tabIn('Options', 'Option C'));
+    // Form has no Option C: the tab holds Confirm and Done, each at its Option C.
+    await until(() => cards().length === 2 && bodyOf(cardFrame(0)).includes('Confirm C'));
+    expect(cards().map(head)).toEqual(['Confirm v3 Start', 'Done v3 Make start']);
+    const missing = cards()[0].querySelector('.pt-btn.broken');
+    expect(text(missing)).toContain('"Pay now" is not on Option C of Confirm, so Play skips it here.');
+    // Its button is on other options: it is not taken away from here.
+    expect(button('Take the link away', missing)).toBeUndefined();
+    // A card's option picks that tab for the whole map.
+    await press(button('Option A', cards()[0]));
+    expect(tabIn('Options', 'Option A').getAttribute('aria-selected')).toBe('true');
+    await until(() => bodyOf(cardFrame(0)).includes('Confirm A'));
+    expect(picker('Pay now on Confirm leads to').value).toBe('screen:done');
+    expect(cards()[0].querySelector('.pt-btn.broken')).toBeNull();
+    expect(changes).toEqual([]);
+  });
+});
+
+describe('US-58 done when 2, 3 and 5: Play with tabs', () => {
+  it('opens on "In use" with the tabs on every screen; an option picked shows at once and stays while playing; "Pay now" is skipped on C', async () => {
+    protos.options = options('abc');
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 3);
+    await press(button('Play'));
+    await until(() => !!inFrame(playFrame(), 'Continue'));
+    expect(playing()).toBe('Form');
+    // The tabs are for the whole flow: Form shows them too. No screen shows an approval mark.
+    expect(tabs('Options', play()).map(text)).toEqual(['In use', 'Option A', 'Option B', 'Option C']);
+    expect(tabIn('Options', 'In use', play()).getAttribute('aria-selected')).toBe('true');
+    expect(text(play())).not.toContain('approved');
+    await press(inFrame(playFrame(), 'Continue'));
+    await until(() => bodyOf(playFrame()).includes('Confirm B'));
+    expect(playing()).toBe('Confirm');
+    await press(tabIn('Options', 'Option C', play()));
+    await until(() => bodyOf(playFrame()).includes('Confirm C'));
+    expect(playing()).toBe('Confirm');
+    expect(inFrame(playFrame(), 'Pay now')).toBeNull();
+    // On Option A, "Pay now" opens Done at its Option A; Back comes to Confirm, still at Option A.
+    await press(tabIn('Options', 'Option A', play()));
+    await until(() => !!inFrame(playFrame(), 'Pay now'));
+    await press(inFrame(playFrame(), 'Pay now'));
+    await until(() => playing() === 'Done' && bodyOf(playFrame()).includes('Done A'));
+    await press(inFrame(playFrame(), 'Back'));
+    await until(() => playing() === 'Confirm');
+    await until(() => bodyOf(playFrame()).includes('Confirm A'));
+    expect(tabIn('Options', 'Option A', play()).getAttribute('aria-selected')).toBe('true');
+    expect(changes).toEqual([]);
+  });
+
+  it('goes to the tab\'s start screen when the screen shown is not in the new tab', async () => {
+    protos.options = options('ab');
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 3);
+    await press(button('Play'));
+    await until(() => !!inFrame(playFrame(), 'Continue'));
+    await press(inFrame(playFrame(), 'Continue'));
+    await until(() => !!inFrame(playFrame(), 'Pay now'));
+    await press(inFrame(playFrame(), 'Pay now'));
+    await until(() => playing() === 'Done');
+    // Done has no Option C, and the marked start, Form, has none either: Play goes to Option C's first screen.
+    await press(tabIn('Options', 'Option C', play()));
+    await until(() => playing() === 'Confirm');
+    await until(() => bodyOf(playFrame()).includes('Confirm C'));
+    expect(changes).toEqual([]);
+  });
+
+  it('starts on Confirm when it is the marked start, and picking Option C sends nothing', async () => {
+    protos.options = options('none', 'confirm');
+    await open('options');
+    await press(tab('Prototype'));
+    await until(() => cards().length === 2);
+    expect(head(cards()[1])).toBe('Confirm v2 Start');
+    await press(button('Play'));
+    await until(() => bodyOf(playFrame()).includes('Confirm B'));
+    expect(playing()).toBe('Confirm');
+    await press(tabIn('Options', 'Option C', play()));
+    await until(() => bodyOf(playFrame()).includes('Confirm C'));
+    await key('Escape');
+    // Back on the map, Option B is still the one shown in use.
+    expect(text(cards()[1].querySelector('.pt-options button[aria-pressed="true"]'))).toBe('Option B');
+    expect(changes).toEqual([]);
+  });
+});
+
 describe('the helpers', () => {
   it('moves through Play: a link goes forward, Back goes back, a broken link or none does nothing', () => {
     expect(lib.playStep(['form'], { screen: 'form', button: 'Continue', to: { screen: 'confirm' } })).toEqual(['form', 'confirm']);
@@ -337,6 +512,17 @@ describe('the helpers', () => {
     expect(lib.playStep(['form'], { screen: 'form', button: 'Back', to: { back: true } })).toBeNull();
     expect(lib.playStep(['form'], { screen: 'form', button: 'X', to: { screen: 'confirm' }, broken: 'button-gone' })).toBeNull();
     expect(lib.playStep(['form'], undefined)).toBeNull();
+  });
+
+  it('switches tab in Play: the same screen when it is in the tab, else the tab\'s start; Back skips screens out of the tab', () => {
+    const C = { id: 'C', label: 'Option C', screens: [{ id: 'form', version: 2 }, { id: 'confirm', version: 3 }], start: 'confirm', links: [] };
+    expect(lib.switchTab(['form', 'confirm'], C)).toEqual(['form', 'confirm']);
+    expect(lib.switchTab(['form', 'confirm', 'done'], C)).toEqual(['form', 'confirm', 'done', 'confirm']);
+    const inC = (id: string) => C.screens.some((x) => x.id === id);
+    expect(lib.playStep(['form', 'done', 'confirm'], { screen: 'confirm', button: 'Back', to: { back: true } }, inC)).toEqual(['form']);
+    expect(lib.playStep(['done', 'confirm'], { screen: 'confirm', button: 'Back', to: { back: true } }, inC)).toBeNull();
+    expect(lib.countLine([{}, {}, {}])).toBe('3 screens');
+    expect(lib.countLine([{}])).toBe('1 screen');
   });
 
   it('draws arrows above the cards, mirrored right to left, and none for Back or broken links', () => {

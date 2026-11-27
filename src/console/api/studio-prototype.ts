@@ -7,9 +7,11 @@ import { LinkBusy, linkProblem, linkWorking, startLinkJob } from '../../engine/s
 /**
  * A sketch's prototype (US-54, AB-179.1), under /api/v1/studio/sketches/<id>/prototype:
  *
- *   GET                         the approved screens at their approved versions, each drawing with its buttons marked,
- *                               the links (working or broken, with a short warning), the start screen, and whether
- *                               Generate works now or what went wrong in the last one. It only reads (AB-127.1).
+ *   GET                         every screen with a drawing, approved or not, by one rule, each
+ *                               drawing and option with its buttons marked, the links (working or broken, with a short
+ *                               warning), the tabs ("In use", "Option A" …) with their screens, start and links checked
+ *                               on each, the start screen, and whether Generate works now or what went wrong in the
+ *                               last one. It only reads (AB-127.1): a tab picked on the page is never sent.
  *   PUT  …/prototype/link       { stamp, screen, button, to: "<screen>" | back: true | neither for no link }
  *   PUT  …/prototype/start      { stamp, screen }
  *   POST …/prototype/generate   { stamp }: the AI Designer links the screens in the background; 409 while it works.
@@ -37,9 +39,10 @@ function prototypeRow(bp: BoardPaths, id: string, map?: PrototypeMap) {
     sketch: { id: sketch.id, name: sketch.name, frames: sketch.frames, stamp: sketch.stamp },
     screens: m.screens,
     links: m.links,
+    tabs: m.tabs,
     start: m.start,
     markedStart: m.markedStart,
-    /** The sketch's screens that are not in the prototype, because they are not approved now. */
+    /** The sketch's screens that are not in the prototype, because they have no drawing yet. */
     left: sketch.screens.filter((s) => !inIt.has(s.id)).map((s) => ({ id: s.id, name: s.name })),
     working: linkWorking(bp, id),
     problem: linkProblem(bp, id),

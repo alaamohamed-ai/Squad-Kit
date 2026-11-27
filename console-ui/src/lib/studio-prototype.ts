@@ -1,8 +1,9 @@
 /**
- * A sketch's prototype on the board (US-54, AB-179.1): what the board server sends, the words the Prototype view and
- * Play use, the arrows of the map, and how Play moves from screen to screen. The server works out the screens, the
- * buttons and which links are broken; each drawing comes with its buttons marked (data-sq-button="<name>"), so the
- * board finds the same buttons the server named, on Desktop and on Mobile.
+ * A sketch's prototype on the board (US-54, US-58, AB-179.1, AB-183.1): what the board server sends, the words the
+ * Prototype view and Play use, the arrows of the map, and how Play moves from screen to screen. The server works out the
+ * screens with their options, the tabs ("In use", "Option A" …) and which links are broken on each tab; each drawing
+ * comes with its buttons marked (data-sq-button="<name>"), so the board finds the same buttons the server named, on
+ * Desktop and on Mobile. The tab picked stays in the open page only: it is never sent or saved (AB-127.1).
  */
 
 import { sketchApiPath, sketchKey } from './studio';
@@ -14,13 +15,27 @@ export interface ProtoButton {
   frames: string[];
 }
 
+/** One drawing of a screen: its one drawing, or one of its options. */
+export interface ProtoDrawing {
+  version: number;
+  /** Its option's letter, when the screen has options. */
+  letter?: string;
+  /** Its option's short name. */
+  name?: string;
+  /** Frame id → its page, with each button marked. */
+  frames: Record<string, string>;
+  buttons: ProtoButton[];
+  rtl: boolean;
+}
+
 export interface ProtoScreen {
   id: string;
   name: string;
-  /** The version it was approved at. */
+  /** The version in use: the approved one, else the one marked "Use this one". */
   version: number;
-  /** Frame id → its drawing, with each button marked. */
-  frames: Record<string, string>;
+  /** Its options A first, or its one drawing. */
+  drawings: ProtoDrawing[];
+  /** Every button over all its drawings. */
   buttons: ProtoButton[];
   rtl: boolean;
 }
@@ -35,16 +50,29 @@ export interface ProtoLink {
   warning?: string;
 }
 
+/** One tab for the whole flow: "In use", or one option. */
+export interface ProtoTab {
+  id: string;
+  label: string;
+  /** Its screens in the screen order, each at the version this tab shows. */
+  screens: { id: string; version: number }[];
+  start: string | null;
+  /** The links checked on this tab. */
+  links: ProtoLink[];
+}
+
 export interface PrototypeData {
   sketch: { id: string; name: string; frames: string[]; stamp: string };
-  /** The approved screens, in the screen order. */
+  /** Every screen with a drawing, in the screen order. */
   screens: ProtoScreen[];
   links: ProtoLink[];
-  /** Where Play starts. */
+  /** "In use" first, then one per option letter. */
+  tabs: ProtoTab[];
+  /** Where Play starts on "In use". */
   start: string | null;
-  /** The start the person marked, approved now or not. */
+  /** The start the person marked, in the prototype now or not. */
   markedStart: string | null;
-  /** The screens not in the prototype, because they are not approved now. */
+  /** The screens not in the prototype, because they have no drawing yet. */
   left: { id: string; name: string }[];
   working: { since: string; doing: string } | null;
   problem: string | null;
@@ -57,18 +85,44 @@ export const prototypeKey = (project: string, sketch: string) => [...sketchKey(p
 export const BUTTON_MARK = 'data-sq-button';
 
 export const GENERATE = 'Generate the prototype';
-export const NO_APPROVED = 'Approve a screen to start the prototype';
+export const NO_SCREENS = 'Draw a screen to start the prototype';
 export const REPLACE_TITLE = 'Replace the links?';
-export const REPLACE_TEXT = 'The AI Designer links every button on the approved screens again. The links you have now, the ones you set by hand too, are replaced.';
+export const REPLACE_TEXT = 'The AI Designer links every button on every screen and option again. The links you have now, the ones you set by hand too, are replaced.';
 
-/** The line above the map: "2 approved screens: Form and Confirm. Done is not approved, so it is not in the prototype." */
-export function approvedLine(data: Pick<PrototypeData, 'screens' | 'left'>): string {
-  const list = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? ''));
-  if (!data.screens.length) return `${NO_APPROVED}.`;
-  const head = `${data.screens.length} approved ${data.screens.length === 1 ? 'screen' : 'screens'}: ${list(data.screens.map((s) => s.name))}.`;
-  if (!data.left.length) return head;
-  const left = data.left.map((s) => s.name);
-  return `${head} ${list(left)} ${left.length === 1 ? 'is' : 'are'} not approved, so ${left.length === 1 ? 'it is' : 'they are'} not in the prototype.`;
+/** The line on the left of the prototype's top row: "3 screens". It counts screens only. */
+export function countLine(screens: unknown[]): string {
+  if (!screens.length) return 'No screens yet';
+  return `${screens.length} ${screens.length === 1 ? 'screen' : 'screens'}`;
+}
+
+/** The tab with this id, else "In use". */
+export function tabOf(data: Pick<PrototypeData, 'tabs'>, id: string | null | undefined): ProtoTab {
+  return data.tabs.find((t) => t.id === id) ?? data.tabs[0]!;
+}
+
+/** A tab's screens, each with the drawing it shows there. */
+export function tabScreens(data: Pick<PrototypeData, 'screens'>, tab: ProtoTab): { screen: ProtoScreen; drawing: ProtoDrawing }[] {
+  return tab.screens.flatMap((t) => {
+    const screen = data.screens.find((s) => s.id === t.id);
+    const drawing = screen?.drawings.find((d) => d.version === t.version);
+    return screen && drawing ? [{ screen, drawing }] : [];
+  });
+}
+
+/** A screen's options, in the client's words: "Option A", "Option B" …; empty for a screen with one drawing. */
+export function optionsOf(screen: ProtoScreen): string[] {
+  return screen.drawings.length > 1 ? screen.drawings.map((d) => `Option ${d.letter}`) : [];
+}
+
+/**
+ * Play changes tab: it stays on the same screen when that screen is in the new tab; otherwise it goes to the tab's
+ * start screen (the marked one when it is in the tab, else the tab's first).
+ */
+export function switchTab(history: string[], tab: ProtoTab): string[] {
+  const current = history[history.length - 1];
+  if (current && tab.screens.some((s) => s.id === current)) return history;
+  const start = tab.start ?? tab.screens[0]?.id;
+  return start ? [...history, start] : history;
 }
 
 const keyOf = (button: string) => button.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -101,12 +155,15 @@ export function targetText(link: ProtoLink | undefined, screens: { id: string; n
 
 /**
  * One click in Play. `history` is the screens shown so far, the current one last. A working link to a screen goes
- * there; Back goes to the screen before (and does nothing on the first one). A broken link, or a button with no link,
- * does nothing: null.
+ * there; Back goes to the screen before that is in the tab (`inTab`; every screen when left out), and does nothing when
+ * there is none. A broken link, or a button with no link, does nothing: null.
  */
-export function playStep(history: string[], link: ProtoLink | undefined): string[] | null {
+export function playStep(history: string[], link: ProtoLink | undefined, inTab?: (screen: string) => boolean): string[] | null {
   if (!link || link.broken) return null;
-  if ('back' in link.to) return history.length > 1 ? history.slice(0, -1) : null;
+  if ('back' in link.to) {
+    for (let i = history.length - 2; i >= 0; i--) if (!inTab || inTab(history[i]!)) return history.slice(0, i + 1);
+    return null;
+  }
   return [...history, link.to.screen];
 }
 

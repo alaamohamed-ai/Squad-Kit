@@ -14,6 +14,7 @@ import {
   type PrototypeSaved,
 } from '../board/studio.js';
 import { checkedStudioId, frameFile } from '../board/studio-paths.js';
+import { buttonKey } from '../board/studio-prototype-map.js';
 import { writeLog } from '../core/app-log.js';
 import { answerAgainPrompt } from './prompts.js';
 import { openDesigner, refusedWords, type DesignerOptions } from './studio-designer.js';
@@ -21,8 +22,9 @@ import { LINKS_SCHEMA, LINK_STEP, checkedLinks, linkPrompt, linksProblem, type C
 import type { StudioPlace } from './studio-places.js';
 
 /**
- * "Generate the prototype" (US-54): the AI Designer links each button on the sketch's approved screens to the screen it
- * should lead to, or Back. It goes through the one Designer runner (AB-141.1), as its own step, "link": it waits for a
+ * "Generate the prototype" (US-54, US-58): the AI Designer links each button on every drawing of every screen in the
+ * prototype (every option of a screen not approved yet, not only the one in use) to the screen it should lead to, or
+ * Back. It goes through the one Designer runner (AB-141.1), as its own step, "link": it waits for a
  * place in the shared limit, reads files only, and its answer is checked (studio-link-prompts.ts) and asked for once
  * more when it does not fit. squad-kit then saves the links whole, replacing the old ones, with the sketch's stamp the
  * person read when they pressed the button (AB-129.1): a change made meanwhile is refused with "Changed elsewhere,
@@ -32,6 +34,9 @@ import type { StudioPlace } from './studio-places.js';
  * one; when it fails, the old links stay and the board reads what went wrong. On a sample board there is no AI: a
  * simple linker links the flow from the buttons' words instead (demoLinks).
  */
+
+/** What Generate says when no screen of the sketch has a drawing yet: the prototype has nothing to link. */
+export const NO_SCREENS = 'Draw a screen to start the prototype.';
 
 /** How long the sample board's linker takes, so "working" can be seen. */
 export const DEMO_LINK_MS = 2500;
@@ -66,22 +71,32 @@ const BACK_WORDS = /\b(?:back|previous|cancel|close)\b|رجوع|عودة|الع�
 const EDIT_WORDS = /\b(?:edit|change)\b|تعديل|تغيير/i;
 
 /**
- * The sample board's linker: no AI. On each approved screen, a button whose words say back (Back, Cancel, رجوع) goes
- * Back, one that says edit (Edit, تعديل) goes to the screen before, and the first other button goes to the next screen.
- * Every other button has no link.
+ * The sample board's linker: no AI. On each drawing of each screen in the prototype (every option too), a button whose
+ * words say back (Back, Cancel, رجوع) goes Back, one that says edit (Edit, تعديل) goes to the screen before, and the
+ * first other button goes to the next screen. Every other button has no link. A button is linked once: the same name on
+ * another option leads to the same place.
  */
 export function demoLinks(map: PrototypeMap): PrototypeLink[] {
   const links: PrototypeLink[] = [];
+  const linked = new Set<string>();
+  const add = (l: PrototypeLink) => {
+    const key = buttonKey(l.screen, l.button);
+    if (linked.has(key)) return;
+    linked.add(key);
+    links.push(l);
+  };
   map.screens.forEach((s, i) => {
     const next = map.screens[i + 1];
     const before = map.screens[i - 1];
-    let forward = false;
-    for (const b of s.buttons) {
-      if (BACK_WORDS.test(b.name)) links.push({ screen: s.id, button: b.name, to: { back: true } });
-      else if (EDIT_WORDS.test(b.name) && before) links.push({ screen: s.id, button: b.name, to: { screen: before.id } });
-      else if (!forward && next && b.kind === 'button') {
-        forward = true;
-        links.push({ screen: s.id, button: b.name, to: { screen: next.id } });
+    for (const d of s.drawings) {
+      let forward = false;
+      for (const b of d.buttons) {
+        if (BACK_WORDS.test(b.name)) add({ screen: s.id, button: b.name, to: { back: true } });
+        else if (EDIT_WORDS.test(b.name) && before) add({ screen: s.id, button: b.name, to: { screen: before.id } });
+        else if (!forward && next && b.kind === 'button') {
+          forward = true;
+          add({ screen: s.id, button: b.name, to: { screen: next.id } });
+        }
       }
     }
   });
@@ -102,7 +117,10 @@ async function designerLinks(bp: BoardPaths, ask: LinkAsk, map: PrototypeMap, sk
       screens: map.screens.map((s) => ({
         id: s.id,
         name: s.name,
-        files: Object.fromEntries(Object.keys(s.frames).map((f) => [f, relative(bp, frameFile(bp, ask.sketch, s.id, s.version, f))])),
+        drawings: s.drawings.map((d) => ({
+          ...(d.letter ? { option: d.letter } : {}),
+          files: Object.fromEntries(Object.keys(d.frames).map((f) => [f, relative(bp, frameFile(bp, ask.sketch, s.id, d.version, f))])),
+        })),
         buttons: s.buttons.map((b) => b.name),
       })),
     });
@@ -123,7 +141,7 @@ async function designerLinks(bp: BoardPaths, ask: LinkAsk, map: PrototypeMap, sk
 }
 
 /**
- * Links the sketch's approved screens once and saves the links. Never throws for what the person can fix: the result
+ * Links the sketch's screens once, every drawing of each, and saves the links. Never throws for what the person can fix: the result
  * says it in plain words, and nothing is saved unless the whole answer fits and the stamp is still the one read.
  */
 export async function runLinker(bp: BoardPaths, ask: LinkAsk, o: DesignerOptions = {}): Promise<LinkResult> {
@@ -132,7 +150,7 @@ export async function runLinker(bp: BoardPaths, ask: LinkAsk, o: DesignerOptions
     const sketch = readSketch(bp, ask.sketch);
     if (!sketch) return { ok: false, error: `This project has no sketch "${ask.sketch}".` };
     const map = prototypeMap(sketch, readPrototypeFile(bp, ask.sketch));
-    if (!map.screens.length) return { ok: false, error: 'Approve a screen to start the prototype.' };
+    if (!map.screens.length) return { ok: false, error: NO_SCREENS };
     let answer: CheckedLinks | { error: string };
     if (readMeta(bp).engine !== 'live') {
       await sleep(demoWait, o.signal);
@@ -185,7 +203,7 @@ export function linkProblem(bp: BoardPaths, sketch: string): string | null {
 
 /**
  * Starts Generate in the background. Refused at once, with nothing started, while one works on the sketch (LinkBusy),
- * when the stamp is old ("Changed elsewhere, reload") or when the sketch has no approved screen.
+ * when the stamp is old ("Changed elsewhere, reload") or when no screen of the sketch has a drawing.
  */
 export function startLinkJob(bp: BoardPaths, ask: LinkAsk): { since: string; doing: string } {
   checkedStudioId(ask.sketch);
@@ -194,7 +212,7 @@ export function startLinkJob(bp: BoardPaths, ask: LinkAsk): { since: string; doi
   checkStudioStamp(bp, { kind: 'sketch', id: ask.sketch }, ask.stamp);
   const sketch = readSketch(bp, ask.sketch);
   if (!sketch) throw new Error(`This project has no sketch "${ask.sketch}".`);
-  if (!prototypeMap(sketch, readPrototypeFile(bp, ask.sketch)).screens.length) throw new Error('Approve a screen to start the prototype.');
+  if (!prototypeMap(sketch, readPrototypeFile(bp, ask.sketch)).screens.length) throw new Error(NO_SCREENS);
   problems.delete(key);
   const controller = new AbortController();
   const job: LinkJob = { since: new Date().toISOString(), doing: 'Linking the screens', controller, done: Promise.resolve() };

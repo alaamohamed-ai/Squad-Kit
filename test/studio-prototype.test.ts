@@ -65,19 +65,19 @@ const map = (id = 'booking') => studio.prototypeMap(sketch(id), studio.readProto
 const linkLines = (id = 'booking') => map(id).links.map((l) => `${l.screen}/${l.button} → ${'back' in l.to ? 'Back' : l.to.screen}${l.broken ? ` (${l.broken})` : ''}`);
 
 /**
- * "Booking" with Form, Confirm and Done, in that order: Form approved at v2 (its v1 had "Next"), Confirm approved at
- * v1, Done drawn but not approved. "Login" with one screen, not approved.
+ * "Booking" with Form, Confirm, Done and Receipt, in that order: Form approved at v2 (its v1 had "Next"), Confirm
+ * approved at v1, Done drawn but not approved (US-58: it is in the prototype too), Receipt with no drawing yet. "Login"
+ * with one screen and no drawing.
  */
 function seedBooking() {
-  let s = studio.saveSketch(bp, { name: 'Booking', frames: ['desktop', 'mobile'], screens: [{ name: 'Form' }, { name: 'Confirm' }, { name: 'Done' }] });
+  let s = studio.saveSketch(bp, { name: 'Booking', frames: ['desktop', 'mobile'], screens: [{ name: 'Form' }, { name: 'Confirm' }, { name: 'Done' }, { name: 'Receipt' }] });
   s = studio.addVariant(bp, 'booking', 'form', { frames: FORM_V1 }, s.stamp);
   s = studio.addVariant(bp, 'booking', 'form', { frames: FORM, choose: true }, s.stamp);
   s = studio.addVariant(bp, 'booking', 'confirm', { frames: CONFIRM }, s.stamp);
   s = studio.addVariant(bp, 'booking', 'done', { frames: DONE }, s.stamp);
   s = studio.approveScreen(bp, 'booking', 'form', s.stamp, { by: 'Alaa' }).sketch;
   s = studio.approveScreen(bp, 'booking', 'confirm', s.stamp, { by: 'Alaa' }).sketch;
-  let l = studio.saveSketch(bp, { name: 'Login', frames: ['desktop'], screens: [{ name: 'Sign in' }] });
-  l = studio.addVariant(bp, 'login', 'sign-in', { frames: { desktop: page('<button>Sign in</button>') } }, l.stamp);
+  studio.saveSketch(bp, { name: 'Login', frames: ['desktop'], screens: [{ name: 'Sign in' }] });
   return s;
 }
 
@@ -147,14 +147,17 @@ describe('the buttons of a drawing, named the same on every frame', () => {
   });
 });
 
-describe('done when 1: the Prototype tab shows the approved screens at their approved version, with a start screen', () => {
-  it('shows Form and Confirm, each at the version it was approved at, and leaves Done out; Form is the start', () => {
+describe('done when 1: the Prototype tab shows every drawn screen at its drawing in use, with a start screen', () => {
+  it('shows Form and Confirm at the version each was approved at, and Done; Receipt is left out; Form is the start', () => {
     const m = map();
     expect(m.screens.map((s) => [s.name, s.version])).toEqual([
       ['Form', 2],
       ['Confirm', 1],
+      ['Done', 1],
     ]);
-    expect(m.screens[0]!.frames.desktop).toContain('data-sq-button="Continue"');
+    // Form's v1 came from no ask, so it is not one of Form's options: Form has its drawing in use only.
+    expect(m.screens[0]!.drawings.map((d) => d.version)).toEqual([2]);
+    expect(m.screens[0]!.drawings[0]!.frames.desktop).toContain('data-sq-button="Continue"');
     expect(m.start).toBe('form');
     expect(m.markedStart).toBeNull();
   });
@@ -168,14 +171,14 @@ describe('done when 1: the Prototype tab shows the approved screens at their app
     expect(map().start).toBe('confirm');
     expect(fs.readFileSync(prototypeFile(bp, 'booking'), 'utf8')).toMatch(/start: confirm/);
     expect(sketch().lastEdit).toMatchObject({ by: 'Alaa' });
-    // Only an approved screen can be the start.
-    expect(() => studio.setPrototypeStart(bp, 'booking', 'done', sketch().stamp)).toThrow(/not an approved screen/);
+    // Any screen in the prototype can be the start; one with no drawing cannot.
+    expect(() => studio.setPrototypeStart(bp, 'booking', 'receipt', sketch().stamp)).toThrow('Receipt has no drawing yet, so it is not in the prototype. Draw it first, then make it the start.');
   });
 
-  it('has nothing for "Login", where no screen is approved, and Generate is refused there', () => {
+  it('has nothing for "Login", where no screen has a drawing, and Generate is refused there', () => {
     expect(map('login').screens).toEqual([]);
     expect(map('login').start).toBeNull();
-    expect(() => startLinkJob(bp, { sketch: 'login', stamp: sketch('login').stamp })).toThrow('Approve a screen to start the prototype.');
+    expect(() => startLinkJob(bp, { sketch: 'login', stamp: sketch('login').stamp })).toThrow('Draw a screen to start the prototype.');
   });
 
   it('writes nothing when the prototype is read', () => {
@@ -220,11 +223,11 @@ describe('done when 3: a link set by hand, saved with the sketch', () => {
     expect(screenFiles()).toEqual(before);
   });
 
-  it('refuses a button the drawing does not have, a screen that is not approved, and a link to its own screen', () => {
+  it('refuses a button the drawing does not have, a screen with no drawing, and a link to its own screen', () => {
     const stamp = sketch().stamp;
     expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Pay', to: { screen: 'confirm' } }, stamp)).toThrow('Form has no button "Pay"');
-    expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Continue', to: { screen: 'done' } }, stamp)).toThrow(/not an approved screen/);
-    expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'done', button: 'Home', to: { screen: 'form' } }, stamp)).toThrow(/not an approved screen/);
+    expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Continue', to: { screen: 'receipt' } }, stamp)).toThrow('Receipt has no drawing yet, so it is not in the prototype. Pick a screen in it, Back or no link.');
+    expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'receipt', button: 'Home', to: { screen: 'form' } }, stamp)).toThrow('Receipt has no drawing yet, so it is not in the prototype. Draw it first, then link it.');
     expect(() => studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Continue', to: { screen: 'form' } }, stamp)).toThrow(/cannot lead to Form itself/);
     expect(fs.existsSync(prototypeFile(bp, 'booking'))).toBe(false);
   });
@@ -236,8 +239,8 @@ describe('done when 3: a link set by hand, saved with the sketch', () => {
       { name: 'Continue', kind: 'button', frames: ['desktop', 'mobile'] },
       { name: 'Help', kind: 'link', frames: ['desktop'] },
     ]);
-    expect(form.frames.desktop).toContain('data-sq-button="Continue"');
-    expect(form.frames.mobile).toContain('data-sq-button="Continue"');
+    expect(form.drawings[0]!.frames.desktop).toContain('data-sq-button="Continue"');
+    expect(form.drawings[0]!.frames.mobile).toContain('data-sq-button="Continue"');
   });
 
   it('lives in the sketch\'s own folder, so a teammate gets it through git with the sketch', () => {
@@ -275,21 +278,24 @@ describe('done when 5: a changed or reopened screen', () => {
     expect(linkLines()).toEqual(['confirm/Edit → form']);
   });
 
-  it('leaves Confirm out while it is reopened, with links to it broken, its own links kept and Play starting from Form', () => {
+  it('keeps Confirm in while it is reopened (US-58), with its links working and Play starting there', () => {
     const stamp = linked();
     studio.reopenScreen(bp, 'booking', 'confirm', stamp);
-    let m = map();
-    expect(m.screens.map((s) => s.name)).toEqual(['Form']);
-    expect(m.links).toEqual([expect.objectContaining({ screen: 'form', button: 'Continue', broken: 'screen-off', warning: 'Confirm is not approved now, so this link is off.' })]);
-    expect(m.start).toBe('form');
-    expect(m.markedStart).toBe('confirm');
-    expect(studio.readPrototypeFile(bp, 'booking').links.map((l) => l.button)).toEqual(['Continue', 'Edit']);
-
-    studio.approveScreen(bp, 'booking', 'confirm', sketch().stamp);
-    m = map();
-    expect(m.screens.map((s) => s.name)).toEqual(['Form', 'Confirm']);
+    const m = map();
+    expect(m.screens.map((s) => s.name)).toEqual(['Form', 'Confirm', 'Done']);
     expect(linkLines()).toEqual(['form/Continue → confirm', 'confirm/Edit → form']);
     expect(m.start).toBe('confirm');
+  });
+
+  it('shows a link to a screen with no drawing as broken, with the start back on the first screen, and fixes nothing', () => {
+    // A teammate's file, through git, links Form to Receipt and starts on it: Receipt has no drawing here.
+    fs.writeFileSync(prototypeFile(bp, 'booking'), 'start: receipt\nlinks:\n  - { screen: form, button: Continue, to: receipt }\n  - { screen: receipt, button: Home, to: form }\n');
+    const m = map();
+    expect(m.links).toEqual([expect.objectContaining({ screen: 'form', button: 'Continue', broken: 'screen-off', warning: 'Receipt has no drawing yet, so this link is off.' })]);
+    expect(m.tabs[0]!.links).toEqual(m.links);
+    expect(m.start).toBe('form');
+    expect(m.markedStart).toBe('receipt');
+    expect(studio.readPrototypeFile(bp, 'booking').links.map((l) => l.screen)).toEqual(['form', 'receipt']);
   });
 });
 
@@ -303,18 +309,16 @@ describe('done when 2: Generate the prototype', () => {
     await linkJobsDone();
     expect(linkWorking(bp, 'booking')).toBeNull();
     expect(linkProblem(bp, 'booking')).toBeNull();
-    expect(linkLines()).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Edit → form']);
+    expect(linkLines()).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Edit → form', 'confirm/Book visit → done']);
     expect(fs.readFileSync(prototypeFile(bp, 'booking'), 'utf8')).toMatch(/by: AI Designer/);
   });
 
-  it('replaces the old links, and keeps those of a screen that is reopened now', async () => {
-    let stamp = studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Help', to: { screen: 'confirm' } }, sketch().stamp).stamp;
-    stamp = studio.setPrototypeLink(bp, 'booking', { screen: 'confirm', button: 'Book visit', to: { screen: 'form' } }, stamp).stamp;
-    stamp = studio.reopenScreen(bp, 'booking', 'confirm', stamp).sketch.stamp;
-    startLinkJob(bp, { sketch: 'booking', stamp });
+  it('replaces the old links, and keeps those of a screen out of the prototype now', async () => {
+    fs.writeFileSync(prototypeFile(bp, 'booking'), 'links:\n  - { screen: form, button: Help, to: confirm }\n  - { screen: receipt, button: Home, to: form }\n');
+    startLinkJob(bp, { sketch: 'booking', stamp: sketch().stamp });
     await linkJobsDone();
-    // Form's Help link is replaced; Confirm's own link stays in the file for when it is approved again.
-    expect(studio.readPrototypeFile(bp, 'booking').links.map((l) => `${l.screen}/${l.button}`)).toEqual(['confirm/Book visit']);
+    // Form's Help link is replaced; Receipt's own link stays in the file for when it has a drawing.
+    expect(studio.readPrototypeFile(bp, 'booking').links.map((l) => `${l.screen}/${l.button}`)).toEqual(['receipt/Home', 'form/Continue', 'confirm/Back', 'confirm/Edit', 'confirm/Book visit']);
   });
 
   it('keeps the old links and says what went wrong when the sketch changed meanwhile', async () => {
@@ -335,7 +339,7 @@ describe('done when 2: Generate the prototype', () => {
   });
 
   it('the sample linker: back words go Back, edit words to the screen before, the first other button to the next screen', () => {
-    expect(demoLinks(map()).map((l) => `${l.screen}/${l.button} → ${'back' in l.to ? 'Back' : l.to.screen}`)).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Edit → form']);
+    expect(demoLinks(map()).map((l) => `${l.screen}/${l.button} → ${'back' in l.to ? 'Back' : l.to.screen}`)).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Edit → form', 'confirm/Book visit → done']);
   });
 });
 
@@ -346,7 +350,7 @@ describe('done when 2: the AI Designer\'s Link step, through the one Designer ru
   const run = () => runLinker(bp, { sketch: 'booking', stamp: sketch().stamp, for: 'Alaa' }, { place: async () => () => undefined });
   const good = { links: [{ screen: 'form', button: 'Continue', to: 'confirm' }, { screen: 'form', button: 'Help', to: 'NONE' }, { screen: 'confirm', button: 'Back', to: 'BACK' }, { screen: 'confirm', button: 'Edit', to: 'form' }], note: 'Form leads to Confirm.' };
 
-  it('is given the approved screens and the buttons squad-kit found, reads files only, and saves the checked links', async () => {
+  it('is given every drawn screen and the buttons squad-kit found, reads files only, and saves the checked links', async () => {
     answers.push(good);
     const r = await run();
     expect(r).toMatchObject({ ok: true, note: 'Form leads to Confirm.' });
@@ -354,7 +358,8 @@ describe('done when 2: the AI Designer\'s Link step, through the one Designer ru
     expect(calls[0]!.prompt).toContain('- Form (id form)');
     expect(calls[0]!.prompt).toContain('"Continue"');
     expect(calls[0]!.prompt).toContain('.squad/studio/sketches/booking/screens/form/v2/desktop.html');
-    expect(calls[0]!.prompt).not.toContain('Done (id done)');
+    expect(calls[0]!.prompt).toContain('- Done (id done)');
+    expect(calls[0]!.prompt).not.toContain('Receipt (id receipt)');
     expect(calls[0]!.schema).toEqual(LINKS_SCHEMA);
     expect(linkLines()).toEqual(['form/Continue → confirm', 'confirm/Back → Back', 'confirm/Edit → form']);
     expect(fs.readFileSync(prototypeFile(bp, 'booking'), 'utf8')).toMatch(/by: AI Designer\n\s+for: Alaa/);
@@ -371,9 +376,9 @@ describe('done when 2: the AI Designer\'s Link step, through the one Designer ru
 
   it('keeps the old links and says what went wrong when the answer does not fit twice', async () => {
     studio.setPrototypeLink(bp, 'booking', { screen: 'form', button: 'Help', to: { screen: 'confirm' } }, sketch().stamp);
-    answers.push({ links: [{ screen: 'done', button: 'Home', to: 'form' }], note: 'x' }, { links: [{ screen: 'done', button: 'Home', to: 'form' }], note: 'x' });
+    answers.push({ links: [{ screen: 'receipt', button: 'Home', to: 'form' }], note: 'x' }, { links: [{ screen: 'receipt', button: 'Home', to: 'form' }], note: 'x' });
     const r = await run();
-    expect(r).toEqual({ ok: false, error: expect.stringContaining('The Designer\'s answer could not be used: link 1 names the screen "done"') });
+    expect(r).toEqual({ ok: false, error: expect.stringContaining('The Designer\'s answer could not be used: link 1 names the screen "receipt"') });
     expect(linkLines()).toEqual(['form/Help → confirm']);
   });
 
@@ -389,7 +394,7 @@ describe('done when 2: the AI Designer\'s Link step, through the one Designer ru
     const m = map();
     expect(linksProblem(good, m)).toBeNull();
     expect(linksProblem({ note: 'x' }, m)).toBe('the answer has no list of links');
-    expect(linksProblem({ links: [{ screen: 'form', button: 'Continue', to: 'done' }], note: '' }, m)).toMatch(/leads to "done", which is not an approved screen's id/);
+    expect(linksProblem({ links: [{ screen: 'form', button: 'Continue', to: 'receipt' }], note: '' }, m)).toMatch(/leads to "receipt", which is not a listed screen's id/);
     expect(linksProblem({ links: [{ screen: 'form', button: 'Continue', to: 'form' }], note: '' }, m)).toMatch(/leads to its own screen/);
     expect(linksProblem({ links: [{ screen: 'form', button: 'Continue', to: 'BACK' }, { screen: 'form', button: 'continue', to: 'NONE' }], note: '' }, m)).toMatch(/linked twice/);
     expect(linkPrompt({ project: 'p', sketch: 'S', screens: [] })).toContain('BACK');
@@ -406,14 +411,16 @@ describe('the routes', () => {
   const post = (body: unknown, id = 'booking') => app.request(`/api/v1/studio/sketches/${id}/prototype/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const get = async (id = 'booking') => (await (await app.request(`/api/v1/studio/sketches/${id}/prototype`)).json()) as any;
 
-  it('reads the prototype: the approved screens, the links, the start, the screens left out, and writes nothing', async () => {
+  it('reads the prototype: the drawn screens, the links, the tabs, the start, the screens left out, and writes nothing', async () => {
     const before = snapshot();
     const p = await get();
     expect(p.screens.map((s: any) => [s.id, s.version])).toEqual([
       ['form', 2],
       ['confirm', 1],
+      ['done', 1],
     ]);
-    expect(p.left).toEqual([{ id: 'done', name: 'Done' }]);
+    expect(p.tabs.map((t: any) => t.label)).toEqual(['In use']);
+    expect(p.left).toEqual([{ id: 'receipt', name: 'Receipt' }]);
     expect(p).toMatchObject({ start: 'form', markedStart: null, links: [], working: null, problem: null, sketch: { id: 'booking', name: 'Booking', frames: ['desktop', 'mobile'] } });
     expect((await get('login')).screens).toEqual([]);
     expect(snapshot()).toEqual(before);
@@ -448,33 +455,42 @@ describe('the routes', () => {
     await linkJobsDone();
     const done = (await (await app.request('/api/v1/studio/sketches/booking/prototype/generate')).json()) as any;
     expect(done).toEqual({ working: null, problem: null });
-    expect((await get()).links).toHaveLength(3);
-    // "Login" has no approved screen: refused, nothing started.
+    expect((await get()).links).toHaveLength(4);
+    // "Login" has no drawn screen: refused, nothing started.
     const login = await post({ stamp: (await get('login')).sketch.stamp }, 'login');
     expect(login.status).toBe(400);
-    expect(((await login.json()) as any).error).toBe('Approve a screen to start the prototype.');
+    expect(((await login.json()) as any).error).toBe('Draw a screen to start the prototype.');
   });
 });
 
 describe('the sample board', () => {
-  it('has Booking linked with an icon-only back button and one broken link, and "الحجز" linked right to left', () => {
+  it('has Booking linked with Form\'s options, an icon-only back button and one broken link, and "الحجز" linked right to left', () => {
     const demo = boardPaths(path.join(tmp, 'demo', '.squad'));
     seedDemoStudio(demo);
     const read = (id: string) => studio.prototypeMap(studio.readSketch(demo, id)!, studio.readPrototypeFile(demo, id));
     const booking = read('booking');
-    expect(booking.screens.map((s) => s.name)).toEqual(['Home', 'Confirm']);
+    expect(booking.screens.map((s) => s.name)).toEqual(['Home', 'Form', 'Confirm']);
+    expect(booking.tabs.map((t) => t.label)).toEqual(['In use', 'Option A', 'Option B', 'Option C']);
     expect(booking.links.map((l) => [l.screen, l.button, l.broken ?? 'ok'])).toEqual([
       ['home', 'Book a follow-up', 'ok'],
+      ['form', 'Book visit', 'ok'],
+      ['form', 'Next', 'ok'],
       ['confirm', 'Back', 'ok'],
       ['confirm', 'Change the day', 'button-gone'],
     ]);
-    expect(booking.screens[1]!.frames.desktop).toMatch(/<button aria-label="Back" style="[^"]*" data-sq-button="Back">‹<\/button>/);
+    // "Book visit" is on Options A and C; on B (in use) Play skips it, and "Next" works.
+    expect(booking.tabs[0]!.links.find((l) => l.button === 'Book visit')).toMatchObject({ broken: 'button-gone' });
+    expect(booking.tabs[0]!.links.find((l) => l.button === 'Next')!.broken).toBeUndefined();
+    // Home and Confirm have one drawing with no letter: they are in "In use" only, so Option A holds Form alone.
+    expect(booking.tabs[1]!.screens.map((s) => s.id)).toEqual(['form']);
+    expect(booking.tabs[1]!.links.find((l) => l.button === 'Book visit')).toMatchObject({ broken: 'screen-off', warning: 'Confirm has no Option A, so this link is off here.' });
+    expect(booking.screens[2]!.drawings[0]!.frames.desktop).toMatch(/<button aria-label="Back" style="[^"]*" data-sq-button="Back">‹<\/button>/);
     const arabic = read('arabic-booking');
     expect(arabic.screens.map((s) => [s.name, s.rtl])).toEqual([
       ['نموذج الحجز', true],
       ['تأكيد الحجز', true],
     ]);
     expect(arabic.links.every((l) => !l.broken)).toBe(true);
-    expect(read('login').screens).toEqual([]);
+    expect(read('profile').screens).toEqual([]);
   });
 });

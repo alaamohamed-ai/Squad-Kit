@@ -27,7 +27,7 @@ import { useMarkStudioSeen } from '../../lib/studio-seen';
    while it is approved, its "Use this one" and its tab's Delete are off, and the chat says the Designer leaves it.
    The header's ⋯ menu (SketchMenu.tsx) has Rename, Duplicate and Delete, and the Export group (US-46).
    "Screens | Prototype" in the header, right after the sketch's name (US-54): the sketch opens on Screens; on Prototype the chat is hidden
-   (it stays as it was, for coming back) and the approved screens' map takes the full width (PrototypeView.tsx).
+   (it stays as it was, for coming back) and the prototype's map takes the full width, with its own one top row (PrototypeView.tsx).
    While the AI Designer draws (US-57), the screen shows the work's frames, A, B, C, each drawing as soon as it is done,
    or its current drawing marked "Redrawing"; drawings that could not save stay "Not saved" (DraftFrames.tsx). */
 
@@ -194,9 +194,10 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
             <aside className="dc" aria-label="Chat with the AI Designer" />
           )}
           <section className="ws-main" aria-label={proto ? 'Prototype' : 'Screens'}>
-            {s && (
+            {/* On Prototype, its own one row holds the frame switch (US-58): no second row. */}
+            {s && !proto && (
               <div className="ws-bar">
-                {proto ? <span className="grow" /> : <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />}
+                <ScreenTabs sketch={s} screens={screens} selected={screen?.id} onSelect={(x) => choose({ screen: x })} onChanged={answered} />
                 {frames.length > 0 && (
                   <div className="seg ws-frames" role="tablist" aria-label="Frames">
                     {frames.map((f) => (
@@ -209,7 +210,7 @@ export function SketchWorkspace({ project, id }: { project: string; id: string }
               </div>
             )}
             {s && proto ? (
-              <PrototypeView project={project} sketch={s.id} frame={frame} onChanged={answered} />
+              <PrototypeView project={project} sketch={s.id} frame={frame} frames={frames} onFrame={(f) => choose({ frame: f })} onChanged={answered} />
             ) : (
               <div className="ws-view">
                 {s && frame && shown.length === 1 && shown[0]!.redraw ? (

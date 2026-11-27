@@ -4,9 +4,10 @@ import type { PrototypeLink } from '../board/studio-prototype.js';
 import { asData } from './prompts.js';
 
 /**
- * What the AI Designer reads in its Link step (US-54, "Generate the prototype"), and the one shape its answer comes back
- * in. It is given the sketch's approved screens, the pages of each at its approved version, and the buttons squad-kit
- * found on them, by name. It hands in, for each button, the screen it should lead to, Back, or no link; squad-kit checks
+ * What the AI Designer reads in its Link step (US-54, US-58, "Generate the prototype"), and the one shape its answer
+ * comes back in. It is given every screen in the prototype, approved or not, the pages of each of its drawings (every
+ * option A, B, C, or its one drawing; an approved screen at its approved version), and the buttons squad-kit found over
+ * all of them, by name: a link belongs to the screen and the button's name, so it works the same on every option. It hands in, for each button, the screen it should lead to, Back, or no link; squad-kit checks
  * the answer (linksProblem) and saves it only whole (engine/studio-link.ts). It draws nothing.
  */
 
@@ -32,12 +33,18 @@ export const LINKS_SCHEMA = {
   required: ['links', 'note'],
 } as const;
 
-/** One approved screen in the brief: its id, its name, its pages at the approved version, and its buttons' names. */
+/** One drawing of a screen in the brief: its option's letter when the screen has options, and its pages. */
+export interface LinkBriefDrawing {
+  option?: string;
+  /** Frame id → the page's file, relative to the project folder. */
+  files: Record<string, string>;
+}
+
+/** One screen in the brief: its id, its name, the pages of each of its drawings, and its buttons' names over all of them. */
 export interface LinkBriefScreen {
   id: string;
   name: string;
-  /** Frame id → the page's file, relative to the project folder. */
-  files: Record<string, string>;
+  drawings: LinkBriefDrawing[];
   buttons: string[];
 }
 
@@ -52,21 +59,27 @@ export interface LinkBrief {
 export function linkPrompt(b: LinkBrief): string {
   const screens = b.screens
     .map((s) => {
-      const files = Object.entries(s.files).map(([frame, file]) => `${frame}: ${file}`);
+      const pages = s.drawings
+        .map((d) => {
+          const files = Object.entries(d.files).map(([frame, file]) => `${frame}: ${file}`);
+          return files.length ? `${d.option ? `Option ${d.option} pages` : 'pages'} ${files.join(', ')}` : '';
+        })
+        .filter(Boolean);
       const buttons = s.buttons.length ? s.buttons.map((x) => `  - ${JSON.stringify(x)}`).join('\n') : '  (no buttons)';
-      return `- ${s.name} (id ${s.id})${files.length ? `, pages ${files.join(', ')}` : ''}\n  Buttons:\n${buttons}`;
+      return `- ${s.name} (id ${s.id})${pages.length ? `, ${pages.join('; ')}` : ''}\n  Buttons:\n${buttons}`;
     })
     .join('\n');
   return [
     `Project: ${b.project}`,
-    'Your step: link the approved screens of the sketch into a clickable prototype, so the person and the client can click through the whole flow. You draw nothing and change no page.',
-    asData('The sketch', `Name: ${b.sketch}\nApproved screens, in the order a user meets them:\n${screens}`),
+    'Your step: link the screens of the sketch into a clickable prototype, so the person and the client can click through the whole flow and try each option. You draw nothing and change no page.',
+    asData('The sketch', `Name: ${b.sketch}\nScreens, in the order a user meets them:\n${screens}`),
     [
-      'Read each page first, so you see where each button sits and what it says. Then, for every button squad-kit listed:',
+      'Read each page first, every option of a screen too, so you see where each button sits and what it says. Then, for every button squad-kit listed:',
       '- "to" is the id of the screen it should lead to, as a user would expect;',
       `- or "${TO_BACK}" when it goes back to the screen before (a back arrow, Cancel, Edit on a summary);`,
       `- or "${TO_NONE}" when it leads nowhere in these screens (a menu, a help link, a screen that is not drawn).`,
       'Name each button exactly as listed, and each screen by its id. A button never leads to its own screen.',
+      'A screen drawn as options (Option A, B, C) has one list of buttons for all its options: a button with the same name leads to the same place on every option that has it, so link each button once.',
       'Hand in your whole answer in the shape squad-kit asks for, with a note of one or two plain sentences on the flow you linked.',
     ].join('\n'),
   ].join('\n\n');
@@ -74,13 +87,18 @@ export function linkPrompt(b: LinkBrief): string {
 
 /** A brief for the Agents page, so the team sees what the Link step reads before it starts. */
 export function exampleLinkBrief(project: string): LinkBrief {
-  const page = (screen: string, frame: string) => `.squad/studio/sketches/booking/screens/${screen}/v1/${frame}.html`;
+  const page = (screen: string, frame: string, v = 1) => `.squad/studio/sketches/booking/screens/${screen}/v${v}/${frame}.html`;
   return {
     project,
     sketch: 'Booking',
     screens: [
-      { id: 'form', name: 'Form', files: { desktop: page('form', 'desktop'), mobile: page('form', 'mobile') }, buttons: ['Continue', 'Help'] },
-      { id: 'confirm', name: 'Confirm', files: { desktop: page('confirm', 'desktop'), mobile: page('confirm', 'mobile') }, buttons: ['Icon button 1', 'Edit', 'Book visit'] },
+      { id: 'form', name: 'Form', drawings: [{ files: { desktop: page('form', 'desktop'), mobile: page('form', 'mobile') } }], buttons: ['Continue', 'Help'] },
+      {
+        id: 'confirm',
+        name: 'Confirm',
+        drawings: ['A', 'B'].map((option, i) => ({ option, files: { desktop: page('confirm', 'desktop', i + 1), mobile: page('confirm', 'mobile', i + 1) } })),
+        buttons: ['Icon button 1', 'Edit', 'Book visit', 'Pay now'],
+      },
     ],
   };
 }
@@ -105,7 +123,7 @@ export function linksProblem(answer: unknown, map: PrototypeMap): string | null 
     const screen = x.screen.trim();
     const asked = x.button;
     const from = map.screens.find((s) => s.id === screen);
-    if (!from) return `link ${i + 1} names the screen "${screen.slice(0, 40)}", which is not one of the approved screens' ids`;
+    if (!from) return `link ${i + 1} names the screen "${screen.slice(0, 40)}", which is not one of the listed screens' ids`;
     const button = from.buttons.find((b) => buttonKey(from.id, b.name) === buttonKey(from.id, asked));
     if (!button) return `link ${i + 1} names the button "${asked.slice(0, 60)}", which ${from.name} does not have`;
     const key = buttonKey(from.id, button.name);
@@ -113,7 +131,7 @@ export function linksProblem(answer: unknown, map: PrototypeMap): string | null 
     seen.add(key);
     const to = x.to.trim();
     if (to === TO_BACK || to === TO_NONE) continue;
-    if (!map.screens.some((s) => s.id === to)) return `link ${i + 1} leads to "${to.slice(0, 40)}", which is not an approved screen's id, ${TO_BACK} or ${TO_NONE}`;
+    if (!map.screens.some((s) => s.id === to)) return `link ${i + 1} leads to "${to.slice(0, 40)}", which is not a listed screen's id, ${TO_BACK} or ${TO_NONE}`;
     if (to === from.id) return `the button "${button.name}" on ${from.name} leads to its own screen`;
   }
   return null;

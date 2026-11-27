@@ -2,11 +2,11 @@ import type { BoardPaths } from './store.js';
 import { isPlain } from './shape.js';
 import { checkedStudioId, prototypeFile } from './studio-paths.js';
 import { plainFile, readYamlFile } from './studio-files.js';
-import { readSketch, type EditMark } from './studio-read.js';
+import { readSketch, type EditMark, type Sketch } from './studio-read.js';
 import { changeStudioItem, writeMarked, type EditBy } from './studio-write.js';
 import { MAX_BUTTON_NAME, buttonKey, prototypeMap, type PrototypeMap } from './studio-prototype-map.js';
 
-export { findButtons, prototypeMap, type PrototypeMap } from './studio-prototype-map.js';
+export { findButtons, prototypeMap, tabDrawing, IN_USE_TAB, type PrototypeMap, type PrototypeTab, type PrototypeScreen, type PrototypeDrawing } from './studio-prototype-map.js';
 
 /**
  * A sketch's prototype (US-54, AB-179.1), part of the Studio store: studio.ts gives these out again. It is kept in one
@@ -19,11 +19,12 @@ export { findButtons, prototypeMap, type PrototypeMap } from './studio-prototype
  *     - { screen: form, button: Continue, to: confirm }
  *     - { screen: confirm, button: Back, back: true }
  *
- * Approved screens stay locked (AB-140.1): links never touch a screen's own file or its drawing, so linking an approved
- * screen is not a change to it and its lock does not refuse it. Every change runs under the Studio lock with the
+ * Every screen with a drawing is in the prototype, approved or not (US-58), and a link is kept by the button's name, so
+ * one link works on every option of a screen. Approved screens stay locked (AB-140.1): links never touch a screen's own
+ * file or its drawing, so linking an approved screen is not a change to it and its lock does not refuse it. Every change runs under the Studio lock with the
  * sketch's stamp the person read (AB-129.1), and is marked with who and when (AB-131.1). Reading writes nothing and
- * fixes nothing (AB-127.1): a link whose button is gone, or whose screen is not approved now, stays in the file and is
- * shown as broken (studio-prototype-map.ts). Later stories (the HTML export, linking from the chat) read and save this
+ * fixes nothing (AB-127.1): a link whose button is gone, or whose screen is out of the prototype or of a tab, stays in
+ * the file and is shown as broken there (studio-prototype-map.ts). Later stories (the HTML export, linking from the chat) read and save this
  * same file through here.
  */
 
@@ -40,7 +41,7 @@ export interface PrototypeLink {
 
 /** `prototype.yaml`. */
 export interface PrototypeFile {
-  /** The start screen the person marked; left out, the first approved screen in the screen order. */
+  /** The start screen the person marked; left out, the first screen in the prototype, in the screen order. */
   start?: string;
   links: PrototypeLink[];
   /** The last change this file saved (AB-131.1). */
@@ -117,26 +118,32 @@ function fileText(p: PrototypeFile): PrototypeFile {
   };
 }
 
-/** The sketch's prototype as it reads now, under the lock. */
-function mapNow(bp: BoardPaths, sketch: string): PrototypeMap {
+/** The sketch, and its prototype as it reads now, under the lock. */
+function mapNow(bp: BoardPaths, sketch: string): { sketch: Sketch; map: PrototypeMap } {
   const s = readSketch(bp, sketch);
   if (!s) throw new Error(`This project has no sketch "${sketch}".`);
-  return prototypeMap(s, readPrototypeFile(bp, sketch));
+  return { sketch: s, map: prototypeMap(s, readPrototypeFile(bp, sketch)) };
+}
+
+/** Why a screen is not in the prototype, in words: it has no drawing yet, or the sketch has no such screen. */
+function notInPrototype(sketch: Sketch, screen: string): string {
+  const s = sketch.screens.find((x) => x.id === screen);
+  return s ? `${s.name} has no drawing yet, so it is not in the prototype.` : `This sketch has no screen "${screen}".`;
 }
 
 /**
- * The checks one link must pass to be saved: its screen is in the prototype now (approved), its button is on that
- * screen's approved drawing, and it leads to another screen in the prototype, or Back.
+ * The checks one link must pass to be saved: its screen is in the prototype now (it has a drawing), its button is on one
+ * of that screen's drawings (any option), and it leads to another screen in the prototype, or Back.
  */
-function checkLink(map: PrototypeMap, link: PrototypeLink): PrototypeLink {
+function checkLink(sketch: Sketch, map: PrototypeMap, link: PrototypeLink): PrototypeLink {
   const from = map.screens.find((s) => s.id === link.screen);
-  if (!from) throw new Error(`"${link.screen}" is not an approved screen of this sketch. Approve it first, then link it.`);
+  if (!from) throw new Error(`${notInPrototype(sketch, link.screen)} Draw it first, then link it.`);
   const button = from.buttons.find((b) => buttonKey(from.id, b.name) === buttonKey(link.screen, link.button));
   if (!button) throw new Error(`${from.name} has no button "${link.button}". Pick one of its buttons.`);
   if ('screen' in link.to) {
     const target = link.to.screen;
     const to = map.screens.find((s) => s.id === target);
-    if (!to) throw new Error(`"${target}" is not an approved screen of this sketch. Pick an approved screen, Back or no link.`);
+    if (!to) throw new Error(`${notInPrototype(sketch, target)} Pick a screen in it, Back or no link.`);
     if (to.id === from.id) throw new Error(`A button on ${from.name} cannot lead to ${from.name} itself. Pick another screen, Back or no link.`);
   }
   // Kept with the name its drawing gives it.
@@ -155,7 +162,8 @@ export interface PrototypeSaved {
 }
 
 function saved(bp: BoardPaths, sketch: string): PrototypeSaved {
-  return { map: mapNow(bp, sketch), stamp: readSketch(bp, sketch)!.stamp };
+  const now = mapNow(bp, sketch);
+  return { map: now.map, stamp: now.sketch.stamp };
 }
 
 /**
@@ -174,7 +182,8 @@ export function setPrototypeLink(bp: BoardPaths, sketch: string, link: { screen:
     const others = before.links.filter((l) => buttonKey(l.screen, l.button) !== key);
     let links = others;
     if (link.to) {
-      const next = checkLink(mapNow(bp, sketch), { screen: link.screen, button, to: link.to });
+      const now = mapNow(bp, sketch);
+      const next = checkLink(now.sketch, now.map, { screen: link.screen, button, to: link.to });
       // The link keeps its place in the file, so changing it shows as one line in git.
       const at = before.links.findIndex((l) => buttonKey(l.screen, l.button) === key);
       links = at >= 0 ? before.links.map((l, i) => (i === at ? next : l)) : [...before.links, next];
@@ -185,13 +194,13 @@ export function setPrototypeLink(bp: BoardPaths, sketch: string, link: { screen:
   });
 }
 
-/** Marks the start screen (US-54): one of the approved screens. Play starts there while it is approved. */
+/** Marks the start screen (US-54, US-58): any screen in the prototype. Play starts there on every tab it is in. */
 export function setPrototypeStart(bp: BoardPaths, sketch: string, screen: string, stamp: string, who: EditBy = {}): PrototypeSaved {
   checkedStudioId(sketch);
   checkedStudioId(screen);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    const map = mapNow(bp, sketch);
-    if (!map.screens.some((s) => s.id === screen)) throw new Error(`"${screen}" is not an approved screen of this sketch. Approve it first, then make it the start.`);
+    const now = mapNow(bp, sketch);
+    if (!now.map.screens.some((s) => s.id === screen)) throw new Error(`${notInPrototype(now.sketch, screen)} Draw it first, then make it the start.`);
     const before = readPrototypeFile(bp, sketch);
     write(bp, sketch, before, { ...before, start: screen }, who);
     return saved(bp, sketch);
@@ -199,21 +208,21 @@ export function setPrototypeStart(bp: BoardPaths, sketch: string, screen: string
 }
 
 /**
- * "Generate the prototype" (US-54): the new links replace every link of the screens in the prototype now, all at once,
- * under the stamp the run read; an old stamp writes nothing ("Changed elsewhere, reload"). Every link is checked before
- * anything is written. The links of a screen that is reopened now are kept, so they come back when it is approved again.
- * The start screen stays as it was.
+ * "Generate the prototype" (US-54, US-58): the new links replace every link of the screens in the prototype now, all at
+ * once, under the stamp the run read; an old stamp writes nothing ("Changed elsewhere, reload"). Every link is checked
+ * before anything is written. The links of a screen out of the prototype now (its drawing deleted) are kept, so they come
+ * back with a drawing. The start screen stays as it was.
  */
 export function replacePrototypeLinks(bp: BoardPaths, sketch: string, links: PrototypeLink[], stamp: string, who: EditBy = {}): PrototypeSaved {
   checkedStudioId(sketch);
   return changeStudioItem(bp, { kind: 'sketch', id: sketch }, stamp, () => {
-    const map = mapNow(bp, sketch);
+    const { sketch: s, map } = mapNow(bp, sketch);
     const keys = new Set<string>();
     const next: PrototypeLink[] = [];
     for (const l of links) {
       const button = buttonName(l.button);
       if (!button) throw new Error('A link has no button.');
-      const link = checkLink(map, { screen: checkedStudioId(l.screen), button, to: 'back' in l.to ? { back: true } : { screen: checkedStudioId(l.to.screen) } });
+      const link = checkLink(s, map, { screen: checkedStudioId(l.screen), button, to: 'back' in l.to ? { back: true } : { screen: checkedStudioId(l.to.screen) } });
       const key = buttonKey(link.screen, link.button);
       if (keys.has(key)) throw new Error(`The button "${link.button}" on one screen has two links.`);
       keys.add(key);

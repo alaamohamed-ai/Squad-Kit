@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The prototype shows every option.** Every screen with a drawing is in the prototype now, approved or not, with all
+  its options, so a flow can be tried before anything is approved. Tabs for the whole flow, in the map and in Play,
+  show "In use" (each screen at its drawing in use), then "Option A", "Option B", "Option C": each holds only the
+  screens that have that option, at it. A link belongs to the screen and the button's name, so it works on every
+  option that has the button, and shows as broken on a tab where the button or the screen it leads to is missing.
+  "Generate the prototype" links the buttons of every option. The map lists each screen's options; Play shows the tabs on every
+  screen, and a tab picked in Play changes nothing in the sketch. There is no approval mark. The prototype's top is one
+  row: "3 screens", the tabs, "Generate the prototype", Play and Desktop | Mobile.
 - **Watch the AI Designer work.** While it draws, the chat lists its steps with the time so far ("Read your message",
   "Planned 2 variants", "Drawing variant B: Form", "Saving"), in the language of the message, and folds them into one
   line under the reply ("6 steps, 2 min"). Each variant gets its frame on the page at once, marked Waiting or Drawing,

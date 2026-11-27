@@ -13,7 +13,8 @@ import { AI_DESIGNER, type EditMark, type ScreenFile, type ScreenStatus, type Sk
  * "الحجز" is a long right-to-left form. For US-53, "Follow-up visit" has eight screens, one with a long name and
  * "Confirm" approved, so its row of screen tabs scrolls. For US-54 (the prototype), Booking's approved Home and Confirm
  * are linked, Confirm with an icon-only back button and one broken link, and "الحجز" has two approved Arabic screens
- * linked right to left. The files are the ones the Studio store writes, with times in the past, so the sample board
+ * linked right to left. For US-58, Booking's Form joins the prototype with its Options A, B and C, linked to Confirm
+ * by "Book visit" (on A and C) and "Next" (on B). The files are the ones the Studio store writes, with times in the past, so the sample board
  * looks lived in.
  */
 
@@ -247,7 +248,10 @@ export function seedDemoStudio(bp: BoardPaths, opts: DemoStudioOptions = {}): vo
     { id: 'confirm', name: 'Confirm', status: 'approved', edited: mark(40, 'Sara'), drawings: [{ minutes: 60 * 2, by: AI_DESIGNER, for: 'Sara', frames: both(confirmVisit) }] },
   ], {
     links: [
-      { screen: 'home', button: 'Book a follow-up', to: 'confirm' },
+      { screen: 'home', button: 'Book a follow-up', to: 'form' },
+      // US-58: Form is not approved and is drawn as Options A, B and C; "Book visit" is on A and C, "Next" on B.
+      { screen: 'form', button: 'Book visit', to: 'confirm' },
+      { screen: 'form', button: 'Next', to: 'confirm' },
       { screen: 'confirm', button: 'Back', back: true },
       { screen: 'confirm', button: 'Change the day', to: 'home' },
     ],
